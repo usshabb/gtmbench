@@ -14,6 +14,8 @@ interface LeadRecord {
   enrichmentStatus: "pending" | "completed" | "failed";
   enrichmentData?: Record<string, unknown>;
   enrichmentError?: string;
+  atsDetected?: boolean;
+  atsName?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -57,9 +59,13 @@ function getApiBaseUrl(): string {
 function CompanyRow({
   lead,
   onRemove,
+  onATSClick,
+  atsInfo,
 }: {
   lead: LeadRecord;
   onRemove: (id: string) => void;
+  onATSClick: (id: string) => void;
+  atsInfo?: { detectionStatus?: string; atsName?: string };
 }) {
   const data = getFiberData(lead);
   const name = data?.preferred_name ?? lead.domain;
@@ -69,6 +75,7 @@ function CompanyRow({
   const employees = data?.employee_count_consensus?.gte as number | undefined;
   const totalFunding = data?.total_funding_consensus as number | undefined;
   const status = lead.enrichmentStatus;
+  const hasATS = atsInfo?.detectionStatus === "completed" && atsInfo?.atsName;
 
   return (
     <li>
@@ -125,6 +132,31 @@ function CompanyRow({
         {status}
       </span>
 
+      {/* ATS Detection Badge/Button */}
+      {hasATS ? (
+        <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 flex items-center gap-1">
+          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
+          {atsInfo?.atsName}
+        </span>
+      ) : (
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (lead._id) onATSClick(lead._id);
+          }}
+          className="shrink-0 rounded-full border border-zinc-200 px-2 py-0.5 text-[11px] font-medium text-zinc-500 hover:bg-zinc-50 transition-colors flex items-center gap-1"
+          title="Detect ATS"
+        >
+          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+          </svg>
+          Detect ATS
+        </button>
+      )}
+
       {/* Remove button */}
       <button
         onClick={(e) => {
@@ -157,6 +189,7 @@ export default function DashboardPage() {
   const [message, setMessage] = useState("");
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [leads, setLeads] = useState<LeadRecord[]>([]);
+  const [atsData, setATSData] = useState<Record<string, { detectionStatus?: string; atsName?: string }>>({});
 
   useEffect(() => {
     const storedToken = window.localStorage.getItem(localStorageTokenKey);
@@ -176,7 +209,24 @@ export default function DashboardPage() {
       .then(async (response) => {
         const result = (await response.json()) as { leads?: LeadRecord[]; error?: string };
         if (!response.ok) throw new Error(result.error ?? "Could not load leads");
-        setLeads(result.leads ?? []);
+        const loadedLeads = result.leads ?? [];
+        setLeads(loadedLeads);
+
+        // Load ATS data for each lead
+        loadedLeads.forEach((lead) => {
+          if (lead._id) {
+            void fetch(`${apiBaseUrl}/leads/${lead._id}/ats`, {
+              headers: { Authorization: `Bearer ${authToken}` },
+            })
+              .then(async (res) => {
+                const data = (await res.json()) as { ats?: { detectionStatus?: string; atsName?: string } | null };
+                if (data.ats && lead._id) {
+                  setATSData((prev) => ({ ...prev, [lead._id!]: data.ats! }));
+                }
+              })
+              .catch(() => {});
+          }
+        });
       })
       .catch((error: unknown) => {
         const errorMessage =
@@ -209,6 +259,30 @@ export default function DashboardPage() {
       setLeads((prev) => prev.filter((l) => l._id !== id));
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Could not remove lead");
+    }
+  }
+
+  async function handleDetectATS(id: string) {
+    try {
+      setATSData((prev) => ({ ...prev, [id]: { detectionStatus: "pending" } }));
+      const res = await fetch(`${apiBaseUrl}/leads/${id}/detect-ats`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        throw new Error(data.error ?? "Could not detect ATS");
+      }
+      const result = (await res.json()) as { ats?: { detectionStatus?: string; atsName?: string } };
+      if (result.ats) {
+        setATSData((prev) => ({ ...prev, [id]: result.ats! }));
+      }
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Could not detect ATS");
+      setATSData((prev) => ({ ...prev, [id]: { detectionStatus: "failed" } }));
     }
   }
 
@@ -245,6 +319,8 @@ export default function DashboardPage() {
                 key={lead._id ?? lead.domain}
                 lead={lead}
                 onRemove={handleRemoveLead}
+                onATSClick={handleDetectATS}
+                atsInfo={lead._id ? atsData[lead._id] : undefined}
               />
             ))}
             {leads.length === 0 && (

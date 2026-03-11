@@ -2,11 +2,12 @@ import cors from "cors";
 import express from "express";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
-import { getBuyerProfilesCollection, getLeadsCollection, getPersonsCollection, getSignalsCollection, getSkillJobsCollection, getSkillsCollection } from "./db.js";
+import { getBuyerProfilesCollection, getBuyerSearchResultsCollection, getCompanyATSCollection, getJobsCollection, getLeadsCollection, getPersonsCollection, getSignalsCollection, getSkillJobsCollection, getSkillsCollection } from "./db.js";
 import { env } from "./env.js";
 import { getEmailFromToken, requestOtp, verifyOtp } from "./auth.js";
 import { enrichDomainWithFiber, enrichPersonWithFiber, searchBuyersWithFiber } from "./fiber.js";
 import { startSkillsWorker, scheduleSkillsCron, triggerSkillsProcessing } from "./skills-worker.js";
+import { detectCompanyATS } from "./firecrawl.js";
 
 const app = express();
 
@@ -599,6 +600,44 @@ const findBuyersSchema = z.object({
   cursor: z.string().nullable().optional(),
 });
 
+// GET cached buyer search results for a lead + profile
+app.get("/leads/:id/buyers", async (request, response) => {
+  const buyerProfileId = request.query.buyerProfileId as string;
+  if (!buyerProfileId) {
+    response.status(400).json({ error: "Please provide a buyerProfileId query param" });
+    return;
+  }
+
+  const userEmail = response.locals.userEmail as string;
+
+  let leadObjectId: ObjectId;
+  let profileObjectId: ObjectId;
+  try {
+    leadObjectId = new ObjectId(request.params.id);
+    profileObjectId = new ObjectId(buyerProfileId);
+  } catch {
+    response.status(400).json({ error: "Invalid ID" });
+    return;
+  }
+
+  const cache = await getBuyerSearchResultsCollection();
+  const existing = await cache.findOne({ leadId: leadObjectId, buyerProfileId: profileObjectId, userEmail });
+
+  if (!existing) {
+    response.json({ result: null });
+    return;
+  }
+
+  response.json({
+    result: {
+      buyers: existing.buyers,
+      fetchedAt: existing.fetchedAt,
+      nextCursor: existing.nextCursor,
+    },
+  });
+});
+
+// POST to search Fiber and persist results
 app.post("/leads/:id/find-buyers", async (request, response) => {
   const parsed = findBuyersSchema.safeParse(request.body);
   if (!parsed.success) {
@@ -636,15 +675,211 @@ app.post("/leads/:id/find-buyers", async (request, response) => {
     return;
   }
 
+  const cursor = parsed.data.cursor ?? null;
+
   // Search Fiber
-  const result = await searchBuyersWithFiber(lead.domain, buyerProfile.titles, parsed.data.cursor ?? null);
+  const result = await searchBuyersWithFiber(lead.domain, buyerProfile.titles, cursor);
 
   if (!result.success) {
     response.status(502).json({ error: result.error ?? "Fiber search failed" });
     return;
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const payload = result.payload as any;
+  const newBuyers = (payload?.output?.data ?? []) as Record<string, unknown>[];
+  const nextCursor = (payload?.output?.nextCursor as string | null) ?? null;
+
+  const leadObjectId = lead._id!;
+  const buyerProfileObjectId = buyerProfile._id!;
+  const cache = await getBuyerSearchResultsCollection();
+
+  if (cursor) {
+    // Load more — append to existing cache
+    await cache.updateOne(
+      { leadId: leadObjectId, buyerProfileId: buyerProfileObjectId, userEmail },
+      { $push: { buyers: { $each: newBuyers } }, $set: { nextCursor } },
+    );
+  } else {
+    // Fresh search — replace cache
+    await cache.updateOne(
+      { leadId: leadObjectId, buyerProfileId: buyerProfileObjectId, userEmail },
+      {
+        $set: {
+          leadId: leadObjectId,
+          buyerProfileId: buyerProfileObjectId,
+          userEmail,
+          buyers: newBuyers,
+          fetchedAt: new Date().toISOString(),
+          nextCursor,
+        },
+      },
+      { upsert: true },
+    );
+  }
+
   response.json({ result: result.payload });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Company ATS Detection endpoints                                    */
+/* ------------------------------------------------------------------ */
+
+// GET ATS information for a lead
+app.get("/leads/:id/ats", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const leadsCollection = await getLeadsCollection();
+
+  let lead;
+  try {
+    lead = await leadsCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+  } catch {
+    response.status(400).json({ error: "Invalid lead ID" });
+    return;
+  }
+
+  if (!lead) {
+    response.status(404).json({ error: "Lead not found" });
+    return;
+  }
+
+  const atsCollection = await getCompanyATSCollection();
+  const atsRecord = await atsCollection.findOne({ leadId: lead._id! });
+
+  response.json({ ats: atsRecord ?? null });
+});
+
+// POST to detect ATS for a lead
+app.post("/leads/:id/detect-ats", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const leadsCollection = await getLeadsCollection();
+
+  let lead;
+  try {
+    lead = await leadsCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+  } catch {
+    response.status(400).json({ error: "Invalid lead ID" });
+    return;
+  }
+
+  if (!lead) {
+    response.status(404).json({ error: "Lead not found" });
+    return;
+  }
+
+  const atsCollection = await getCompanyATSCollection();
+  const leadId = lead._id!;
+
+  // Check if detection already exists
+  const existing = await atsCollection.findOne({ leadId });
+  if (existing) {
+    response.json({ ats: existing, message: "ATS already detected" });
+    return;
+  }
+
+  // Create pending record
+  const createdAt = new Date().toISOString();
+  await atsCollection.insertOne({
+    leadId,
+    domain: lead.domain,
+    detectedAt: createdAt,
+    detectionStatus: "pending",
+  });
+
+  // Detect ATS
+  const detection = await detectCompanyATS(lead.domain);
+
+  if (detection.success && detection.data) {
+    await atsCollection.updateOne(
+      { leadId },
+      {
+        $set: {
+          atsName: detection.data.atsName ?? null,
+          atsUrlSlug: detection.data.atsSlug ?? null,
+          careerPageUrl: detection.data.careerPageURL ?? null,
+          detectionStatus: "completed",
+          rawData: detection.rawData,
+        },
+      },
+    );
+  } else {
+    await atsCollection.updateOne(
+      { leadId },
+      {
+        $set: {
+          detectionStatus: "failed",
+          detectionError: detection.error ?? "ATS detection failed",
+          rawData: detection.rawData,
+        },
+      },
+    );
+  }
+
+  const updated = await atsCollection.findOne({ leadId });
+
+  // If ATS was successfully detected with a careerPageUrl, create an ATSJobs skill job
+  // for any active ats_jobs skill this user has
+  if (detection.success && detection.data?.careerPageURL) {
+    try {
+      const skillsCol = await getSkillsCollection();
+      const atsJobsSkill = await skillsCol.findOne({ userEmail, skillType: "ats_jobs", status: "active" });
+
+      if (atsJobsSkill) {
+        const skillJobsCol = await getSkillJobsCollection();
+        const now2 = new Date().toISOString();
+        try {
+          await skillJobsCol.insertOne({
+            skillId: atsJobsSkill._id!,
+            userEmail,
+            jobType: "ATSJobs",
+            leadId,
+            atsUrl: detection.data.careerPageURL,
+            domain: lead.domain,
+            status: "pending",
+            createdAt: now2,
+          });
+        } catch {
+          // Already exists — ignore
+        }
+      }
+    } catch {
+      // Non-critical — don't fail the request
+    }
+  }
+
+  response.json({ ats: updated });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Jobs endpoints                                                       */
+/* ------------------------------------------------------------------ */
+
+// GET all jobs for a lead
+app.get("/leads/:id/jobs", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const leadsCollection = await getLeadsCollection();
+
+  let lead;
+  try {
+    lead = await leadsCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+  } catch {
+    response.status(400).json({ error: "Invalid lead ID" });
+    return;
+  }
+
+  if (!lead) {
+    response.status(404).json({ error: "Lead not found" });
+    return;
+  }
+
+  const jobsCol = await getJobsCollection();
+  const jobs = await jobsCol
+    .find({ leadId: lead._id! })
+    .sort({ fetchedAt: -1 })
+    .limit(200)
+    .toArray();
+
+  response.json({ jobs });
 });
 
 /* ------------------------------------------------------------------ */
@@ -652,7 +887,7 @@ app.post("/leads/:id/find-buyers", async (request, response) => {
 /* ------------------------------------------------------------------ */
 
 const createSkillSchema = z.object({
-  skillType: z.enum(["linkedin_content"]),
+  skillType: z.enum(["linkedin_content", "ats_jobs"]),
   keyword: z.string().nullable().optional(),
 });
 
@@ -696,28 +931,59 @@ app.post("/skills", async (request, response) => {
   });
 
   const skillId = insertResult.insertedId;
-
-  // Create SkillJob entries for all persons this user tracks
-  const personsCol = await getPersonsCollection();
-  const persons = await personsCol.find({ userEmails: userEmail }).toArray();
   const skillJobsCol = await getSkillJobsCollection();
+  let jobsCreated = 0;
 
-  if (persons.length > 0) {
-    const jobDocs = persons.map((person) => ({
-      skillId,
-      userEmail,
-      jobType: "LinkedinPost" as const,
-      personId: person._id!,
-      linkedinUrl: person.linkedinUrl,
-      status: "pending" as const,
-      createdAt: now,
-    }));
+  if (parsed.data.skillType === "linkedin_content") {
+    // Create SkillJob entries for all persons this user tracks
+    const personsCol = await getPersonsCollection();
+    const persons = await personsCol.find({ userEmails: userEmail }).toArray();
 
-    await skillJobsCol.insertMany(jobDocs);
+    if (persons.length > 0) {
+      const jobDocs = persons.map((person) => ({
+        skillId,
+        userEmail,
+        jobType: "LinkedinPost" as const,
+        personId: person._id!,
+        linkedinUrl: person.linkedinUrl,
+        status: "pending" as const,
+        createdAt: now,
+      }));
+      await skillJobsCol.insertMany(jobDocs);
+      jobsCreated = persons.length;
+    }
+  } else if (parsed.data.skillType === "ats_jobs") {
+    // Create SkillJob entries for all leads with ATS detected and careerPageUrl set
+    const leadsCol = await getLeadsCollection();
+    const atsCol = await getCompanyATSCollection();
+
+    const userLeads = await leadsCol.find({ userEmails: userEmail }).toArray();
+    const leadIds = userLeads.map((l) => l._id!);
+
+    if (leadIds.length > 0) {
+      const atsRecords = await atsCol
+        .find({ leadId: { $in: leadIds }, detectionStatus: "completed", careerPageUrl: { $ne: null } })
+        .toArray();
+
+      if (atsRecords.length > 0) {
+        const jobDocs = atsRecords.map((ats) => ({
+          skillId,
+          userEmail,
+          jobType: "ATSJobs" as const,
+          leadId: ats.leadId,
+          atsUrl: ats.careerPageUrl!,
+          domain: ats.domain,
+          status: "pending" as const,
+          createdAt: now,
+        }));
+        await skillJobsCol.insertMany(jobDocs, { ordered: false });
+        jobsCreated = atsRecords.length;
+      }
+    }
   }
 
   const skill = await skillsCol.findOne({ _id: skillId });
-  response.status(201).json({ skill, jobsCreated: persons.length });
+  response.status(201).json({ skill, jobsCreated });
 });
 
 app.put("/skills/:id", async (request, response) => {

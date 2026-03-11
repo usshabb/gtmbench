@@ -1,6 +1,6 @@
 import { Collection, MongoClient } from "mongodb";
 import { env } from "./env.js";
-import { BuyerProfileRecord, LeadRecord, LinkedinContentForPersonRecord, PersonRecord, SignalRecord, SkillJobRecord, SkillRecord } from "./types.js";
+import { BuyerProfileRecord, BuyerSearchResultRecord, CompanyATSRecord, JobRecord, LeadRecord, LinkedinContentForPersonRecord, PersonRecord, SignalRecord, SkillJobRecord, SkillRecord } from "./types.js";
 
 const mongoClient = new MongoClient(env.MONGODB_URL);
 
@@ -11,6 +11,9 @@ let skillsCollection: Collection<SkillRecord> | null = null;
 let skillJobsCollection: Collection<SkillJobRecord> | null = null;
 let signalsCollection: Collection<SignalRecord> | null = null;
 let linkedinContentForPersonCollection: Collection<LinkedinContentForPersonRecord> | null = null;
+let buyerSearchResultsCollection: Collection<BuyerSearchResultRecord> | null = null;
+let companyATSCollection: Collection<CompanyATSRecord> | null = null;
+let jobsCollection: Collection<JobRecord> | null = null;
 
 export async function getLeadsCollection(): Promise<Collection<LeadRecord>> {
   if (leadsCollection) return leadsCollection;
@@ -90,7 +93,15 @@ export async function getSkillJobsCollection(): Promise<Collection<SkillJobRecor
   await skillJobsCollection.createIndex({ skillId: 1 });
   await skillJobsCollection.createIndex({ userEmail: 1 });
   await skillJobsCollection.createIndex({ status: 1 });
-  await skillJobsCollection.createIndex({ personId: 1, skillId: 1 }, { unique: true });
+
+  // Drop old non-sparse personId index and recreate as sparse (so ATSJobs docs without personId don't clash)
+  try {
+    await skillJobsCollection.dropIndex("personId_1_skillId_1");
+  } catch {
+    // Index may not exist
+  }
+  await skillJobsCollection.createIndex({ personId: 1, skillId: 1 }, { unique: true, sparse: true });
+  await skillJobsCollection.createIndex({ leadId: 1, skillId: 1 }, { unique: true, sparse: true });
 
   return skillJobsCollection;
 }
@@ -119,7 +130,61 @@ export async function getSignalsCollection(): Promise<Collection<SignalRecord>> 
   signalsCollection = database.collection<SignalRecord>("signals");
 
   await signalsCollection.createIndex({ userEmail: 1, createdAt: -1 });
-  await signalsCollection.createIndex({ "data.postId": 1, userEmail: 1 }, { unique: true });
+
+  // Drop old non-sparse postId index and recreate as sparse (so ATS job signals without postId don't clash)
+  try {
+    await signalsCollection.dropIndex("data.postId_1_userEmail_1");
+  } catch {
+    // Index may not exist
+  }
+  await signalsCollection.createIndex({ "data.postId": 1, userEmail: 1 }, { unique: true, sparse: true });
+  // Dedup for ATS job signals by jobUrl + lead + user
+  await signalsCollection.createIndex({ leadId: 1, "data.jobUrl": 1, userEmail: 1 }, { unique: true, sparse: true });
 
   return signalsCollection;
+}
+
+export async function getBuyerSearchResultsCollection(): Promise<Collection<BuyerSearchResultRecord>> {
+  if (buyerSearchResultsCollection) return buyerSearchResultsCollection;
+
+  await mongoClient.connect();
+  const database = mongoClient.db(env.MONGODB_DB_NAME);
+
+  buyerSearchResultsCollection = database.collection<BuyerSearchResultRecord>("buyerSearchResults");
+
+  await buyerSearchResultsCollection.createIndex({ leadId: 1, buyerProfileId: 1 }, { unique: true });
+  await buyerSearchResultsCollection.createIndex({ userEmail: 1 });
+
+  return buyerSearchResultsCollection;
+}
+
+export async function getCompanyATSCollection(): Promise<Collection<CompanyATSRecord>> {
+  if (companyATSCollection) return companyATSCollection;
+
+  await mongoClient.connect();
+  const database = mongoClient.db(env.MONGODB_DB_NAME);
+
+  companyATSCollection = database.collection<CompanyATSRecord>("companyATS");
+
+  await companyATSCollection.createIndex({ leadId: 1 }, { unique: true });
+  await companyATSCollection.createIndex({ domain: 1 });
+
+  return companyATSCollection;
+}
+
+export async function getJobsCollection(): Promise<Collection<JobRecord>> {
+  if (jobsCollection) return jobsCollection;
+
+  await mongoClient.connect();
+  const database = mongoClient.db(env.MONGODB_DB_NAME);
+
+  jobsCollection = database.collection<JobRecord>("jobs");
+
+  await jobsCollection.createIndex({ leadId: 1 });
+  await jobsCollection.createIndex({ domain: 1 });
+  await jobsCollection.createIndex({ fetchedAt: -1 });
+  // Dedup by jobUrl per lead (sparse so null jobUrls don't collide)
+  await jobsCollection.createIndex({ leadId: 1, jobUrl: 1 }, { unique: true, sparse: true });
+
+  return jobsCollection;
 }

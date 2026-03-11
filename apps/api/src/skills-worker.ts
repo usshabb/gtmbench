@@ -1,9 +1,10 @@
 import { Queue, Worker } from "bullmq";
 import { ObjectId } from "mongodb";
 import { env } from "./env.js";
-import { getLinkedinContentForPersonCollection, getSignalsCollection, getSkillJobsCollection, getSkillsCollection } from "./db.js";
+import { getJobsCollection, getLinkedinContentForPersonCollection, getSignalsCollection, getSkillJobsCollection, getSkillsCollection } from "./db.js";
 import { fetchLinkedinPosts } from "./linkedin.js";
-import type { LinkedinPostData } from "./types.js";
+import { fetchATSJobs } from "./parallel.js";
+import type { JobData, LinkedinPostData } from "./types.js";
 
 const QUEUE_NAME = "skill-jobs";
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
@@ -44,6 +45,7 @@ export function getSkillJobQueue(): Queue {
 }
 
 interface LinkedinPostJobData {
+  type: "LinkedinPost";
   skillJobId: string;
   skillId: string;
   userEmail: string;
@@ -52,6 +54,18 @@ interface LinkedinPostJobData {
   keyword: string | null;
   personName: string;
 }
+
+interface ATSJobsJobData {
+  type: "ATSJobs";
+  skillJobId: string;
+  skillId: string;
+  userEmail: string;
+  leadId: string;
+  atsUrl: string;
+  domain: string;
+}
+
+type SkillJobData = LinkedinPostJobData | ATSJobsJobData;
 
 /**
  * Enqueue all pending SkillJobs for processing.
@@ -80,13 +94,30 @@ export async function enqueueAllPendingJobs(): Promise<number> {
   const bulkJobs = pendingJobs
     .filter((job) => activeSkillIds.has(job.skillId.toHexString()))
     .map((job) => {
+      if (job.jobType === "ATSJobs") {
+        const jobData: ATSJobsJobData = {
+          type: "ATSJobs",
+          skillJobId: job._id!.toHexString(),
+          skillId: job.skillId.toHexString(),
+          userEmail: job.userEmail,
+          leadId: job.leadId!.toHexString(),
+          atsUrl: job.atsUrl!,
+          domain: job.domain!,
+        };
+        return {
+          name: "ats-jobs",
+          data: jobData,
+          opts: { jobId: `ats-${job._id!.toHexString()}-${Date.now()}` },
+        };
+      }
       const skill = skillConfigMap.get(job.skillId.toHexString());
       const jobData: LinkedinPostJobData = {
+        type: "LinkedinPost",
         skillJobId: job._id!.toHexString(),
         skillId: job.skillId.toHexString(),
         userEmail: job.userEmail,
-        personId: job.personId.toHexString(),
-        linkedinUrl: job.linkedinUrl,
+        personId: job.personId!.toHexString(),
+        linkedinUrl: job.linkedinUrl!,
         keyword: skill?.config?.keyword ?? null,
         personName: "", // Will be resolved from the linkedinUrl slug
       };
@@ -217,6 +248,126 @@ async function processLinkedinPostJob(jobData: LinkedinPostJobData): Promise<voi
   }
 }
 
+/**
+ * Process a single ATS jobs fetch job:
+ * 1. Call Parallel API to get current job listings for the company's ATS URL
+ * 2. Store new jobs in the jobs collection
+ * 3. Create signals for jobs posted in the last 24 hours
+ */
+async function processATSJobsJob(jobData: ATSJobsJobData): Promise<void> {
+  const skillJobsCol = await getSkillJobsCollection();
+  const jobsCol = await getJobsCollection();
+  const signalsCol = await getSignalsCollection();
+  const skillJobId = new ObjectId(jobData.skillJobId);
+
+  await skillJobsCol.updateOne({ _id: skillJobId }, { $set: { status: "processing" } });
+
+  try {
+    const result = await fetchATSJobs(jobData.atsUrl);
+
+    if (!result.success) {
+      await skillJobsCol.updateOne(
+        { _id: skillJobId },
+        { $set: { status: "failed", error: result.error, lastProcessedAt: new Date().toISOString() } },
+      );
+      throw new Error(result.error ?? "Failed to fetch ATS jobs");
+    }
+
+    const fetchedAt = new Date().toISOString();
+    const leadObjectId = new ObjectId(jobData.leadId);
+    let newJobsCount = 0;
+    let signalsCreated = 0;
+
+    for (const job of result.jobs) {
+      const jobUrl = (job.url as string | null | undefined) ?? null;
+      const postedAt = (job.postedAt as string | null | undefined) ?? null;
+
+      const jobDoc = {
+        leadId: leadObjectId,
+        domain: jobData.domain,
+        title: job.title ?? "Untitled",
+        jobUrl,
+        location: (job.location as string | null | undefined) ?? null,
+        department: (job.department as string | null | undefined) ?? null,
+        postedAt,
+        fetchedAt,
+        rawData: job as Record<string, unknown>,
+      };
+
+      // Try to insert — skip if already exists (dedup by leadId + jobUrl)
+      let isNew = false;
+      try {
+        await jobsCol.insertOne(jobDoc);
+        isNew = true;
+        newJobsCount++;
+      } catch (err: unknown) {
+        if (err instanceof Error && "code" in err && (err as Record<string, unknown>).code === 11000) {
+          // Already stored — skip
+          continue;
+        }
+        throw err;
+      }
+
+      // Create signal if this is a new job posted in the last 24 hours
+      if (isNew) {
+        const isRecent = postedAt
+          ? Date.now() - new Date(postedAt).getTime() < TWENTY_FOUR_HOURS_MS
+          : false;
+
+        if (isRecent) {
+          const jobData2: JobData = {
+            title: jobDoc.title,
+            jobUrl,
+            location: jobDoc.location,
+            department: jobDoc.department,
+            postedAt,
+            companyDomain: jobData.domain,
+          };
+
+          try {
+            await signalsCol.insertOne({
+              userEmail: jobData.userEmail,
+              skillId: new ObjectId(jobData.skillId),
+              signalType: "ats_new_job",
+              leadId: leadObjectId,
+              companyDomain: jobData.domain,
+              data: jobData2,
+              createdAt: fetchedAt,
+            });
+            signalsCreated++;
+          } catch (err: unknown) {
+            if (err instanceof Error && "code" in err && (err as Record<string, unknown>).code === 11000) {
+              continue;
+            }
+            throw err;
+          }
+        }
+      }
+    }
+
+    await skillJobsCol.updateOne(
+      { _id: skillJobId },
+      { $set: { status: "completed", lastProcessedAt: fetchedAt, error: undefined } },
+    );
+
+    console.log(
+      `[skills-worker] ATS jobs for ${jobData.domain}: ${result.jobs.length} total, ${newJobsCount} new, ${signalsCreated} signals`,
+    );
+  } catch (error) {
+    await skillJobsCol.updateOne(
+      { _id: skillJobId },
+      {
+        $set: {
+          status: "failed",
+          error: error instanceof Error ? error.message : "Unknown error",
+          lastProcessedAt: new Date().toISOString(),
+        },
+      },
+    );
+    throw error;
+  }
+}
+
 function filterByKeyword(posts: LinkedinPostData[], keyword: string | null): LinkedinPostData[] {
   if (!keyword) return posts;
   const lowerKeyword = keyword.toLowerCase();
@@ -231,10 +382,14 @@ function filterByKeyword(posts: LinkedinPostData[], keyword: string | null): Lin
  * Call once at server startup.
  */
 export function startSkillsWorker(): void {
-  const worker = new Worker<LinkedinPostJobData>(
+  const worker = new Worker<SkillJobData>(
     QUEUE_NAME,
     async (job) => {
-      await processLinkedinPostJob(job.data);
+      if (job.data.type === "ATSJobs") {
+        await processATSJobsJob(job.data);
+      } else {
+        await processLinkedinPostJob(job.data);
+      }
     },
     {
       connection: getRedisOpts(),

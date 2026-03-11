@@ -21,6 +21,16 @@ export interface BuyerProfileRecord {
   updatedAt: string;
 }
 
+export interface BuyerSearchResultRecord {
+  _id?: ObjectId;
+  leadId: ObjectId;
+  buyerProfileId: ObjectId;
+  userEmail: string;
+  buyers: Record<string, unknown>[];
+  fetchedAt: string;
+  nextCursor: string | null;
+}
+
 export interface PersonRecord {
   _id?: ObjectId;
   userEmails: string[];
@@ -37,7 +47,7 @@ export interface PersonRecord {
 /*  Skills & Signals                                                    */
 /* ------------------------------------------------------------------ */
 
-export type SkillType = "linkedin_content";
+export type SkillType = "linkedin_content" | "ats_jobs";
 
 export interface SkillRecord {
   _id?: ObjectId;
@@ -57,9 +67,14 @@ export interface SkillJobRecord {
   _id?: ObjectId;
   skillId: ObjectId;
   userEmail: string;
-  jobType: "LinkedinPost";
-  personId: ObjectId;
-  linkedinUrl: string;
+  jobType: "LinkedinPost" | "ATSJobs";
+  // LinkedinPost fields
+  personId?: ObjectId;
+  linkedinUrl?: string;
+  // ATSJobs fields
+  leadId?: ObjectId;
+  atsUrl?: string;
+  domain?: string;
   status: SkillJobStatus;
   lastProcessedAt?: string;
   error?: string;
@@ -106,15 +121,58 @@ export interface LinkedinContentForPersonRecord {
   fetchedAt: string;
 }
 
+export interface JobRecord {
+  _id?: ObjectId;
+  leadId: ObjectId;
+  domain: string;
+  title: string;
+  jobUrl?: string | null;
+  location?: string | null;
+  department?: string | null;
+  postedAt?: string | null;
+  fetchedAt: string;
+  rawData?: Record<string, unknown>;
+}
+
+export interface JobData {
+  title: string;
+  jobUrl?: string | null;
+  location?: string | null;
+  department?: string | null;
+  postedAt?: string | null;
+  companyDomain: string;
+}
+
 export interface SignalRecord {
   _id?: ObjectId;
   userEmail: string;
   skillId: ObjectId;
-  signalType: "linkedin_post";
-  personId: ObjectId;
-  personName: string;
-  personLinkedinUrl: string;
-  data: LinkedinPostData;
+  signalType: "linkedin_post" | "ats_new_job";
+  // linkedin_post fields
+  personId?: ObjectId;
+  personName?: string;
+  personLinkedinUrl?: string;
+  // ats_new_job fields
+  leadId?: ObjectId;
+  companyDomain?: string;
+  data: LinkedinPostData | JobData;
   matchedKeyword?: string | null;
   createdAt: string;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Company ATS                                                         */
+/* ------------------------------------------------------------------ */
+
+export interface CompanyATSRecord {
+  _id?: ObjectId;
+  leadId: ObjectId;
+  domain: string;
+  atsName?: string | null;
+  atsUrlSlug?: string | null;
+  careerPageUrl?: string | null;
+  detectedAt: string;
+  detectionStatus: "pending" | "completed" | "failed";
+  detectionError?: string;
+  rawData?: Record<string, unknown>;
 }

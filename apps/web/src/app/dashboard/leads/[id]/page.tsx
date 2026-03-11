@@ -16,6 +16,14 @@ interface LeadRecord {
   enrichmentError?: string;
 }
 
+interface ATSRecord {
+  atsName?: string | null;
+  atsUrlSlug?: string | null;
+  careerPageUrl?: string | null;
+  detectionStatus: "pending" | "completed" | "failed";
+  detectionError?: string;
+}
+
 interface PersonRecord {
   _id?: string;
   linkedinUrl: string;
@@ -105,6 +113,7 @@ function BuyersTab({
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState("");
   const [hasSearched, setHasSearched] = useState(false);
+  const [fetchedAt, setFetchedAt] = useState<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [addingSlug, setAddingSlug] = useState<string | null>(null);
@@ -127,6 +136,32 @@ function BuyersTab({
       .catch(() => {})
       .finally(() => setIsLoadingProfiles(false));
   }, [apiBaseUrl, authToken]);
+
+  // Load cached buyers when profile selection changes
+  useEffect(() => {
+    if (!selectedProfileId) return;
+    setBuyers([]);
+    setHasSearched(false);
+    setFetchedAt(null);
+    setNextCursor(null);
+    setSearchError("");
+
+    void fetch(`${apiBaseUrl}/leads/${leadId}/buyers?buyerProfileId=${selectedProfileId}`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(async (res) => {
+        const data = (await res.json()) as {
+          result?: { buyers?: FiberPerson[]; fetchedAt?: string; nextCursor?: string | null } | null;
+        };
+        if (data.result) {
+          setBuyers((data.result.buyers ?? []) as FiberPerson[]);
+          setFetchedAt(data.result.fetchedAt ?? null);
+          setNextCursor(data.result.nextCursor ?? null);
+          setHasSearched(true);
+        }
+      })
+      .catch(() => {});
+  }, [apiBaseUrl, authToken, leadId, selectedProfileId]);
 
   async function handleSearch(cursor: string | null = null) {
     if (!selectedProfileId) return;
@@ -161,6 +196,7 @@ function BuyersTab({
         setBuyers((prev) => [...prev, ...newBuyers]);
       } else {
         setBuyers(newBuyers);
+        setFetchedAt(new Date().toISOString());
       }
       setNextCursor(data.result?.output?.nextCursor ?? null);
       setHasSearched(true);
@@ -170,6 +206,16 @@ function BuyersTab({
       setIsSearching(false);
       setIsLoadingMore(false);
     }
+  }
+
+  function formatFetchedAt(iso: string): string {
+    const diff = Date.now() - new Date(iso).getTime();
+    const minutes = Math.floor(diff / 60_000);
+    if (minutes < 1) return "just now";
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.floor(hours / 24)}d ago`;
   }
 
   async function handleAddPerson(person: FiberPerson) {
@@ -250,7 +296,7 @@ function BuyersTab({
             ))}
           </select>
         </div>
-        <div className="pt-5">
+        <div className="flex flex-col items-end gap-1 pt-5">
           <button
             onClick={() => handleSearch()}
             disabled={isSearching || !selectedProfileId}
@@ -261,6 +307,13 @@ function BuyersTab({
                 <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
                 Searching...
               </>
+            ) : hasSearched ? (
+              <>
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
+                </svg>
+                Refresh
+              </>
             ) : (
               <>
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -270,6 +323,9 @@ function BuyersTab({
               </>
             )}
           </button>
+          {fetchedAt && !isSearching && (
+            <span className="text-[11px] text-zinc-400">Last fetched {formatFetchedAt(fetchedAt)}</span>
+          )}
         </div>
       </div>
 
@@ -407,6 +463,8 @@ export default function LeadDetailPage() {
   const [error, setError] = useState("");
   const [activeTab, setActiveTab] = useState<TabType>("overview");
   const [isRemoving, setIsRemoving] = useState(false);
+  const [atsData, setATSData] = useState<ATSRecord | null>(null);
+  const [isDetectingATS, setIsDetectingATS] = useState(false);
 
   async function handleRemove() {
     if (!authToken || !id) return;
@@ -439,8 +497,9 @@ export default function LeadDetailPage() {
     Promise.all([
       fetch(`${apiBaseUrl}/leads/${id}`, { headers: { Authorization: `Bearer ${authToken}` } }),
       fetch(`${apiBaseUrl}/leads/${id}/persons`, { headers: { Authorization: `Bearer ${authToken}` } }),
+      fetch(`${apiBaseUrl}/leads/${id}/ats`, { headers: { Authorization: `Bearer ${authToken}` } }),
     ])
-      .then(async ([leadRes, personsRes]) => {
+      .then(async ([leadRes, personsRes, atsRes]) => {
         if (!leadRes.ok) throw new Error("Lead not found");
         const leadData = (await leadRes.json()) as { lead: LeadRecord };
         setLead(leadData.lead);
@@ -449,12 +508,41 @@ export default function LeadDetailPage() {
           const personsData = (await personsRes.json()) as { persons: PersonRecord[] };
           setPersons(personsData.persons ?? []);
         }
+
+        if (atsRes.ok) {
+          const atsDataResponse = (await atsRes.json()) as { ats: ATSRecord | null };
+          setATSData(atsDataResponse.ats);
+        }
       })
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : "Could not load lead");
       })
       .finally(() => setIsLoading(false));
   }, [apiBaseUrl, authToken, id]);
+
+  async function handleDetectATS() {
+    if (!authToken || !id) return;
+    setIsDetectingATS(true);
+    try {
+      const res = await fetch(`${apiBaseUrl}/leads/${id}/detect-ats`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+      if (!res.ok) {
+        const data = (await res.json()) as { error?: string };
+        throw new Error(data.error ?? "Could not detect ATS");
+      }
+      const result = (await res.json()) as { ats: ATSRecord };
+      setATSData(result.ats);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not detect ATS");
+    } finally {
+      setIsDetectingATS(false);
+    }
+  }
 
   if (isLoading) {
     return (
@@ -595,6 +683,58 @@ export default function LeadDetailPage() {
                 </span>
               )}
             </div>
+          </div>
+        </div>
+
+        {/* ATS Detection Section */}
+        <div className="mt-6 rounded-xl border border-zinc-100 bg-white px-5 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <svg className="h-5 w-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              <h3 className="text-sm font-medium text-zinc-700">Applicant Tracking System</h3>
+            </div>
+            {atsData?.detectionStatus === "completed" && atsData.atsName ? (
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+                  {atsData.atsName}
+                </span>
+                {atsData.careerPageUrl && (
+                  <a
+                    href={atsData.careerPageUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-600 hover:text-blue-800 underline"
+                  >
+                    Visit Career Page
+                  </a>
+                )}
+              </div>
+            ) : atsData?.detectionStatus === "pending" || isDetectingATS ? (
+              <div className="flex items-center gap-2">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
+                <span className="text-xs text-zinc-500">Detecting...</span>
+              </div>
+            ) : atsData?.detectionStatus === "failed" ? (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-red-600">Detection failed</span>
+                <button
+                  onClick={handleDetectATS}
+                  className="rounded-lg border border-zinc-200 px-3 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-50"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={handleDetectATS}
+                disabled={isDetectingATS}
+                className="rounded-lg bg-zinc-900 px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-60"
+              >
+                Detect ATS
+              </button>
+            )}
           </div>
         </div>
 
