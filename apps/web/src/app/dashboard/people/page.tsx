@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { LetterAvatar, DATA_CHANGED_EVENT } from "../components";
 
 interface PersonRecord {
   _id?: string;
@@ -79,15 +80,13 @@ function PersonRow({
       className="group flex cursor-pointer items-center gap-4 border-b border-zinc-100 px-5 py-3.5 transition-colors hover:bg-zinc-50"
     >
       {/* Avatar */}
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100">
-        {photoUrl ? (
+      {photoUrl ? (
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100">
           <img src={photoUrl} alt={fullName} className="h-9 w-9 rounded-full object-cover" />
-        ) : (
-          <span className="text-xs font-semibold text-zinc-400">
-            {fullName.charAt(0).toUpperCase()}
-          </span>
-        )}
-      </div>
+        </div>
+      ) : (
+        <LetterAvatar name={fullName} size="sm" />
+      )}
 
       {/* Name & meta */}
       <div className="min-w-0 flex-1">
@@ -169,9 +168,9 @@ export default function PeoplePage() {
     setAuthToken(storedToken);
   }, [router]);
 
-  useEffect(() => {
+  const fetchPersons = useCallback(() => {
     if (!authToken) return;
-
+    setIsLoadingList(true);
     void fetch(`${apiBaseUrl}/persons`, {
       headers: { Authorization: `Bearer ${authToken}` },
     })
@@ -187,6 +186,16 @@ export default function PeoplePage() {
       })
       .finally(() => setIsLoadingList(false));
   }, [apiBaseUrl, authToken]);
+
+  useEffect(() => {
+    fetchPersons();
+  }, [fetchPersons]);
+
+  useEffect(() => {
+    const handler = () => fetchPersons();
+    window.addEventListener(DATA_CHANGED_EVENT, handler);
+    return () => window.removeEventListener(DATA_CHANGED_EVENT, handler);
+  }, [fetchPersons]);
 
   async function handleRemovePerson(id: string) {
     try {

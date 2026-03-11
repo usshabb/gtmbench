@@ -12,8 +12,12 @@ export async function enrichDomainWithFiber(domain: string): Promise<FiberEnrich
     companyDomain: { value: domain },
   };
 
+  const url = `${env.FIBER_API_BASE_URL}/v1/kitchen-sink/company`;
+  console.log("[fiber] POST %s", url);
+  console.log("[fiber] request body:", JSON.stringify(requestBody));
+
   try {
-    const response = await fetch(`${env.FIBER_API_BASE_URL}/v1/kitchen-sink/company`, {
+    const response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -22,6 +26,8 @@ export async function enrichDomainWithFiber(domain: string): Promise<FiberEnrich
     });
 
     const responseBody = (await response.json()) as Record<string, unknown>;
+    console.log("[fiber] response status: %d", response.status);
+    console.log("[fiber] response body:", JSON.stringify(responseBody));
 
     if (!response.ok) {
       return {
@@ -34,6 +40,7 @@ export async function enrichDomainWithFiber(domain: string): Promise<FiberEnrich
     return { success: true, payload: responseBody };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Fiber API request failed";
+    console.error("[fiber] enrichDomainWithFiber error:", message);
     return { success: false, error: message };
   }
 }
@@ -57,14 +64,20 @@ export async function searchBuyersWithFiber(
     companyExclusionListIDs: [],
   };
 
+  const url = `${env.FIBER_API_BASE_URL}/v1/people-search`;
+  console.log("[fiber] POST %s", url);
+  console.log("[fiber] request body:", JSON.stringify(requestBody));
+
   try {
-    const response = await fetch(`${env.FIBER_API_BASE_URL}/v1/people-search`, {
+    const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(requestBody),
     });
 
     const responseBody = (await response.json()) as Record<string, unknown>;
+    console.log("[fiber] response status: %d", response.status);
+    console.log("[fiber] response body:", JSON.stringify(responseBody));
 
     if (!response.ok) {
       return {
@@ -77,6 +90,7 @@ export async function searchBuyersWithFiber(
     return { success: true, payload: responseBody };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Fiber people-search request failed";
+    console.error("[fiber] searchBuyersWithFiber error:", message);
     return { success: false, error: message };
   }
 }
@@ -93,8 +107,12 @@ export async function enrichPersonWithFiber(linkedinUrl: string): Promise<FiberE
     },
   };
 
+  const url = `${env.FIBER_API_BASE_URL}/v1/kitchen-sink/person`;
+  console.log("[fiber] POST %s", url);
+  console.log("[fiber] request body:", JSON.stringify(requestBody));
+
   try {
-    const response = await fetch(`${env.FIBER_API_BASE_URL}/v1/kitchen-sink/person`, {
+    const response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -103,6 +121,8 @@ export async function enrichPersonWithFiber(linkedinUrl: string): Promise<FiberE
     });
 
     const responseBody = (await response.json()) as Record<string, unknown>;
+    console.log("[fiber] response status: %d", response.status);
+    console.log("[fiber] response body:", JSON.stringify(responseBody));
 
     if (!response.ok) {
       return {
@@ -115,6 +135,7 @@ export async function enrichPersonWithFiber(linkedinUrl: string): Promise<FiberE
     return { success: true, payload: responseBody };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Fiber API request failed";
+    console.error("[fiber] enrichPersonWithFiber error:", message);
     return { success: false, error: message };
   }
 }

@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { LetterAvatar, DATA_CHANGED_EVENT } from "../components";
 
 interface LeadRecord {
   _id?: string;
@@ -76,15 +77,13 @@ function CompanyRow({
       className="group flex cursor-pointer items-center gap-4 border-b border-zinc-100 px-5 py-3.5 transition-colors hover:bg-zinc-50"
     >
       {/* Logo */}
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-zinc-100">
-        {logoUrl ? (
+      {logoUrl ? (
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-zinc-100">
           <img src={logoUrl} alt={name} className="h-9 w-9 rounded-lg object-cover" />
-        ) : (
-          <span className="text-xs font-semibold text-zinc-400">
-            {name.charAt(0).toUpperCase()}
-          </span>
-        )}
-      </div>
+        </div>
+      ) : (
+        <LetterAvatar name={name} size="sm" rounded="lg" />
+      )}
 
       {/* Name & meta */}
       <div className="min-w-0 flex-1">
@@ -174,9 +173,9 @@ export default function DashboardPage() {
     setAuthToken(storedToken);
   }, [router]);
 
-  useEffect(() => {
+  const fetchLeads = useCallback(() => {
     if (!authToken) return;
-
+    setIsLoadingList(true);
     void fetch(`${apiBaseUrl}/leads`, {
       headers: { Authorization: `Bearer ${authToken}` },
     })
@@ -192,6 +191,16 @@ export default function DashboardPage() {
       })
       .finally(() => setIsLoadingList(false));
   }, [apiBaseUrl, authToken]);
+
+  useEffect(() => {
+    fetchLeads();
+  }, [fetchLeads]);
+
+  useEffect(() => {
+    const handler = () => fetchLeads();
+    window.addEventListener(DATA_CHANGED_EVENT, handler);
+    return () => window.removeEventListener(DATA_CHANGED_EVENT, handler);
+  }, [fetchLeads]);
 
   async function handleRemoveLead(id: string) {
     try {

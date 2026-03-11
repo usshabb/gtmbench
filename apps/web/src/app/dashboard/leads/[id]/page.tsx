@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
+import { LetterAvatar } from "../../components";
 
 interface LeadRecord {
   _id?: string;
@@ -317,15 +318,13 @@ function BuyersTab({
                     className="flex items-center gap-3 rounded-lg border border-zinc-100 px-4 py-3 transition-colors hover:bg-zinc-50"
                   >
                     {/* Photo */}
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100">
-                      {person.profile_pic ? (
+                    {person.profile_pic ? (
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100">
                         <img src={person.profile_pic} alt={person.name} className="h-9 w-9 rounded-full object-cover" />
-                      ) : (
-                        <span className="text-xs font-semibold text-zinc-400">
-                          {(person.first_name ?? person.name ?? "?").charAt(0).toUpperCase()}
-                        </span>
-                      )}
-                    </div>
+                      </div>
+                    ) : (
+                      <LetterAvatar name={person.name ?? person.first_name ?? "?"} size="sm" />
+                    )}
 
                     {/* Info */}
                     <div className="min-w-0 flex-1">
@@ -578,13 +577,13 @@ export default function LeadDetailPage() {
       <div className="mx-auto max-w-4xl px-6 py-8">
         {/* Header (always visible) */}
         <div className="flex items-start gap-5">
-          <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-zinc-100">
-            {logoUrl ? (
+          {logoUrl ? (
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-zinc-100">
               <img src={logoUrl} alt={name} className="h-16 w-16 rounded-xl object-cover" />
-            ) : (
-              <span className="text-2xl font-bold text-zinc-400">{name.charAt(0).toUpperCase()}</span>
-            )}
-          </div>
+            </div>
+          ) : (
+            <LetterAvatar name={name} size="lg" rounded="lg" />
+          )}
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-semibold text-zinc-900">{name}</h1>
             {headline && <p className="mt-1 text-sm text-zinc-500">{headline}</p>}
@@ -705,13 +704,13 @@ export default function LeadDetailPage() {
                         href={`/dashboard/people/${person._id}`}
                         className="flex items-center gap-3 rounded-lg border border-zinc-100 px-4 py-3 transition-colors hover:bg-zinc-50"
                       >
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100">
-                          {photoUrl ? (
+                        {photoUrl ? (
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100">
                             <img src={photoUrl} alt={pName} className="h-8 w-8 rounded-full object-cover" />
-                          ) : (
-                            <span className="text-xs font-semibold text-zinc-400">{pName.charAt(0).toUpperCase()}</span>
-                          )}
-                        </div>
+                          </div>
+                        ) : (
+                          <LetterAvatar name={pName} size="xs" />
+                        )}
                         <div className="min-w-0 flex-1">
                           <span className="text-sm font-medium text-zinc-900">{pName}</span>
                           {title && <span className="ml-2 text-xs text-zinc-500">{title}</span>}

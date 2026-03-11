@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import { dispatchDataChanged } from "./components";
 
 const localStorageTokenKey = "gtmbench-token";
 
@@ -47,6 +48,15 @@ const navItems = [
     icon: (
       <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M15 9h3.75M15 12h3.75M15 15h3.75M4.5 19.5h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15A2.25 2.25 0 002.25 6.75v10.5A2.25 2.25 0 004.5 19.5zm6-10.125a1.875 1.875 0 11-3.75 0 1.875 1.875 0 013.75 0zm1.294 6.336a6.721 6.721 0 01-3.17.789 6.721 6.721 0 01-3.168-.789 3.376 3.376 0 016.338 0z" />
+      </svg>
+    ),
+  },
+  {
+    label: "Skills",
+    href: "/dashboard/skills",
+    icon: (
+      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
       </svg>
     ),
   },
@@ -101,7 +111,7 @@ function GlobalActionModal({
         if (!response.ok) throw new Error(result.error ?? "Could not add company");
         onClose();
         router.push("/dashboard/leads");
-        router.refresh();
+        dispatchDataChanged();
       } else {
         const linkedinUrl = value.startsWith("http") ? value : `https://www.linkedin.com/in/${value}`;
         const response = await fetch(`${apiBaseUrl}/persons`, {
@@ -116,7 +126,7 @@ function GlobalActionModal({
         if (!response.ok) throw new Error(result.error ?? "Could not add person");
         onClose();
         router.push("/dashboard/people");
-        router.refresh();
+        dispatchDataChanged();
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Something went wrong";

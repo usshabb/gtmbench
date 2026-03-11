@@ -2,10 +2,11 @@ import cors from "cors";
 import express from "express";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
-import { getBuyerProfilesCollection, getLeadsCollection, getPersonsCollection } from "./db.js";
+import { getBuyerProfilesCollection, getLeadsCollection, getPersonsCollection, getSignalsCollection, getSkillJobsCollection, getSkillsCollection } from "./db.js";
 import { env } from "./env.js";
 import { getEmailFromToken, requestOtp, verifyOtp } from "./auth.js";
 import { enrichDomainWithFiber, enrichPersonWithFiber, searchBuyersWithFiber } from "./fiber.js";
+import { startSkillsWorker, scheduleSkillsCron, triggerSkillsProcessing } from "./skills-worker.js";
 
 const app = express();
 
@@ -646,6 +647,192 @@ app.post("/leads/:id/find-buyers", async (request, response) => {
   response.json({ result: result.payload });
 });
 
+/* ------------------------------------------------------------------ */
+/*  Skills endpoints                                                     */
+/* ------------------------------------------------------------------ */
+
+const createSkillSchema = z.object({
+  skillType: z.enum(["linkedin_content"]),
+  keyword: z.string().nullable().optional(),
+});
+
+const updateSkillSchema = z.object({
+  keyword: z.string().nullable().optional(),
+  status: z.enum(["active", "paused"]).optional(),
+});
+
+app.get("/skills", async (_request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const collection = await getSkillsCollection();
+  const skills = await collection.find({ userEmail }).sort({ createdAt: -1 }).toArray();
+  response.json({ skills });
+});
+
+app.post("/skills", async (request, response) => {
+  const parsed = createSkillSchema.safeParse(request.body);
+  if (!parsed.success) {
+    response.status(400).json({ error: "Invalid skill configuration" });
+    return;
+  }
+
+  const userEmail = response.locals.userEmail as string;
+  const skillsCol = await getSkillsCollection();
+
+  // Check if skill already exists for this user
+  const existing = await skillsCol.findOne({ userEmail, skillType: parsed.data.skillType });
+  if (existing) {
+    response.status(409).json({ error: "Skill already enabled", skill: existing });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const insertResult = await skillsCol.insertOne({
+    userEmail,
+    skillType: parsed.data.skillType,
+    config: { keyword: parsed.data.keyword ?? null },
+    status: "active",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const skillId = insertResult.insertedId;
+
+  // Create SkillJob entries for all persons this user tracks
+  const personsCol = await getPersonsCollection();
+  const persons = await personsCol.find({ userEmails: userEmail }).toArray();
+  const skillJobsCol = await getSkillJobsCollection();
+
+  if (persons.length > 0) {
+    const jobDocs = persons.map((person) => ({
+      skillId,
+      userEmail,
+      jobType: "LinkedinPost" as const,
+      personId: person._id!,
+      linkedinUrl: person.linkedinUrl,
+      status: "pending" as const,
+      createdAt: now,
+    }));
+
+    await skillJobsCol.insertMany(jobDocs);
+  }
+
+  const skill = await skillsCol.findOne({ _id: skillId });
+  response.status(201).json({ skill, jobsCreated: persons.length });
+});
+
+app.put("/skills/:id", async (request, response) => {
+  const parsed = updateSkillSchema.safeParse(request.body);
+  if (!parsed.success) {
+    response.status(400).json({ error: "Invalid input" });
+    return;
+  }
+
+  const userEmail = response.locals.userEmail as string;
+  const skillsCol = await getSkillsCollection();
+
+  let skill;
+  try {
+    skill = await skillsCol.findOne({ _id: new ObjectId(request.params.id), userEmail });
+  } catch {
+    response.status(400).json({ error: "Invalid skill ID" });
+    return;
+  }
+  if (!skill) {
+    response.status(404).json({ error: "Skill not found" });
+    return;
+  }
+
+  const updateFields: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+  if (parsed.data.keyword !== undefined) updateFields["config.keyword"] = parsed.data.keyword;
+  if (parsed.data.status !== undefined) updateFields.status = parsed.data.status;
+
+  await skillsCol.updateOne({ _id: skill._id }, { $set: updateFields });
+
+  const updated = await skillsCol.findOne({ _id: skill._id });
+  response.json({ skill: updated });
+});
+
+app.delete("/skills/:id", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const skillsCol = await getSkillsCollection();
+
+  let skill;
+  try {
+    skill = await skillsCol.findOne({ _id: new ObjectId(request.params.id), userEmail });
+  } catch {
+    response.status(400).json({ error: "Invalid skill ID" });
+    return;
+  }
+  if (!skill) {
+    response.status(404).json({ error: "Skill not found" });
+    return;
+  }
+
+  // Delete the skill and all associated jobs
+  const skillJobsCol = await getSkillJobsCollection();
+  await skillJobsCol.deleteMany({ skillId: skill._id });
+  await skillsCol.deleteOne({ _id: skill._id });
+
+  response.json({ success: true });
+});
+
+// Manually trigger processing (for testing)
+app.post("/skills/trigger-processing", async (_request, response) => {
+  const count = await triggerSkillsProcessing();
+  response.json({ success: true, jobsEnqueued: count });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Signals endpoints                                                    */
+/* ------------------------------------------------------------------ */
+
+app.get("/signals", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const signalsCol = await getSignalsCollection();
+
+  const limit = Math.min(parseInt(request.query.limit as string) || 50, 100);
+  const offset = parseInt(request.query.offset as string) || 0;
+
+  const [signals, total] = await Promise.all([
+    signalsCol.find({ userEmail }).sort({ createdAt: -1 }).skip(offset).limit(limit).toArray(),
+    signalsCol.countDocuments({ userEmail }),
+  ]);
+
+  response.json({ signals, total, limit, offset });
+});
+
+app.delete("/signals/:id", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const signalsCol = await getSignalsCollection();
+
+  let result;
+  try {
+    result = await signalsCol.deleteOne({ _id: new ObjectId(request.params.id), userEmail });
+  } catch {
+    response.status(400).json({ error: "Invalid signal ID" });
+    return;
+  }
+
+  if (result.deletedCount === 0) {
+    response.status(404).json({ error: "Signal not found" });
+    return;
+  }
+
+  response.json({ success: true });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Start server + workers                                               */
+/* ------------------------------------------------------------------ */
+
 app.listen(env.PORT, () => {
   console.log(`API listening on http://localhost:${env.PORT}`);
+
+  // Start BullMQ worker and cron scheduler
+  try {
+    startSkillsWorker();
+    scheduleSkillsCron();
+  } catch (err) {
+    console.warn("[skills] Could not start worker/cron (Redis may not be available):", err);
+  }
 });

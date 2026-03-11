@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
+import { LetterAvatar } from "../../components";
 
 interface PersonRecord {
   _id?: string;
@@ -205,13 +206,13 @@ export default function PersonDetailPage() {
       <div className="mx-auto max-w-4xl px-6 py-8">
         {/* Header */}
         <div className="flex items-start gap-5">
-          <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100">
-            {photoUrl ? (
+          {photoUrl ? (
+            <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100">
               <img src={photoUrl} alt={fullName} className="h-16 w-16 rounded-full object-cover" />
-            ) : (
-              <span className="text-2xl font-bold text-zinc-400">{fullName.charAt(0).toUpperCase()}</span>
-            )}
-          </div>
+            </div>
+          ) : (
+            <LetterAvatar name={fullName} size="lg" />
+          )}
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-semibold text-zinc-900">{fullName}</h1>
             {title && company && <p className="mt-1 text-sm text-zinc-500">{title} at {company}</p>}
@@ -241,13 +242,13 @@ export default function PersonDetailPage() {
             href={`/dashboard/leads/${companyLead._id}`}
             className="mt-6 flex items-center gap-4 rounded-xl border border-zinc-200 bg-zinc-50/50 px-5 py-4 transition-colors hover:bg-zinc-100/50"
           >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white">
-              {companyLogo ? (
+            {companyLogo ? (
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white">
                 <img src={companyLogo} alt={companyName} className="h-10 w-10 rounded-lg object-cover" />
-              ) : (
-                <span className="text-sm font-bold text-zinc-400">{(companyName as string)?.charAt(0)?.toUpperCase()}</span>
-              )}
-            </div>
+              </div>
+            ) : (
+              <LetterAvatar name={companyName as string ?? "?"} size="md" rounded="lg" />
+            )}
             <div className="min-w-0 flex-1">
               <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">Current Company</p>
               <p className="text-sm font-semibold text-zinc-900">{companyName}</p>
