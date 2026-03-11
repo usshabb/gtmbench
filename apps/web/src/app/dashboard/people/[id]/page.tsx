@@ -206,13 +206,7 @@ export default function PersonDetailPage() {
       <div className="mx-auto max-w-4xl px-6 py-8">
         {/* Header */}
         <div className="flex items-start gap-5">
-          {photoUrl ? (
-            <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100">
-              <img src={photoUrl} alt={fullName} className="h-16 w-16 rounded-full object-cover" />
-            </div>
-          ) : (
-            <LetterAvatar name={fullName} size="lg" />
-          )}
+          <LetterAvatar name={fullName} size="lg" src={photoUrl} />
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-semibold text-zinc-900">{fullName}</h1>
             {title && company && <p className="mt-1 text-sm text-zinc-500">{title} at {company}</p>}
@@ -242,13 +236,7 @@ export default function PersonDetailPage() {
             href={`/dashboard/leads/${companyLead._id}`}
             className="mt-6 flex items-center gap-4 rounded-xl border border-zinc-200 bg-zinc-50/50 px-5 py-4 transition-colors hover:bg-zinc-100/50"
           >
-            {companyLogo ? (
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white">
-                <img src={companyLogo} alt={companyName} className="h-10 w-10 rounded-lg object-cover" />
-              </div>
-            ) : (
-              <LetterAvatar name={companyName as string ?? "?"} size="md" rounded="lg" />
-            )}
+            <LetterAvatar name={companyName as string ?? "?"} size="md" rounded="lg" src={companyLogo} />
             <div className="min-w-0 flex-1">
               <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">Current Company</p>
               <p className="text-sm font-semibold text-zinc-900">{companyName}</p>

@@ -80,13 +80,7 @@ function PersonRow({
       className="group flex cursor-pointer items-center gap-4 border-b border-zinc-100 px-5 py-3.5 transition-colors hover:bg-zinc-50"
     >
       {/* Avatar */}
-      {photoUrl ? (
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100">
-          <img src={photoUrl} alt={fullName} className="h-9 w-9 rounded-full object-cover" />
-        </div>
-      ) : (
-        <LetterAvatar name={fullName} size="sm" />
-      )}
+      <LetterAvatar name={fullName} size="sm" src={photoUrl} />
 
       {/* Name & meta */}
       <div className="min-w-0 flex-1">

@@ -318,13 +318,7 @@ function BuyersTab({
                     className="flex items-center gap-3 rounded-lg border border-zinc-100 px-4 py-3 transition-colors hover:bg-zinc-50"
                   >
                     {/* Photo */}
-                    {person.profile_pic ? (
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100">
-                        <img src={person.profile_pic} alt={person.name} className="h-9 w-9 rounded-full object-cover" />
-                      </div>
-                    ) : (
-                      <LetterAvatar name={person.name ?? person.first_name ?? "?"} size="sm" />
-                    )}
+                    <LetterAvatar name={person.name ?? person.first_name ?? "?"} size="sm" src={person.profile_pic} />
 
                     {/* Info */}
                     <div className="min-w-0 flex-1">
@@ -577,13 +571,7 @@ export default function LeadDetailPage() {
       <div className="mx-auto max-w-4xl px-6 py-8">
         {/* Header (always visible) */}
         <div className="flex items-start gap-5">
-          {logoUrl ? (
-            <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-zinc-100">
-              <img src={logoUrl} alt={name} className="h-16 w-16 rounded-xl object-cover" />
-            </div>
-          ) : (
-            <LetterAvatar name={name} size="lg" rounded="lg" />
-          )}
+          <LetterAvatar name={name} size="lg" rounded="lg" src={logoUrl} />
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-semibold text-zinc-900">{name}</h1>
             {headline && <p className="mt-1 text-sm text-zinc-500">{headline}</p>}
@@ -704,13 +692,7 @@ export default function LeadDetailPage() {
                         href={`/dashboard/people/${person._id}`}
                         className="flex items-center gap-3 rounded-lg border border-zinc-100 px-4 py-3 transition-colors hover:bg-zinc-50"
                       >
-                        {photoUrl ? (
-                          <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100">
-                            <img src={photoUrl} alt={pName} className="h-8 w-8 rounded-full object-cover" />
-                          </div>
-                        ) : (
-                          <LetterAvatar name={pName} size="xs" />
-                        )}
+                        <LetterAvatar name={pName} size="xs" src={photoUrl} />
                         <div className="min-w-0 flex-1">
                           <span className="text-sm font-medium text-zinc-900">{pName}</span>
                           {title && <span className="ml-2 text-xs text-zinc-500">{title}</span>}

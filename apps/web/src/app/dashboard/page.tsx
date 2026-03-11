@@ -143,15 +143,7 @@ export default function SignalsPage() {
               <div key={signal._id} className="flex gap-4 px-6 py-4 hover:bg-zinc-50/50 transition-colors">
                 {/* Author avatar */}
                 <div className="shrink-0">
-                  {signal.data.authorProfilePicture ? (
-                    <img
-                      src={signal.data.authorProfilePicture}
-                      alt={signal.data.authorName}
-                      className="h-10 w-10 rounded-full object-cover"
-                    />
-                  ) : (
-                    <LetterAvatar name={signal.personName} size="md" />
-                  )}
+                  <LetterAvatar name={signal.personName} size="md" src={signal.data.authorProfilePicture} />
                 </div>
 
                 {/* Content */}
