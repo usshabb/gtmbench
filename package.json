@@ -1,0 +1,19 @@
+{
+  "name": "gtmbench",
+  "version": "0.1.0",
+  "private": true,
+  "description": "GTMbench monorepo",
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace web\" \"npm run dev --workspace api\"",
+    "dev:web": "npm run dev --workspace web",
+    "dev:api": "npm run dev --workspace api",
+    "build": "npm run build --workspace web && npm run build --workspace api",
+    "lint": "npm run lint --workspace web"
+  },
+  "workspaces": [
+    "apps/*"
+  ],
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
