@@ -1,10 +1,10 @@
 import { Queue, Worker } from "bullmq";
 import { ObjectId } from "mongodb";
 import { env } from "./env.js";
-import { getJobsCollection, getLinkedinContentForPersonCollection, getSignalsCollection, getSkillJobsCollection, getSkillsCollection } from "./db.js";
+import { getCompanyATSCollection, getJobsCollection, getLeadsCollection, getLinkedinContentForPersonCollection, getPersonsCollection, getSignalsCollection, getSkillJobsCollection, getSkillsCollection } from "./db.js";
 import { fetchLinkedinPosts } from "./linkedin.js";
 import { fetchATSJobs } from "./parallel.js";
-import type { JobData, LinkedinPostData } from "./types.js";
+import type { ATSJobsSignalData, JobData, LinkedinPostData } from "./types.js";
 
 const QUEUE_NAME = "skill-jobs";
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
@@ -135,6 +135,185 @@ export async function enqueueAllPendingJobs(): Promise<number> {
 
   console.log(`[skills-worker] Enqueued ${enqueued} LinkedIn post jobs`);
   return enqueued;
+}
+
+/**
+ * Create/sync pending skill jobs for a specific user without running them.
+ * Resets completed/failed jobs to pending and inserts any missing ones.
+ */
+export async function createPendingJobs(userEmail: string): Promise<number> {
+  const skillsCol = await getSkillsCollection();
+  const skillJobsCol = await getSkillJobsCollection();
+
+  const activeSkills = await skillsCol.find({ userEmail, status: "active" }).toArray();
+  if (activeSkills.length === 0) return 0;
+
+  // Reset completed/failed jobs back to pending
+  const resetResult = await skillJobsCol.updateMany(
+    { userEmail, skillId: { $in: activeSkills.map((s) => s._id!) }, status: { $in: ["completed", "failed"] } },
+    { $set: { status: "pending" } },
+  );
+
+  let created = resetResult.modifiedCount;
+  const now = new Date().toISOString();
+
+  for (const skill of activeSkills) {
+    if (skill.skillType === "linkedin_content") {
+      const personsCol = await getPersonsCollection();
+      const persons = await personsCol.find({ userEmails: userEmail }).toArray();
+      for (const person of persons) {
+        try {
+          await skillJobsCol.insertOne({
+            skillId: skill._id!,
+            userEmail,
+            jobType: "LinkedinPost",
+            personId: person._id!,
+            linkedinUrl: person.linkedinUrl,
+            status: "pending",
+            createdAt: now,
+          });
+          created++;
+        } catch {
+          // Already exists (unique index) — skip
+        }
+      }
+    } else if (skill.skillType === "ats_jobs") {
+      const leadsCol = await getLeadsCollection();
+      const atsCol = await getCompanyATSCollection();
+      const userLeads = await leadsCol.find({ userEmails: userEmail }).toArray();
+      const leadIds = userLeads.map((l) => l._id!);
+      if (leadIds.length > 0) {
+        const atsRecords = await atsCol
+          .find({ leadId: { $in: leadIds }, detectionStatus: "completed", careerPageUrl: { $ne: null } })
+          .toArray();
+        for (const ats of atsRecords) {
+          try {
+            await skillJobsCol.insertOne({
+              skillId: skill._id!,
+              userEmail,
+              jobType: "ATSJobs",
+              leadId: ats.leadId,
+              atsUrl: ats.careerPageUrl!,
+              domain: ats.domain,
+              status: "pending",
+              createdAt: now,
+            });
+            created++;
+          } catch {
+            // Already exists — skip
+          }
+        }
+      }
+    }
+  }
+
+  return created;
+}
+
+/**
+ * Enqueue all pending skill jobs for a specific user (without resetting status).
+ */
+export async function enqueuePendingJobsForUser(userEmail: string): Promise<number> {
+  const skillJobsCol = await getSkillJobsCollection();
+  const skillsCol = await getSkillsCollection();
+
+  const activeSkills = await skillsCol.find({ userEmail, status: "active" }).toArray();
+  const activeSkillIds = new Set(activeSkills.map((s) => s._id!.toHexString()));
+  const skillConfigMap = new Map(activeSkills.map((s) => [s._id!.toHexString(), s]));
+
+  const pendingJobs = await skillJobsCol.find({ userEmail, status: "pending" }).toArray();
+  const jobQueue = getSkillJobQueue();
+
+  const bulkJobs = pendingJobs
+    .filter((job) => activeSkillIds.has(job.skillId.toHexString()))
+    .map((job) => {
+      if (job.jobType === "ATSJobs") {
+        const data: ATSJobsJobData = {
+          type: "ATSJobs",
+          skillJobId: job._id!.toHexString(),
+          skillId: job.skillId.toHexString(),
+          userEmail: job.userEmail,
+          leadId: job.leadId!.toHexString(),
+          atsUrl: job.atsUrl!,
+          domain: job.domain!,
+        };
+        return { name: "ats-jobs", data, opts: { jobId: `ats-${job._id!.toHexString()}-${Date.now()}` } };
+      }
+      const skill = skillConfigMap.get(job.skillId.toHexString());
+      const data: LinkedinPostJobData = {
+        type: "LinkedinPost",
+        skillJobId: job._id!.toHexString(),
+        skillId: job.skillId.toHexString(),
+        userEmail: job.userEmail,
+        personId: job.personId!.toHexString(),
+        linkedinUrl: job.linkedinUrl!,
+        keyword: skill?.config?.keyword ?? null,
+        personName: "",
+      };
+      return { name: "linkedin-post", data, opts: { jobId: `lp-${job._id!.toHexString()}-${Date.now()}` } };
+    });
+
+  if (bulkJobs.length > 0) {
+    await jobQueue.addBulk(bulkJobs);
+  }
+
+  return bulkJobs.length;
+}
+
+/**
+ * Enqueue a single skill job by ID (resets it to pending first if needed).
+ */
+export async function enqueueSpecificJob(skillJobId: string, userEmail: string): Promise<boolean> {
+  const skillJobsCol = await getSkillJobsCollection();
+  const skillsCol = await getSkillsCollection();
+
+  let job;
+  try {
+    job = await skillJobsCol.findOne({ _id: new ObjectId(skillJobId), userEmail });
+  } catch {
+    return false;
+  }
+  if (!job) return false;
+
+  if (job.status !== "pending" && job.status !== "processing") {
+    await skillJobsCol.updateOne({ _id: job._id }, { $set: { status: "pending" } });
+  }
+
+  const skill = await skillsCol.findOne({ _id: job.skillId });
+  const jobQueue = getSkillJobQueue();
+
+  if (job.jobType === "ATSJobs") {
+    await jobQueue.add(
+      "ats-jobs",
+      {
+        type: "ATSJobs",
+        skillJobId: job._id!.toHexString(),
+        skillId: job.skillId.toHexString(),
+        userEmail: job.userEmail,
+        leadId: job.leadId!.toHexString(),
+        atsUrl: job.atsUrl!,
+        domain: job.domain!,
+      } satisfies ATSJobsJobData,
+      { jobId: `ats-${job._id!.toHexString()}-${Date.now()}` },
+    );
+  } else {
+    await jobQueue.add(
+      "linkedin-post",
+      {
+        type: "LinkedinPost",
+        skillJobId: job._id!.toHexString(),
+        skillId: job.skillId.toHexString(),
+        userEmail: job.userEmail,
+        personId: job.personId!.toHexString(),
+        linkedinUrl: job.linkedinUrl!,
+        keyword: skill?.config?.keyword ?? null,
+        personName: "",
+      } satisfies LinkedinPostJobData,
+      { jobId: `lp-${job._id!.toHexString()}-${Date.now()}` },
+    );
+  }
+
+  return true;
 }
 
 /**
@@ -274,9 +453,10 @@ async function processATSJobsJob(jobData: ATSJobsJobData): Promise<void> {
     }
 
     const fetchedAt = new Date().toISOString();
+    const today = fetchedAt.slice(0, 10); // YYYY-MM-DD
     const leadObjectId = new ObjectId(jobData.leadId);
     let newJobsCount = 0;
-    let signalsCreated = 0;
+    const newRecentJobs: JobData[] = [];
 
     for (const job of result.jobs) {
       const jobUrl = (job.url as string | null | undefined) ?? null;
@@ -308,41 +488,50 @@ async function processATSJobsJob(jobData: ATSJobsJobData): Promise<void> {
         throw err;
       }
 
-      // Create signal if this is a new job posted in the last 24 hours
+      // Collect new jobs for aggregated signal (recent by postedAt, or unknown date = treat as recent)
       if (isNew) {
         const isRecent = postedAt
           ? Date.now() - new Date(postedAt).getTime() < TWENTY_FOUR_HOURS_MS
-          : false;
+          : true;
 
         if (isRecent) {
-          const jobData2: JobData = {
+          newRecentJobs.push({
             title: jobDoc.title,
             jobUrl,
             location: jobDoc.location,
             department: jobDoc.department,
             postedAt,
             companyDomain: jobData.domain,
-          };
-
-          try {
-            await signalsCol.insertOne({
-              userEmail: jobData.userEmail,
-              skillId: new ObjectId(jobData.skillId),
-              signalType: "ats_new_job",
-              leadId: leadObjectId,
-              companyDomain: jobData.domain,
-              data: jobData2,
-              createdAt: fetchedAt,
-            });
-            signalsCreated++;
-          } catch (err: unknown) {
-            if (err instanceof Error && "code" in err && (err as Record<string, unknown>).code === 11000) {
-              continue;
-            }
-            throw err;
-          }
+          });
         }
       }
+    }
+
+    // Create ONE aggregated signal for all new recent jobs at this company
+    let signalsCreated = 0;
+    if (newRecentJobs.length > 0) {
+      const signalData: ATSJobsSignalData = {
+        newJobsCount: newRecentJobs.length,
+        jobs: newRecentJobs,
+        companyDomain: jobData.domain,
+      };
+      await signalsCol.updateOne(
+        { userEmail: jobData.userEmail, signalType: "ats_new_job", leadId: leadObjectId, signalDate: today },
+        {
+          $set: {
+            userEmail: jobData.userEmail,
+            skillId: new ObjectId(jobData.skillId),
+            signalType: "ats_new_job",
+            leadId: leadObjectId,
+            companyDomain: jobData.domain,
+            signalDate: today,
+            data: signalData,
+            createdAt: fetchedAt,
+          },
+        },
+        { upsert: true },
+      );
+      signalsCreated = 1;
     }
 
     await skillJobsCol.updateOne(

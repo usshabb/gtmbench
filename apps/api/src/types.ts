@@ -143,6 +143,12 @@ export interface JobData {
   companyDomain: string;
 }
 
+export interface ATSJobsSignalData {
+  newJobsCount: number;
+  jobs: JobData[];
+  companyDomain: string;
+}
+
 export interface SignalRecord {
   _id?: ObjectId;
   userEmail: string;
@@ -155,7 +161,8 @@ export interface SignalRecord {
   // ats_new_job fields
   leadId?: ObjectId;
   companyDomain?: string;
-  data: LinkedinPostData | JobData;
+  signalDate?: string; // YYYY-MM-DD, used for per-day dedup of ats_new_job
+  data: LinkedinPostData | ATSJobsSignalData;
   matchedKeyword?: string | null;
   createdAt: string;
 }

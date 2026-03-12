@@ -138,8 +138,14 @@ export async function getSignalsCollection(): Promise<Collection<SignalRecord>> 
     // Index may not exist
   }
   await signalsCollection.createIndex({ "data.postId": 1, userEmail: 1 }, { unique: true, sparse: true });
-  // Dedup for ATS job signals by jobUrl + lead + user
-  await signalsCollection.createIndex({ leadId: 1, "data.jobUrl": 1, userEmail: 1 }, { unique: true, sparse: true });
+  // Drop old per-job ATS dedup index, replaced by per-day aggregated dedup
+  try {
+    await signalsCollection.dropIndex("leadId_1_data.jobUrl_1_userEmail_1");
+  } catch {
+    // Index may not exist
+  }
+  // Dedup for aggregated ATS signals: one per company per user per day
+  await signalsCollection.createIndex({ leadId: 1, userEmail: 1, signalDate: 1 }, { unique: true, sparse: true });
 
   return signalsCollection;
 }

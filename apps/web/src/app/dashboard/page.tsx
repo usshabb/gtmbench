@@ -36,6 +36,12 @@ interface JobData {
   companyDomain: string;
 }
 
+interface ATSJobsSignalData {
+  newJobsCount: number;
+  jobs: JobData[];
+  companyDomain: string;
+}
+
 interface LinkedinSignal {
   _id: string;
   signalType: "linkedin_post";
@@ -50,7 +56,7 @@ interface ATSJobSignal {
   _id: string;
   signalType: "ats_new_job";
   companyDomain: string;
-  data: JobData;
+  data: ATSJobsSignalData;
   createdAt: string;
 }
 
@@ -161,7 +167,7 @@ export default function SignalsPage() {
             {signals.map((signal) => (
               <div key={signal._id} className="flex gap-4 px-6 py-4 hover:bg-zinc-50/50 transition-colors">
                 {signal.signalType === "ats_new_job" ? (
-                  /* ATS New Job Signal */
+                  /* ATS New Job Signal — aggregated per company */
                   <>
                     <div className="shrink-0 flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-50">
                       <svg className="h-5 w-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -170,26 +176,30 @@ export default function SignalsPage() {
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-[13px] font-semibold text-zinc-900">{signal.data.title}</span>
-                        <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">New Job</span>
+                        <span className="text-[13px] font-semibold text-zinc-900">
+                          {signal.data.newJobsCount} new job{signal.data.newJobsCount !== 1 ? "s" : ""} posted at {signal.companyDomain}
+                        </span>
+                        <span className="rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700">New Jobs</span>
                         <span className="text-[12px] text-zinc-400">{timeAgo(signal.createdAt)}</span>
                       </div>
-                      <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[12px] text-zinc-500">
-                        <span>{signal.companyDomain}</span>
-                        {signal.data.department && <span>{signal.data.department}</span>}
-                        {signal.data.location && <span>{signal.data.location}</span>}
+                      <div className="mt-1.5 flex flex-col gap-1">
+                        {signal.data.jobs.slice(0, 5).map((job, i) => (
+                          <div key={i} className="flex items-center gap-2 text-[12px] text-zinc-500">
+                            <span className="font-medium text-zinc-700">{job.title}</span>
+                            {job.department && <span className="text-zinc-400">{job.department}</span>}
+                            {job.location && <span className="text-zinc-400">{job.location}</span>}
+                            {job.jobUrl && (
+                              <a href={job.jobUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-700">
+                                View
+                              </a>
+                            )}
+                          </div>
+                        ))}
+                        {signal.data.jobs.length > 5 && (
+                          <span className="text-[12px] text-zinc-400">+{signal.data.jobs.length - 5} more</span>
+                        )}
                       </div>
                       <div className="mt-2 flex items-center gap-3">
-                        {signal.data.jobUrl && (
-                          <a
-                            href={signal.data.jobUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-[12px] font-medium text-blue-600 hover:text-blue-700"
-                          >
-                            View Job
-                          </a>
-                        )}
                         <button
                           onClick={() => dismissSignal(signal._id)}
                           className="text-[12px] text-zinc-400 hover:text-zinc-600"

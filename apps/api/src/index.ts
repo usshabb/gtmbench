@@ -6,7 +6,7 @@ import { getBuyerProfilesCollection, getBuyerSearchResultsCollection, getCompany
 import { env } from "./env.js";
 import { getEmailFromToken, requestOtp, verifyOtp } from "./auth.js";
 import { enrichDomainWithFiber, enrichPersonWithFiber, searchBuyersWithFiber } from "./fiber.js";
-import { startSkillsWorker, scheduleSkillsCron, triggerSkillsProcessing } from "./skills-worker.js";
+import { startSkillsWorker, scheduleSkillsCron, triggerSkillsProcessing, createPendingJobs, enqueuePendingJobsForUser, enqueueSpecificJob } from "./skills-worker.js";
 import { detectCompanyATS } from "./firecrawl.js";
 
 const app = express();
@@ -1046,6 +1046,43 @@ app.delete("/skills/:id", async (request, response) => {
 app.post("/skills/trigger-processing", async (_request, response) => {
   const count = await triggerSkillsProcessing();
   response.json({ success: true, jobsEnqueued: count });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Skill Jobs endpoints                                                 */
+/* ------------------------------------------------------------------ */
+
+// List all skill jobs for the current user
+app.get("/skill-jobs", async (_request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const skillJobsCol = await getSkillJobsCollection();
+  const jobs = await skillJobsCol.find({ userEmail }).sort({ createdAt: -1 }).limit(500).toArray();
+  response.json({ jobs });
+});
+
+// Create / reset pending jobs (without running)
+app.post("/skill-jobs/create", async (_request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const count = await createPendingJobs(userEmail);
+  response.json({ success: true, jobsCreated: count });
+});
+
+// Run all pending jobs for the current user
+app.post("/skill-jobs/run", async (_request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const count = await enqueuePendingJobsForUser(userEmail);
+  response.json({ success: true, jobsEnqueued: count });
+});
+
+// Run a specific job by ID
+app.post("/skill-jobs/:id/run", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const success = await enqueueSpecificJob(request.params.id, userEmail);
+  if (!success) {
+    response.status(404).json({ error: "Job not found" });
+    return;
+  }
+  response.json({ success: true });
 });
 
 /* ------------------------------------------------------------------ */

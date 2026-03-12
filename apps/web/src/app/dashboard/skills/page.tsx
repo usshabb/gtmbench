@@ -17,6 +17,22 @@ interface Skill {
   updatedAt: string;
 }
 
+interface SkillJob {
+  _id: string;
+  skillId: string;
+  userEmail: string;
+  jobType: "LinkedinPost" | "ATSJobs";
+  personId?: string;
+  linkedinUrl?: string;
+  leadId?: string;
+  atsUrl?: string;
+  domain?: string;
+  status: "pending" | "processing" | "completed" | "failed";
+  lastProcessedAt?: string;
+  error?: string;
+  createdAt: string;
+}
+
 const SKILL_DEFINITIONS = [
   {
     type: "linkedin_content",
@@ -44,21 +60,37 @@ const SKILL_DEFINITIONS = [
   },
 ];
 
+
 export default function SkillsPage() {
   const apiBaseUrl = getApiBaseUrl();
   const [token, setToken] = useState("");
+  const [activeTab, setActiveTab] = useState<"skills" | "jobs">("skills");
+
+  // Skills state
   const [skills, setSkills] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
   const [enabling, setEnabling] = useState(false);
   const [keywordInput, setKeywordInput] = useState("");
   const [showKeywordModal, setShowKeywordModal] = useState<string | null>(null);
-  const [triggerLoading, setTriggerLoading] = useState(false);
+
+  // Jobs state
+  const [jobs, setJobs] = useState<SkillJob[]>([]);
+  const [jobsLoading, setJobsLoading] = useState(false);
+  const [creatingJobs, setCreatingJobs] = useState(false);
+  const [runningAll, setRunningAll] = useState(false);
+  const [runningJobId, setRunningJobId] = useState<string | null>(null);
 
   useEffect(() => {
     const t = window.localStorage.getItem(localStorageTokenKey) ?? "";
     setToken(t);
     if (t) fetchSkills(t);
   }, []);
+
+  useEffect(() => {
+    if (token && activeTab === "jobs") {
+      fetchJobs(token);
+    }
+  }, [activeTab, token]);
 
   async function fetchSkills(authToken: string) {
     setLoading(true);
@@ -72,6 +104,21 @@ export default function SkillsPage() {
       // ignore
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function fetchJobs(authToken: string) {
+    setJobsLoading(true);
+    try {
+      const res = await fetch(`${apiBaseUrl}/skill-jobs`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      const data = (await res.json()) as { jobs: SkillJob[] };
+      setJobs(data.jobs ?? []);
+    } catch {
+      // ignore
+    } finally {
+      setJobsLoading(false);
     }
   }
 
@@ -133,15 +180,42 @@ export default function SkillsPage() {
     await fetchSkills(token);
   }
 
-  async function triggerProcessing() {
-    setTriggerLoading(true);
+  async function createJobs() {
+    setCreatingJobs(true);
     try {
-      await fetch(`${apiBaseUrl}/skills/trigger-processing`, {
+      await fetch(`${apiBaseUrl}/skill-jobs/create`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
+      await fetchJobs(token);
     } finally {
-      setTriggerLoading(false);
+      setCreatingJobs(false);
+    }
+  }
+
+  async function runAllJobs() {
+    setRunningAll(true);
+    try {
+      await fetch(`${apiBaseUrl}/skill-jobs/run`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      await fetchJobs(token);
+    } finally {
+      setRunningAll(false);
+    }
+  }
+
+  async function runJob(jobId: string) {
+    setRunningJobId(jobId);
+    try {
+      await fetch(`${apiBaseUrl}/skill-jobs/${jobId}/run`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      await fetchJobs(token);
+    } finally {
+      setRunningJobId(null);
     }
   }
 
@@ -155,123 +229,206 @@ export default function SkillsPage() {
             Enable skills to automatically track activity and generate signals
           </p>
         </div>
-        <button
-          onClick={triggerProcessing}
-          disabled={triggerLoading}
-          className="rounded-lg border border-zinc-200 px-3 py-1.5 text-[13px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50"
-        >
-          {triggerLoading ? "Processing..." : "Run Now"}
-        </button>
+        {activeTab === "jobs" && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={createJobs}
+              disabled={creatingJobs}
+              className="rounded-lg border border-zinc-200 px-3 py-1.5 text-[13px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50"
+            >
+              {creatingJobs ? "Creating..." : "Create Jobs"}
+            </button>
+            <button
+              onClick={runAllJobs}
+              disabled={runningAll}
+              className="rounded-lg bg-zinc-900 px-3 py-1.5 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+            >
+              {runningAll ? "Running..." : "Run All"}
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Skills list */}
+      {/* Tabs */}
+      <div className="flex border-b border-zinc-200 px-6">
+        {(["skills", "jobs"] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`mr-4 border-b-2 py-2.5 text-[13px] font-medium capitalize transition-colors ${
+              activeTab === tab
+                ? "border-zinc-900 text-zinc-900"
+                : "border-transparent text-zinc-400 hover:text-zinc-600"
+            }`}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content */}
       <div className="flex-1 overflow-y-auto p-6">
-        {loading ? (
-          <div className="flex justify-center py-12">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {SKILL_DEFINITIONS.map((def) => {
-              const skill = getSkillForType(def.type);
-              const isEnabled = !!skill;
+        {activeTab === "skills" && (
+          <>
+            {loading ? (
+              <div className="flex justify-center py-12">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {SKILL_DEFINITIONS.map((def) => {
+                  const skill = getSkillForType(def.type);
+                  const isEnabled = !!skill;
 
-              return (
-                <div
-                  key={def.type}
-                  className="rounded-xl border border-zinc-200 bg-white p-5"
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-start gap-4">
-                      <div
-                        className={`flex h-11 w-11 items-center justify-center rounded-xl ${
-                          isEnabled ? "bg-blue-50 text-blue-600" : "bg-zinc-100 text-zinc-400"
-                        }`}
-                      >
-                        {def.icon}
-                      </div>
-                      <div>
-                        <h3 className="text-[15px] font-semibold text-zinc-900">{def.name}</h3>
-                        <p className="mt-0.5 max-w-md text-[13px] text-zinc-500">{def.description}</p>
-
-                        {skill && (
-                          <div className="mt-3 flex flex-wrap items-center gap-2">
-                            <span
-                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                                skill.status === "active"
-                                  ? "bg-green-50 text-green-700"
-                                  : "bg-yellow-50 text-yellow-700"
-                              }`}
-                            >
-                              {skill.status === "active" ? "Active" : "Paused"}
-                            </span>
-                            {def.hasKeyword && skill.config.keyword && (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600">
-                                Keyword: &quot;{skill.config.keyword}&quot;
-                                <button
-                                  onClick={() => updateKeyword(skill, null)}
-                                  className="ml-0.5 text-zinc-400 hover:text-zinc-600"
-                                >
-                                  &times;
-                                </button>
-                              </span>
-                            )}
-                            {def.hasKeyword && !skill.config.keyword && (
-                              <span className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] text-zinc-500">
-                                All posts tracked
-                              </span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {isEnabled ? (
-                        <>
-                          <button
-                            onClick={() => toggleSkillStatus(skill!)}
-                            className={`rounded-lg border px-3 py-1.5 text-[13px] font-medium transition-colors ${
-                              skill!.status === "active"
-                                ? "border-yellow-200 text-yellow-700 hover:bg-yellow-50"
-                                : "border-green-200 text-green-700 hover:bg-green-50"
+                  return (
+                    <div key={def.type} className="rounded-xl border border-zinc-200 bg-white p-5">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-start gap-4">
+                          <div
+                            className={`flex h-11 w-11 items-center justify-center rounded-xl ${
+                              isEnabled ? "bg-blue-50 text-blue-600" : "bg-zinc-100 text-zinc-400"
                             }`}
                           >
-                            {skill!.status === "active" ? "Pause" : "Resume"}
-                          </button>
-                          {def.hasKeyword && (
+                            {def.icon}
+                          </div>
+                          <div>
+                            <h3 className="text-[15px] font-semibold text-zinc-900">{def.name}</h3>
+                            <p className="mt-0.5 max-w-md text-[13px] text-zinc-500">{def.description}</p>
+
+                            {skill && (
+                              <div className="mt-3 flex flex-wrap items-center gap-2">
+                                <span
+                                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                                    skill.status === "active"
+                                      ? "bg-green-50 text-green-700"
+                                      : "bg-yellow-50 text-yellow-700"
+                                  }`}
+                                >
+                                  {skill.status === "active" ? "Active" : "Paused"}
+                                </span>
+                                {def.hasKeyword && skill.config.keyword && (
+                                  <span className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600">
+                                    Keyword: &quot;{skill.config.keyword}&quot;
+                                    <button
+                                      onClick={() => updateKeyword(skill, null)}
+                                      className="ml-0.5 text-zinc-400 hover:text-zinc-600"
+                                    >
+                                      &times;
+                                    </button>
+                                  </span>
+                                )}
+                                {def.hasKeyword && !skill.config.keyword && (
+                                  <span className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] text-zinc-500">
+                                    All posts tracked
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {isEnabled ? (
+                            <>
+                              <button
+                                onClick={() => toggleSkillStatus(skill!)}
+                                className={`rounded-lg border px-3 py-1.5 text-[13px] font-medium transition-colors ${
+                                  skill!.status === "active"
+                                    ? "border-yellow-200 text-yellow-700 hover:bg-yellow-50"
+                                    : "border-green-200 text-green-700 hover:bg-green-50"
+                                }`}
+                              >
+                                {skill!.status === "active" ? "Pause" : "Resume"}
+                              </button>
+                              {def.hasKeyword && (
+                                <button
+                                  onClick={() => {
+                                    setShowKeywordModal(skill!._id);
+                                    setKeywordInput(skill!.config.keyword ?? "");
+                                  }}
+                                  className="rounded-lg border border-zinc-200 px-3 py-1.5 text-[13px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50"
+                                >
+                                  Edit Keyword
+                                </button>
+                              )}
+                              <button
+                                onClick={() => disableSkill(skill!._id)}
+                                className="rounded-lg border border-red-200 px-3 py-1.5 text-[13px] font-medium text-red-600 transition-colors hover:bg-red-50"
+                              >
+                                Disable
+                              </button>
+                            </>
+                          ) : (
                             <button
-                              onClick={() => {
-                                setShowKeywordModal(skill!._id);
-                                setKeywordInput(skill!.config.keyword ?? "");
-                              }}
-                              className="rounded-lg border border-zinc-200 px-3 py-1.5 text-[13px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50"
+                              onClick={() =>
+                                def.hasKeyword ? setShowKeywordModal(def.type) : enableSkill(def.type, null)
+                              }
+                              disabled={enabling}
+                              className="rounded-lg bg-zinc-900 px-4 py-1.5 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
                             >
-                              Edit Keyword
+                              {enabling ? "Enabling..." : "Enable"}
                             </button>
                           )}
-                          <button
-                            onClick={() => disableSkill(skill!._id)}
-                            className="rounded-lg border border-red-200 px-3 py-1.5 text-[13px] font-medium text-red-600 transition-colors hover:bg-red-50"
-                          >
-                            Disable
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          onClick={() => def.hasKeyword ? setShowKeywordModal(def.type) : enableSkill(def.type, null)}
-                          disabled={enabling}
-                          className="rounded-lg bg-zinc-900 px-4 py-1.5 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
-                        >
-                          {enabling ? "Enabling..." : "Enable"}
-                        </button>
-                      )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+
+        {activeTab === "jobs" && (
+          <>
+            {jobsLoading ? (
+              <div className="flex justify-center py-12">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
+              </div>
+            ) : jobs.filter((j) => j.status === "pending").length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-center">
+                <p className="text-[14px] font-medium text-zinc-500">No pending jobs</p>
+                <p className="mt-1 text-[13px] text-zinc-400">
+                  Click &ldquo;Create Jobs&rdquo; to generate jobs for your active skills.
+                </p>
+              </div>
+            ) : (
+              <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
+                <table className="w-full text-[13px]">
+                  <thead>
+                    <tr className="border-b border-zinc-100 bg-zinc-50">
+                      <th className="px-4 py-3 text-left font-medium text-zinc-500">Type</th>
+                      <th className="px-4 py-3 text-left font-medium text-zinc-500">Target</th>
+                      <th className="px-4 py-3" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100">
+                    {jobs.filter((j) => j.status === "pending").map((job) => (
+                      <tr key={job._id} className="hover:bg-zinc-50">
+                        <td className="px-4 py-3 text-zinc-700">
+                          {job.jobType === "LinkedinPost" ? "LinkedIn Post" : "ATS Jobs"}
+                        </td>
+                        <td className="max-w-[220px] truncate px-4 py-3 text-zinc-500">
+                          {job.jobType === "LinkedinPost"
+                            ? (job.linkedinUrl?.replace("https://www.linkedin.com/in/", "") ?? "—")
+                            : (job.domain ?? "—")}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={() => runJob(job._id)}
+                            disabled={runningJobId === job._id || job.status === "processing"}
+                            className="rounded-lg border border-zinc-200 px-2.5 py-1 text-[12px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-40"
+                          >
+                            {runningJobId === job._id ? "Running..." : "Run"}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -290,7 +447,8 @@ export default function SkillsPage() {
           >
             <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4">
               <h2 className="text-[15px] font-semibold text-zinc-900">
-                {getSkillForType("linkedin_content") && showKeywordModal === getSkillForType("linkedin_content")?._id
+                {getSkillForType("linkedin_content") &&
+                showKeywordModal === getSkillForType("linkedin_content")?._id
                   ? "Update Keyword Filter"
                   : "Enable LinkedIn Content Tracking"}
               </h2>
@@ -307,7 +465,7 @@ export default function SkillsPage() {
               </button>
             </div>
             <div className="p-5">
-              <label className="block text-[13px] font-medium text-zinc-700 mb-1.5">
+              <label className="mb-1.5 block text-[13px] font-medium text-zinc-700">
                 Keyword Filter (optional)
               </label>
               <input
