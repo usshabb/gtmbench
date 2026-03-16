@@ -2,11 +2,11 @@ import cors from "cors";
 import express from "express";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
-import { getBuyerProfilesCollection, getBuyerSearchResultsCollection, getCompanyATSCollection, getJobsCollection, getLeadsCollection, getPersonsCollection, getSignalsCollection, getSkillJobsCollection, getSkillsCollection } from "./db.js";
+import { getBuyerProfilesCollection, getBuyerSearchResultsCollection, getCompanyATSCollection, getCompaniesCollection, getJobsCollection, getPersonsCollection, getSignalsCollection, getTriggerJobsCollection, getTriggersCollection } from "./db.js";
 import { env } from "./env.js";
 import { getEmailFromToken, requestOtp, verifyOtp } from "./auth.js";
 import { enrichDomainWithFiber, enrichPersonWithFiber, searchBuyersWithFiber } from "./fiber.js";
-import { startSkillsWorker, scheduleSkillsCron, triggerSkillsProcessing, createPendingJobs, enqueuePendingJobsForUser, enqueueSpecificJob } from "./skills-worker.js";
+import { startTriggersWorker, scheduleTriggersCron, triggerTriggersProcessing, createPendingJobs, enqueuePendingJobsForUser, enqueueSpecificJob } from "./triggers-worker.js";
 import { detectCompanyATS } from "./firecrawl.js";
 
 const app = express();
@@ -27,7 +27,7 @@ const verifySchema = z.object({
   code: z.string().min(4),
 });
 
-const createLeadSchema = z.object({
+const createCompanySchema = z.object({
   domain: z.string().min(3).toLowerCase(),
 });
 
@@ -122,62 +122,62 @@ app.get("/me", (_request, response) => {
   response.json({ email });
 });
 
-app.get("/leads", async (_request, response) => {
+app.get("/companies", async (_request, response) => {
   const userEmail = response.locals.userEmail as string;
-  const leadsCollection = await getLeadsCollection();
-  const leads = await leadsCollection.find({ userEmails: userEmail }).sort({ createdAt: -1 }).toArray();
-  response.json({ leads });
+  const companiesCollection = await getCompaniesCollection();
+  const companies = await companiesCollection.find({ userEmails: userEmail }).sort({ createdAt: -1 }).toArray();
+  response.json({ companies });
 });
 
-app.get("/leads/by-domain/:domain", async (request, response) => {
+app.get("/companies/by-domain/:domain", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
-  const leadsCollection = await getLeadsCollection();
-  const lead = await leadsCollection.findOne({ domain: request.params.domain, userEmails: userEmail });
-  if (!lead) {
-    response.status(404).json({ error: "Lead not found" });
+  const companiesCollection = await getCompaniesCollection();
+  const company = await companiesCollection.findOne({ domain: request.params.domain, userEmails: userEmail });
+  if (!company) {
+    response.status(404).json({ error: "Company not found" });
     return;
   }
-  response.json({ lead });
+  response.json({ company });
 });
 
-app.get("/leads/:id", async (request, response) => {
+app.get("/companies/:id", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
-  const leadsCollection = await getLeadsCollection();
-  let lead;
+  const companiesCollection = await getCompaniesCollection();
+  let company;
   try {
-    lead = await leadsCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+    company = await companiesCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
   } catch {
-    response.status(400).json({ error: "Invalid lead ID" });
+    response.status(400).json({ error: "Invalid company ID" });
     return;
   }
-  if (!lead) {
-    response.status(404).json({ error: "Lead not found" });
+  if (!company) {
+    response.status(404).json({ error: "Company not found" });
     return;
   }
-  response.json({ lead });
+  response.json({ company });
 });
 
-app.get("/leads/:id/persons", async (request, response) => {
+app.get("/companies/:id/persons", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
-  const leadsCollection = await getLeadsCollection();
-  let lead;
+  const companiesCollection = await getCompaniesCollection();
+  let company;
   try {
-    lead = await leadsCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+    company = await companiesCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
   } catch {
-    response.status(400).json({ error: "Invalid lead ID" });
+    response.status(400).json({ error: "Invalid company ID" });
     return;
   }
-  if (!lead) {
-    response.status(404).json({ error: "Lead not found" });
+  if (!company) {
+    response.status(404).json({ error: "Company not found" });
     return;
   }
   const personsCollection = await getPersonsCollection();
-  const persons = await personsCollection.find({ companyDomain: lead.domain, userEmails: userEmail }).sort({ createdAt: -1 }).toArray();
+  const persons = await personsCollection.find({ companyDomain: company.domain, userEmails: userEmail }).sort({ createdAt: -1 }).toArray();
   response.json({ persons });
 });
 
-app.post("/leads", async (request, response) => {
-  const parsed = createLeadSchema.safeParse(request.body);
+app.post("/companies", async (request, response) => {
+  const parsed = createCompanySchema.safeParse(request.body);
   if (!parsed.success) {
     response.status(400).json({ error: "Please provide a valid domain" });
     return;
@@ -185,42 +185,42 @@ app.post("/leads", async (request, response) => {
 
   const userEmail = response.locals.userEmail as string;
   const domain = sanitizeDomain(parsed.data.domain);
-  const leadsCollection = await getLeadsCollection();
+  const companiesCollection = await getCompaniesCollection();
 
-  // Check if this user already has this lead
-  const existingForUser = await leadsCollection.findOne({ domain, userEmails: userEmail });
+  // Check if this user already has this company
+  const existingForUser = await companiesCollection.findOne({ domain, userEmails: userEmail });
   if (existingForUser) {
-    response.status(409).json({ error: "Lead already exists", lead: existingForUser });
+    response.status(409).json({ error: "Company already exists", company: existingForUser });
     return;
   }
 
-  // Check if the lead exists but belongs to other users — just add the association
-  const existingLead = await leadsCollection.findOne({ domain });
-  if (existingLead) {
-    await leadsCollection.updateOne(
-      { _id: existingLead._id },
+  // Check if the company exists but belongs to other users — just add the association
+  const existingCompany = await companiesCollection.findOne({ domain });
+  if (existingCompany) {
+    await companiesCollection.updateOne(
+      { _id: existingCompany._id },
       { $addToSet: { userEmails: userEmail } },
     );
-    const updatedLead = await leadsCollection.findOne({ _id: existingLead._id });
-    response.status(201).json({ lead: updatedLead });
+    const updatedCompany = await companiesCollection.findOne({ _id: existingCompany._id });
+    response.status(201).json({ company: updatedCompany });
     return;
   }
 
-  // New domain — create lead and enrich
+  // New domain — create company and enrich
   const createdAt = new Date().toISOString();
-  const insertResult = await leadsCollection.insertOne({
+  const insertResult = await companiesCollection.insertOne({
     userEmails: [userEmail],
     domain,
     createdAt,
     enrichmentStatus: "pending",
   });
 
-  const leadId = insertResult.insertedId;
+  const companyId = insertResult.insertedId;
   const enrichment = await enrichDomainWithFiber(domain);
 
   if (enrichment.success) {
-    await leadsCollection.updateOne(
-      { _id: leadId },
+    await companiesCollection.updateOne(
+      { _id: companyId },
       {
         $set: {
           enrichedAt: new Date().toISOString(),
@@ -230,8 +230,8 @@ app.post("/leads", async (request, response) => {
       },
     );
   } else {
-    await leadsCollection.updateOne(
-      { _id: leadId },
+    await companiesCollection.updateOne(
+      { _id: companyId },
       {
         $set: {
           enrichedAt: new Date().toISOString(),
@@ -243,27 +243,27 @@ app.post("/leads", async (request, response) => {
     );
   }
 
-  const savedLead = await leadsCollection.findOne({ _id: leadId });
-  response.status(201).json({ lead: savedLead });
+  const savedCompany = await companiesCollection.findOne({ _id: companyId });
+  response.status(201).json({ company: savedCompany });
 });
 
-app.delete("/leads/:id", async (request, response) => {
+app.delete("/companies/:id", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
-  const leadsCollection = await getLeadsCollection();
+  const companiesCollection = await getCompaniesCollection();
 
   let result;
   try {
-    result = await leadsCollection.updateOne(
+    result = await companiesCollection.updateOne(
       { _id: new ObjectId(request.params.id), userEmails: userEmail },
       { $pull: { userEmails: userEmail } },
     );
   } catch {
-    response.status(400).json({ error: "Invalid lead ID" });
+    response.status(400).json({ error: "Invalid company ID" });
     return;
   }
 
   if (result.matchedCount === 0) {
-    response.status(404).json({ error: "Lead not found" });
+    response.status(404).json({ error: "Company not found" });
     return;
   }
 
@@ -385,17 +385,17 @@ app.post("/persons", async (request, response) => {
 
   // Auto-enrich the company if we found a domain
   if (companyDomain) {
-    const leadsCollection = await getLeadsCollection();
-    const existingLead = await leadsCollection.findOne({ domain: companyDomain });
-    if (existingLead) {
+    const companiesCollection = await getCompaniesCollection();
+    const existingCompany = await companiesCollection.findOne({ domain: companyDomain });
+    if (existingCompany) {
       // Just add user association if not already present
-      await leadsCollection.updateOne(
-        { _id: existingLead._id },
+      await companiesCollection.updateOne(
+        { _id: existingCompany._id },
         { $addToSet: { userEmails: userEmail } },
       );
     } else {
       // Create and enrich the company
-      const leadInsert = await leadsCollection.insertOne({
+      const companyInsert = await companiesCollection.insertOne({
         userEmails: [userEmail],
         domain: companyDomain,
         createdAt: new Date().toISOString(),
@@ -403,8 +403,8 @@ app.post("/persons", async (request, response) => {
       });
       const companyEnrichment = await enrichDomainWithFiber(companyDomain);
       if (companyEnrichment.success) {
-        await leadsCollection.updateOne(
-          { _id: leadInsert.insertedId },
+        await companiesCollection.updateOne(
+          { _id: companyInsert.insertedId },
           {
             $set: {
               enrichedAt: new Date().toISOString(),
@@ -414,8 +414,8 @@ app.post("/persons", async (request, response) => {
           },
         );
       } else {
-        await leadsCollection.updateOne(
-          { _id: leadInsert.insertedId },
+        await companiesCollection.updateOne(
+          { _id: companyInsert.insertedId },
           {
             $set: {
               enrichedAt: new Date().toISOString(),
@@ -600,8 +600,8 @@ const findBuyersSchema = z.object({
   cursor: z.string().nullable().optional(),
 });
 
-// GET cached buyer search results for a lead + profile
-app.get("/leads/:id/buyers", async (request, response) => {
+// GET cached buyer search results for a company + profile
+app.get("/companies/:id/buyers", async (request, response) => {
   const buyerProfileId = request.query.buyerProfileId as string;
   if (!buyerProfileId) {
     response.status(400).json({ error: "Please provide a buyerProfileId query param" });
@@ -610,10 +610,10 @@ app.get("/leads/:id/buyers", async (request, response) => {
 
   const userEmail = response.locals.userEmail as string;
 
-  let leadObjectId: ObjectId;
+  let companyObjectId: ObjectId;
   let profileObjectId: ObjectId;
   try {
-    leadObjectId = new ObjectId(request.params.id);
+    companyObjectId = new ObjectId(request.params.id);
     profileObjectId = new ObjectId(buyerProfileId);
   } catch {
     response.status(400).json({ error: "Invalid ID" });
@@ -621,7 +621,7 @@ app.get("/leads/:id/buyers", async (request, response) => {
   }
 
   const cache = await getBuyerSearchResultsCollection();
-  const existing = await cache.findOne({ leadId: leadObjectId, buyerProfileId: profileObjectId, userEmail });
+  const existing = await cache.findOne({ companyId: companyObjectId, buyerProfileId: profileObjectId, userEmail });
 
   if (!existing) {
     response.json({ result: null });
@@ -638,7 +638,7 @@ app.get("/leads/:id/buyers", async (request, response) => {
 });
 
 // POST to search Fiber and persist results
-app.post("/leads/:id/find-buyers", async (request, response) => {
+app.post("/companies/:id/find-buyers", async (request, response) => {
   const parsed = findBuyersSchema.safeParse(request.body);
   if (!parsed.success) {
     response.status(400).json({ error: "Please provide a buyer profile ID" });
@@ -647,17 +647,17 @@ app.post("/leads/:id/find-buyers", async (request, response) => {
 
   const userEmail = response.locals.userEmail as string;
 
-  // Get the lead
-  const leadsCollection = await getLeadsCollection();
-  let lead;
+  // Get the company
+  const companiesCollection = await getCompaniesCollection();
+  let company;
   try {
-    lead = await leadsCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+    company = await companiesCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
   } catch {
-    response.status(400).json({ error: "Invalid lead ID" });
+    response.status(400).json({ error: "Invalid company ID" });
     return;
   }
-  if (!lead) {
-    response.status(404).json({ error: "Lead not found" });
+  if (!company) {
+    response.status(404).json({ error: "Company not found" });
     return;
   }
 
@@ -678,7 +678,7 @@ app.post("/leads/:id/find-buyers", async (request, response) => {
   const cursor = parsed.data.cursor ?? null;
 
   // Search Fiber
-  const result = await searchBuyersWithFiber(lead.domain, buyerProfile.titles, cursor);
+  const result = await searchBuyersWithFiber(company.domain, buyerProfile.titles, cursor);
 
   if (!result.success) {
     response.status(502).json({ error: result.error ?? "Fiber search failed" });
@@ -690,23 +690,23 @@ app.post("/leads/:id/find-buyers", async (request, response) => {
   const newBuyers = (payload?.output?.data ?? []) as Record<string, unknown>[];
   const nextCursor = (payload?.output?.nextCursor as string | null) ?? null;
 
-  const leadObjectId = lead._id!;
+  const companyObjectId = company._id!;
   const buyerProfileObjectId = buyerProfile._id!;
   const cache = await getBuyerSearchResultsCollection();
 
   if (cursor) {
     // Load more — append to existing cache
     await cache.updateOne(
-      { leadId: leadObjectId, buyerProfileId: buyerProfileObjectId, userEmail },
+      { companyId: companyObjectId, buyerProfileId: buyerProfileObjectId, userEmail },
       { $push: { buyers: { $each: newBuyers } }, $set: { nextCursor } },
     );
   } else {
     // Fresh search — replace cache
     await cache.updateOne(
-      { leadId: leadObjectId, buyerProfileId: buyerProfileObjectId, userEmail },
+      { companyId: companyObjectId, buyerProfileId: buyerProfileObjectId, userEmail },
       {
         $set: {
-          leadId: leadObjectId,
+          companyId: companyObjectId,
           buyerProfileId: buyerProfileObjectId,
           userEmail,
           buyers: newBuyers,
@@ -725,53 +725,53 @@ app.post("/leads/:id/find-buyers", async (request, response) => {
 /*  Company ATS Detection endpoints                                    */
 /* ------------------------------------------------------------------ */
 
-// GET ATS information for a lead
-app.get("/leads/:id/ats", async (request, response) => {
+// GET ATS information for a company
+app.get("/companies/:id/ats", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
-  const leadsCollection = await getLeadsCollection();
+  const companiesCollection = await getCompaniesCollection();
 
-  let lead;
+  let company;
   try {
-    lead = await leadsCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+    company = await companiesCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
   } catch {
-    response.status(400).json({ error: "Invalid lead ID" });
+    response.status(400).json({ error: "Invalid company ID" });
     return;
   }
 
-  if (!lead) {
-    response.status(404).json({ error: "Lead not found" });
+  if (!company) {
+    response.status(404).json({ error: "Company not found" });
     return;
   }
 
   const atsCollection = await getCompanyATSCollection();
-  const atsRecord = await atsCollection.findOne({ leadId: lead._id! });
+  const atsRecord = await atsCollection.findOne({ companyId: company._id! });
 
   response.json({ ats: atsRecord ?? null });
 });
 
-// POST to detect ATS for a lead
-app.post("/leads/:id/detect-ats", async (request, response) => {
+// POST to detect ATS for a company
+app.post("/companies/:id/detect-ats", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
-  const leadsCollection = await getLeadsCollection();
+  const companiesCollection = await getCompaniesCollection();
 
-  let lead;
+  let company;
   try {
-    lead = await leadsCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+    company = await companiesCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
   } catch {
-    response.status(400).json({ error: "Invalid lead ID" });
+    response.status(400).json({ error: "Invalid company ID" });
     return;
   }
 
-  if (!lead) {
-    response.status(404).json({ error: "Lead not found" });
+  if (!company) {
+    response.status(404).json({ error: "Company not found" });
     return;
   }
 
   const atsCollection = await getCompanyATSCollection();
-  const leadId = lead._id!;
+  const companyId = company._id!;
 
   // Check if detection already exists
-  const existing = await atsCollection.findOne({ leadId });
+  const existing = await atsCollection.findOne({ companyId });
   if (existing) {
     response.json({ ats: existing, message: "ATS already detected" });
     return;
@@ -780,18 +780,18 @@ app.post("/leads/:id/detect-ats", async (request, response) => {
   // Create pending record
   const createdAt = new Date().toISOString();
   await atsCollection.insertOne({
-    leadId,
-    domain: lead.domain,
+    companyId,
+    domain: company.domain,
     detectedAt: createdAt,
     detectionStatus: "pending",
   });
 
   // Detect ATS
-  const detection = await detectCompanyATS(lead.domain);
+  const detection = await detectCompanyATS(company.domain);
 
   if (detection.success && detection.data) {
     await atsCollection.updateOne(
-      { leadId },
+      { companyId },
       {
         $set: {
           atsName: detection.data.atsName ?? null,
@@ -804,7 +804,7 @@ app.post("/leads/:id/detect-ats", async (request, response) => {
     );
   } else {
     await atsCollection.updateOne(
-      { leadId },
+      { companyId },
       {
         $set: {
           detectionStatus: "failed",
@@ -815,26 +815,26 @@ app.post("/leads/:id/detect-ats", async (request, response) => {
     );
   }
 
-  const updated = await atsCollection.findOne({ leadId });
+  const updated = await atsCollection.findOne({ companyId });
 
-  // If ATS was successfully detected with a careerPageUrl, create an ATSJobs skill job
-  // for any active ats_jobs skill this user has
+  // If ATS was successfully detected with a careerPageUrl, create an ATSJobs trigger job
+  // for any active ats_jobs trigger this user has
   if (detection.success && detection.data?.careerPageURL) {
     try {
-      const skillsCol = await getSkillsCollection();
-      const atsJobsSkill = await skillsCol.findOne({ userEmail, skillType: "ats_jobs", status: "active" });
+      const triggersCol = await getTriggersCollection();
+      const atsJobsTrigger = await triggersCol.findOne({ userEmail, triggerType: "ats_jobs", status: "active" });
 
-      if (atsJobsSkill) {
-        const skillJobsCol = await getSkillJobsCollection();
+      if (atsJobsTrigger) {
+        const triggerJobsCol = await getTriggerJobsCollection();
         const now2 = new Date().toISOString();
         try {
-          await skillJobsCol.insertOne({
-            skillId: atsJobsSkill._id!,
+          await triggerJobsCol.insertOne({
+            triggerId: atsJobsTrigger._id!,
             userEmail,
             jobType: "ATSJobs",
-            leadId,
+            companyId,
             atsUrl: detection.data.careerPageURL,
-            domain: lead.domain,
+            domain: company.domain,
             status: "pending",
             createdAt: now2,
           });
@@ -854,27 +854,27 @@ app.post("/leads/:id/detect-ats", async (request, response) => {
 /*  Jobs endpoints                                                       */
 /* ------------------------------------------------------------------ */
 
-// GET all jobs for a lead
-app.get("/leads/:id/jobs", async (request, response) => {
+// GET all jobs for a company
+app.get("/companies/:id/jobs", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
-  const leadsCollection = await getLeadsCollection();
+  const companiesCollection = await getCompaniesCollection();
 
-  let lead;
+  let company;
   try {
-    lead = await leadsCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+    company = await companiesCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
   } catch {
-    response.status(400).json({ error: "Invalid lead ID" });
+    response.status(400).json({ error: "Invalid company ID" });
     return;
   }
 
-  if (!lead) {
-    response.status(404).json({ error: "Lead not found" });
+  if (!company) {
+    response.status(404).json({ error: "Company not found" });
     return;
   }
 
   const jobsCol = await getJobsCollection();
   const jobs = await jobsCol
-    .find({ leadId: lead._id! })
+    .find({ companyId: company._id! })
     .sort({ fetchedAt: -1 })
     .limit(200)
     .toArray();
@@ -883,65 +883,65 @@ app.get("/leads/:id/jobs", async (request, response) => {
 });
 
 /* ------------------------------------------------------------------ */
-/*  Skills endpoints                                                     */
+/*  Triggers endpoints                                                   */
 /* ------------------------------------------------------------------ */
 
-const createSkillSchema = z.object({
-  skillType: z.enum(["linkedin_content", "ats_jobs"]),
+const createTriggerSchema = z.object({
+  triggerType: z.enum(["linkedin_content", "ats_jobs"]),
   keyword: z.string().nullable().optional(),
 });
 
-const updateSkillSchema = z.object({
+const updateTriggerSchema = z.object({
   keyword: z.string().nullable().optional(),
   status: z.enum(["active", "paused"]).optional(),
 });
 
-app.get("/skills", async (_request, response) => {
+app.get("/triggers", async (_request, response) => {
   const userEmail = response.locals.userEmail as string;
-  const collection = await getSkillsCollection();
-  const skills = await collection.find({ userEmail }).sort({ createdAt: -1 }).toArray();
-  response.json({ skills });
+  const collection = await getTriggersCollection();
+  const triggers = await collection.find({ userEmail }).sort({ createdAt: -1 }).toArray();
+  response.json({ triggers });
 });
 
-app.post("/skills", async (request, response) => {
-  const parsed = createSkillSchema.safeParse(request.body);
+app.post("/triggers", async (request, response) => {
+  const parsed = createTriggerSchema.safeParse(request.body);
   if (!parsed.success) {
-    response.status(400).json({ error: "Invalid skill configuration" });
+    response.status(400).json({ error: "Invalid trigger configuration" });
     return;
   }
 
   const userEmail = response.locals.userEmail as string;
-  const skillsCol = await getSkillsCollection();
+  const triggersCol = await getTriggersCollection();
 
-  // Check if skill already exists for this user
-  const existing = await skillsCol.findOne({ userEmail, skillType: parsed.data.skillType });
+  // Check if trigger already exists for this user
+  const existing = await triggersCol.findOne({ userEmail, triggerType: parsed.data.triggerType });
   if (existing) {
-    response.status(409).json({ error: "Skill already enabled", skill: existing });
+    response.status(409).json({ error: "Trigger already enabled", trigger: existing });
     return;
   }
 
   const now = new Date().toISOString();
-  const insertResult = await skillsCol.insertOne({
+  const insertResult = await triggersCol.insertOne({
     userEmail,
-    skillType: parsed.data.skillType,
+    triggerType: parsed.data.triggerType,
     config: { keyword: parsed.data.keyword ?? null },
     status: "active",
     createdAt: now,
     updatedAt: now,
   });
 
-  const skillId = insertResult.insertedId;
-  const skillJobsCol = await getSkillJobsCollection();
+  const triggerId = insertResult.insertedId;
+  const triggerJobsCol = await getTriggerJobsCollection();
   let jobsCreated = 0;
 
-  if (parsed.data.skillType === "linkedin_content") {
-    // Create SkillJob entries for all persons this user tracks
+  if (parsed.data.triggerType === "linkedin_content") {
+    // Create TriggerJob entries for all persons this user tracks
     const personsCol = await getPersonsCollection();
     const persons = await personsCol.find({ userEmails: userEmail }).toArray();
 
     if (persons.length > 0) {
       const jobDocs = persons.map((person) => ({
-        skillId,
+        triggerId,
         userEmail,
         jobType: "LinkedinPost" as const,
         personId: person._id!,
@@ -949,62 +949,62 @@ app.post("/skills", async (request, response) => {
         status: "pending" as const,
         createdAt: now,
       }));
-      await skillJobsCol.insertMany(jobDocs);
+      await triggerJobsCol.insertMany(jobDocs);
       jobsCreated = persons.length;
     }
-  } else if (parsed.data.skillType === "ats_jobs") {
-    // Create SkillJob entries for all leads with ATS detected and careerPageUrl set
-    const leadsCol = await getLeadsCollection();
+  } else if (parsed.data.triggerType === "ats_jobs") {
+    // Create TriggerJob entries for all companies with ATS detected and careerPageUrl set
+    const companiesCol = await getCompaniesCollection();
     const atsCol = await getCompanyATSCollection();
 
-    const userLeads = await leadsCol.find({ userEmails: userEmail }).toArray();
-    const leadIds = userLeads.map((l) => l._id!);
+    const userCompanies = await companiesCol.find({ userEmails: userEmail }).toArray();
+    const companyIds = userCompanies.map((c) => c._id!);
 
-    if (leadIds.length > 0) {
+    if (companyIds.length > 0) {
       const atsRecords = await atsCol
-        .find({ leadId: { $in: leadIds }, detectionStatus: "completed", careerPageUrl: { $ne: null } })
+        .find({ companyId: { $in: companyIds }, detectionStatus: "completed", careerPageUrl: { $ne: null } })
         .toArray();
 
       if (atsRecords.length > 0) {
         const jobDocs = atsRecords.map((ats) => ({
-          skillId,
+          triggerId,
           userEmail,
           jobType: "ATSJobs" as const,
-          leadId: ats.leadId,
+          companyId: ats.companyId,
           atsUrl: ats.careerPageUrl!,
           domain: ats.domain,
           status: "pending" as const,
           createdAt: now,
         }));
-        await skillJobsCol.insertMany(jobDocs, { ordered: false });
+        await triggerJobsCol.insertMany(jobDocs, { ordered: false });
         jobsCreated = atsRecords.length;
       }
     }
   }
 
-  const skill = await skillsCol.findOne({ _id: skillId });
-  response.status(201).json({ skill, jobsCreated });
+  const trigger = await triggersCol.findOne({ _id: triggerId });
+  response.status(201).json({ trigger, jobsCreated });
 });
 
-app.put("/skills/:id", async (request, response) => {
-  const parsed = updateSkillSchema.safeParse(request.body);
+app.put("/triggers/:id", async (request, response) => {
+  const parsed = updateTriggerSchema.safeParse(request.body);
   if (!parsed.success) {
     response.status(400).json({ error: "Invalid input" });
     return;
   }
 
   const userEmail = response.locals.userEmail as string;
-  const skillsCol = await getSkillsCollection();
+  const triggersCol = await getTriggersCollection();
 
-  let skill;
+  let trigger;
   try {
-    skill = await skillsCol.findOne({ _id: new ObjectId(request.params.id), userEmail });
+    trigger = await triggersCol.findOne({ _id: new ObjectId(request.params.id), userEmail });
   } catch {
-    response.status(400).json({ error: "Invalid skill ID" });
+    response.status(400).json({ error: "Invalid trigger ID" });
     return;
   }
-  if (!skill) {
-    response.status(404).json({ error: "Skill not found" });
+  if (!trigger) {
+    response.status(404).json({ error: "Trigger not found" });
     return;
   }
 
@@ -1012,70 +1012,70 @@ app.put("/skills/:id", async (request, response) => {
   if (parsed.data.keyword !== undefined) updateFields["config.keyword"] = parsed.data.keyword;
   if (parsed.data.status !== undefined) updateFields.status = parsed.data.status;
 
-  await skillsCol.updateOne({ _id: skill._id }, { $set: updateFields });
+  await triggersCol.updateOne({ _id: trigger._id }, { $set: updateFields });
 
-  const updated = await skillsCol.findOne({ _id: skill._id });
-  response.json({ skill: updated });
+  const updated = await triggersCol.findOne({ _id: trigger._id });
+  response.json({ trigger: updated });
 });
 
-app.delete("/skills/:id", async (request, response) => {
+app.delete("/triggers/:id", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
-  const skillsCol = await getSkillsCollection();
+  const triggersCol = await getTriggersCollection();
 
-  let skill;
+  let trigger;
   try {
-    skill = await skillsCol.findOne({ _id: new ObjectId(request.params.id), userEmail });
+    trigger = await triggersCol.findOne({ _id: new ObjectId(request.params.id), userEmail });
   } catch {
-    response.status(400).json({ error: "Invalid skill ID" });
+    response.status(400).json({ error: "Invalid trigger ID" });
     return;
   }
-  if (!skill) {
-    response.status(404).json({ error: "Skill not found" });
+  if (!trigger) {
+    response.status(404).json({ error: "Trigger not found" });
     return;
   }
 
-  // Delete the skill and all associated jobs
-  const skillJobsCol = await getSkillJobsCollection();
-  await skillJobsCol.deleteMany({ skillId: skill._id });
-  await skillsCol.deleteOne({ _id: skill._id });
+  // Delete the trigger and all associated jobs
+  const triggerJobsCol = await getTriggerJobsCollection();
+  await triggerJobsCol.deleteMany({ triggerId: trigger._id });
+  await triggersCol.deleteOne({ _id: trigger._id });
 
   response.json({ success: true });
 });
 
 // Manually trigger processing (for testing)
-app.post("/skills/trigger-processing", async (_request, response) => {
-  const count = await triggerSkillsProcessing();
+app.post("/triggers/trigger-processing", async (_request, response) => {
+  const count = await triggerTriggersProcessing();
   response.json({ success: true, jobsEnqueued: count });
 });
 
 /* ------------------------------------------------------------------ */
-/*  Skill Jobs endpoints                                                 */
+/*  Trigger Jobs endpoints                                               */
 /* ------------------------------------------------------------------ */
 
-// List all skill jobs for the current user
-app.get("/skill-jobs", async (_request, response) => {
+// List all trigger jobs for the current user
+app.get("/trigger-jobs", async (_request, response) => {
   const userEmail = response.locals.userEmail as string;
-  const skillJobsCol = await getSkillJobsCollection();
-  const jobs = await skillJobsCol.find({ userEmail }).sort({ createdAt: -1 }).limit(500).toArray();
+  const triggerJobsCol = await getTriggerJobsCollection();
+  const jobs = await triggerJobsCol.find({ userEmail }).sort({ createdAt: -1 }).limit(500).toArray();
   response.json({ jobs });
 });
 
 // Create / reset pending jobs (without running)
-app.post("/skill-jobs/create", async (_request, response) => {
+app.post("/trigger-jobs/create", async (_request, response) => {
   const userEmail = response.locals.userEmail as string;
   const count = await createPendingJobs(userEmail);
   response.json({ success: true, jobsCreated: count });
 });
 
 // Run all pending jobs for the current user
-app.post("/skill-jobs/run", async (_request, response) => {
+app.post("/trigger-jobs/run", async (_request, response) => {
   const userEmail = response.locals.userEmail as string;
   const count = await enqueuePendingJobsForUser(userEmail);
   response.json({ success: true, jobsEnqueued: count });
 });
 
 // Run a specific job by ID
-app.post("/skill-jobs/:id/run", async (request, response) => {
+app.post("/trigger-jobs/:id/run", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
   const success = await enqueueSpecificJob(request.params.id, userEmail);
   if (!success) {
@@ -1133,9 +1133,9 @@ app.listen(env.PORT, () => {
 
   // Start BullMQ worker and cron scheduler
   try {
-    startSkillsWorker();
-    scheduleSkillsCron();
+    startTriggersWorker();
+    scheduleTriggersCron();
   } catch (err) {
-    console.warn("[skills] Could not start worker/cron (Redis may not be available):", err);
+    console.warn("[triggers] Could not start worker/cron (Redis may not be available):", err);
   }
 });

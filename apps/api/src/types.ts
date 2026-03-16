@@ -1,6 +1,6 @@
 import type { ObjectId } from "mongodb";
 
-export interface LeadRecord {
+export interface CompanyRecord {
   _id?: ObjectId;
   userEmails: string[];
   domain: string;
@@ -23,7 +23,7 @@ export interface BuyerProfileRecord {
 
 export interface BuyerSearchResultRecord {
   _id?: ObjectId;
-  leadId: ObjectId;
+  companyId: ObjectId;
   buyerProfileId: ObjectId;
   userEmail: string;
   buyers: Record<string, unknown>[];
@@ -44,15 +44,15 @@ export interface PersonRecord {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Skills & Signals                                                    */
+/*  Triggers & Signals                                                  */
 /* ------------------------------------------------------------------ */
 
-export type SkillType = "linkedin_content" | "ats_jobs";
+export type TriggerType = "linkedin_content" | "ats_jobs";
 
-export interface SkillRecord {
+export interface TriggerRecord {
   _id?: ObjectId;
   userEmail: string;
-  skillType: SkillType;
+  triggerType: TriggerType;
   config: {
     keyword?: string | null; // optional keyword filter
   };
@@ -61,21 +61,21 @@ export interface SkillRecord {
   updatedAt: string;
 }
 
-export type SkillJobStatus = "pending" | "processing" | "completed" | "failed";
+export type TriggerJobStatus = "pending" | "processing" | "completed" | "failed";
 
-export interface SkillJobRecord {
+export interface TriggerJobRecord {
   _id?: ObjectId;
-  skillId: ObjectId;
+  triggerId: ObjectId;
   userEmail: string;
   jobType: "LinkedinPost" | "ATSJobs";
   // LinkedinPost fields
   personId?: ObjectId;
   linkedinUrl?: string;
   // ATSJobs fields
-  leadId?: ObjectId;
+  companyId?: ObjectId;
   atsUrl?: string;
   domain?: string;
-  status: SkillJobStatus;
+  status: TriggerJobStatus;
   lastProcessedAt?: string;
   error?: string;
   createdAt: string;
@@ -123,7 +123,7 @@ export interface LinkedinContentForPersonRecord {
 
 export interface JobRecord {
   _id?: ObjectId;
-  leadId: ObjectId;
+  companyId: ObjectId;
   domain: string;
   title: string;
   jobUrl?: string | null;
@@ -152,14 +152,14 @@ export interface ATSJobsSignalData {
 export interface SignalRecord {
   _id?: ObjectId;
   userEmail: string;
-  skillId: ObjectId;
+  triggerId: ObjectId;
   signalType: "linkedin_post" | "ats_new_job";
   // linkedin_post fields
   personId?: ObjectId;
   personName?: string;
   personLinkedinUrl?: string;
   // ats_new_job fields
-  leadId?: ObjectId;
+  companyId?: ObjectId;
   companyDomain?: string;
   signalDate?: string; // YYYY-MM-DD, used for per-day dedup of ats_new_job
   data: LinkedinPostData | ATSJobsSignalData;
@@ -173,7 +173,7 @@ export interface SignalRecord {
 
 export interface CompanyATSRecord {
   _id?: ObjectId;
-  leadId: ObjectId;
+  companyId: ObjectId;
   domain: string;
   atsName?: string | null;
   atsUrlSlug?: string | null;

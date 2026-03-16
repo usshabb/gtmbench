@@ -17,7 +17,7 @@ interface PersonRecord {
   enrichmentError?: string;
 }
 
-interface LeadRecord {
+interface CompanyRecord {
   _id?: string;
   domain: string;
   enrichmentData?: Record<string, unknown>;
@@ -62,7 +62,7 @@ export default function PersonDetailPage() {
 
   const [authToken, setAuthToken] = useState("");
   const [person, setPerson] = useState<PersonRecord | null>(null);
-  const [companyLead, setCompanyLead] = useState<LeadRecord | null>(null);
+  const [companyLead, setCompanyLead] = useState<CompanyRecord | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [isRemoving, setIsRemoving] = useState(false);
@@ -101,15 +101,15 @@ export default function PersonDetailPage() {
         const data = (await res.json()) as { person: PersonRecord };
         setPerson(data.person);
 
-        // If person has a company domain, fetch the company lead
+        // If person has a company domain, fetch the company
         if (data.person.companyDomain) {
           try {
-            const leadRes = await fetch(`${apiBaseUrl}/leads/by-domain/${data.person.companyDomain}`, {
+            const companyRes = await fetch(`${apiBaseUrl}/companies/by-domain/${data.person.companyDomain}`, {
               headers: { Authorization: `Bearer ${authToken}` },
             });
-            if (leadRes.ok) {
-              const leadData = (await leadRes.json()) as { lead: LeadRecord };
-              setCompanyLead(leadData.lead);
+            if (companyRes.ok) {
+              const companyData = (await companyRes.json()) as { company: CompanyRecord };
+              setCompanyLead(companyData.company);
             }
           } catch {
             // Company might not be enriched yet, that's fine
@@ -179,7 +179,7 @@ export default function PersonDetailPage() {
     { label: "Connections", value: data?.connection_count ? String(data.connection_count) : null },
   ].filter((s) => s.value != null);
 
-  // Company lead data for the card
+  // Company data for the card
   const companyData = companyLead ? getFiberData(companyLead) : null;
   const companyName = companyData?.preferred_name ?? companyLead?.domain;
   const companyLogo = companyData?.logo_url as string | undefined;
@@ -233,7 +233,7 @@ export default function PersonDetailPage() {
         {/* Company Card */}
         {companyLead && (
           <Link
-            href={`/dashboard/leads/${companyLead._id}`}
+            href={`/dashboard/companies/${companyLead._id}`}
             className="mt-6 flex items-center gap-4 rounded-xl border border-zinc-200 bg-zinc-50/50 px-5 py-4 transition-colors hover:bg-zinc-100/50"
           >
             <LetterAvatar name={companyName as string ?? "?"} size="md" rounded="lg" src={companyLogo} />

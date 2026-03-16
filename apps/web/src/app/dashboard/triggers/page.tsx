@@ -8,18 +8,18 @@ function getApiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 }
 
-interface Skill {
+interface Trigger {
   _id: string;
-  skillType: string;
+  triggerType: string;
   config: { keyword?: string | null };
   status: "active" | "paused";
   createdAt: string;
   updatedAt: string;
 }
 
-interface SkillJob {
+interface TriggerJob {
   _id: string;
-  skillId: string;
+  triggerId: string;
   userEmail: string;
   jobType: "LinkedinPost" | "ATSJobs";
   personId?: string;
@@ -33,7 +33,7 @@ interface SkillJob {
   createdAt: string;
 }
 
-const SKILL_DEFINITIONS = [
+const TRIGGER_DEFINITIONS = [
   {
     type: "linkedin_content",
     name: "LinkedIn Content",
@@ -50,7 +50,7 @@ const SKILL_DEFINITIONS = [
     type: "ats_jobs",
     name: "ATS Job Listings",
     description:
-      "Track job postings from companies in your leads list. When a new job is posted in the last 24 hours, it becomes a signal. Requires ATS detection to be run on your leads.",
+      "Track job postings from companies in your companies list. When a new job is posted in the last 24 hours, it becomes a signal. Requires ATS detection to be run on your companies.",
     hasKeyword: false,
     icon: (
       <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -61,20 +61,20 @@ const SKILL_DEFINITIONS = [
 ];
 
 
-export default function SkillsPage() {
+export default function TriggersPage() {
   const apiBaseUrl = getApiBaseUrl();
   const [token, setToken] = useState("");
-  const [activeTab, setActiveTab] = useState<"skills" | "jobs">("skills");
+  const [activeTab, setActiveTab] = useState<"triggers" | "jobs">("triggers");
 
-  // Skills state
-  const [skills, setSkills] = useState<Skill[]>([]);
+  // Triggers state
+  const [triggers, setTriggers] = useState<Trigger[]>([]);
   const [loading, setLoading] = useState(true);
   const [enabling, setEnabling] = useState(false);
   const [keywordInput, setKeywordInput] = useState("");
   const [showKeywordModal, setShowKeywordModal] = useState<string | null>(null);
 
   // Jobs state
-  const [jobs, setJobs] = useState<SkillJob[]>([]);
+  const [jobs, setJobs] = useState<TriggerJob[]>([]);
   const [jobsLoading, setJobsLoading] = useState(false);
   const [creatingJobs, setCreatingJobs] = useState(false);
   const [runningAll, setRunningAll] = useState(false);
@@ -83,7 +83,7 @@ export default function SkillsPage() {
   useEffect(() => {
     const t = window.localStorage.getItem(localStorageTokenKey) ?? "";
     setToken(t);
-    if (t) fetchSkills(t);
+    if (t) fetchTriggers(t);
   }, []);
 
   useEffect(() => {
@@ -92,14 +92,14 @@ export default function SkillsPage() {
     }
   }, [activeTab, token]);
 
-  async function fetchSkills(authToken: string) {
+  async function fetchTriggers(authToken: string) {
     setLoading(true);
     try {
-      const res = await fetch(`${apiBaseUrl}/skills`, {
+      const res = await fetch(`${apiBaseUrl}/triggers`, {
         headers: { Authorization: `Bearer ${authToken}` },
       });
-      const data = (await res.json()) as { skills: Skill[] };
-      setSkills(data.skills ?? []);
+      const data = (await res.json()) as { triggers: Trigger[] };
+      setTriggers(data.triggers ?? []);
     } catch {
       // ignore
     } finally {
@@ -110,10 +110,10 @@ export default function SkillsPage() {
   async function fetchJobs(authToken: string) {
     setJobsLoading(true);
     try {
-      const res = await fetch(`${apiBaseUrl}/skill-jobs`, {
+      const res = await fetch(`${apiBaseUrl}/trigger-jobs`, {
         headers: { Authorization: `Bearer ${authToken}` },
       });
-      const data = (await res.json()) as { jobs: SkillJob[] };
+      const data = (await res.json()) as { jobs: TriggerJob[] };
       setJobs(data.jobs ?? []);
     } catch {
       // ignore
@@ -122,23 +122,23 @@ export default function SkillsPage() {
     }
   }
 
-  function getSkillForType(type: string): Skill | undefined {
-    return skills.find((s) => s.skillType === type);
+  function getTriggerForType(type: string): Trigger | undefined {
+    return triggers.find((s) => s.triggerType === type);
   }
 
-  async function enableSkill(type: string, keyword: string | null) {
+  async function enableTrigger(type: string, keyword: string | null) {
     setEnabling(true);
     try {
-      const res = await fetch(`${apiBaseUrl}/skills`, {
+      const res = await fetch(`${apiBaseUrl}/triggers`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ skillType: type, keyword: keyword || null }),
+        body: JSON.stringify({ triggerType: type, keyword: keyword || null }),
       });
       if (res.ok) {
-        await fetchSkills(token);
+        await fetchTriggers(token);
       }
     } finally {
       setEnabling(false);
@@ -147,9 +147,9 @@ export default function SkillsPage() {
     }
   }
 
-  async function toggleSkillStatus(skill: Skill) {
-    const newStatus = skill.status === "active" ? "paused" : "active";
-    await fetch(`${apiBaseUrl}/skills/${skill._id}`, {
+  async function toggleTriggerStatus(trigger: Trigger) {
+    const newStatus = trigger.status === "active" ? "paused" : "active";
+    await fetch(`${apiBaseUrl}/triggers/${trigger._id}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -157,11 +157,11 @@ export default function SkillsPage() {
       },
       body: JSON.stringify({ status: newStatus }),
     });
-    await fetchSkills(token);
+    await fetchTriggers(token);
   }
 
-  async function updateKeyword(skill: Skill, keyword: string | null) {
-    await fetch(`${apiBaseUrl}/skills/${skill._id}`, {
+  async function updateKeyword(trigger: Trigger, keyword: string | null) {
+    await fetch(`${apiBaseUrl}/triggers/${trigger._id}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
@@ -169,21 +169,21 @@ export default function SkillsPage() {
       },
       body: JSON.stringify({ keyword }),
     });
-    await fetchSkills(token);
+    await fetchTriggers(token);
   }
 
-  async function disableSkill(skillId: string) {
-    await fetch(`${apiBaseUrl}/skills/${skillId}`, {
+  async function disableTrigger(triggerId: string) {
+    await fetch(`${apiBaseUrl}/triggers/${triggerId}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     });
-    await fetchSkills(token);
+    await fetchTriggers(token);
   }
 
   async function createJobs() {
     setCreatingJobs(true);
     try {
-      await fetch(`${apiBaseUrl}/skill-jobs/create`, {
+      await fetch(`${apiBaseUrl}/trigger-jobs/create`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -196,7 +196,7 @@ export default function SkillsPage() {
   async function runAllJobs() {
     setRunningAll(true);
     try {
-      await fetch(`${apiBaseUrl}/skill-jobs/run`, {
+      await fetch(`${apiBaseUrl}/trigger-jobs/run`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -209,7 +209,7 @@ export default function SkillsPage() {
   async function runJob(jobId: string) {
     setRunningJobId(jobId);
     try {
-      await fetch(`${apiBaseUrl}/skill-jobs/${jobId}/run`, {
+      await fetch(`${apiBaseUrl}/trigger-jobs/${jobId}/run`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -224,9 +224,9 @@ export default function SkillsPage() {
       {/* Page header */}
       <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
         <div>
-          <h1 className="text-lg font-semibold text-zinc-900">Skills</h1>
+          <h1 className="text-lg font-semibold text-zinc-900">Triggers</h1>
           <p className="text-[13px] text-zinc-500">
-            Enable skills to automatically track activity and generate signals
+            Enable triggers to automatically track activity and generate signals
           </p>
         </div>
         {activeTab === "jobs" && (
@@ -251,7 +251,7 @@ export default function SkillsPage() {
 
       {/* Tabs */}
       <div className="flex border-b border-zinc-200 px-6">
-        {(["skills", "jobs"] as const).map((tab) => (
+        {(["triggers", "jobs"] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -268,7 +268,7 @@ export default function SkillsPage() {
 
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto p-6">
-        {activeTab === "skills" && (
+        {activeTab === "triggers" && (
           <>
             {loading ? (
               <div className="flex justify-center py-12">
@@ -276,9 +276,9 @@ export default function SkillsPage() {
               </div>
             ) : (
               <div className="space-y-4">
-                {SKILL_DEFINITIONS.map((def) => {
-                  const skill = getSkillForType(def.type);
-                  const isEnabled = !!skill;
+                {TRIGGER_DEFINITIONS.map((def) => {
+                  const trigger = getTriggerForType(def.type);
+                  const isEnabled = !!trigger;
 
                   return (
                     <div key={def.type} className="rounded-xl border border-zinc-200 bg-white p-5">
@@ -295,29 +295,29 @@ export default function SkillsPage() {
                             <h3 className="text-[15px] font-semibold text-zinc-900">{def.name}</h3>
                             <p className="mt-0.5 max-w-md text-[13px] text-zinc-500">{def.description}</p>
 
-                            {skill && (
+                            {trigger && (
                               <div className="mt-3 flex flex-wrap items-center gap-2">
                                 <span
                                   className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                                    skill.status === "active"
+                                    trigger.status === "active"
                                       ? "bg-green-50 text-green-700"
                                       : "bg-yellow-50 text-yellow-700"
                                   }`}
                                 >
-                                  {skill.status === "active" ? "Active" : "Paused"}
+                                  {trigger.status === "active" ? "Active" : "Paused"}
                                 </span>
-                                {def.hasKeyword && skill.config.keyword && (
+                                {def.hasKeyword && trigger.config.keyword && (
                                   <span className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600">
-                                    Keyword: &quot;{skill.config.keyword}&quot;
+                                    Keyword: &quot;{trigger.config.keyword}&quot;
                                     <button
-                                      onClick={() => updateKeyword(skill, null)}
+                                      onClick={() => updateKeyword(trigger, null)}
                                       className="ml-0.5 text-zinc-400 hover:text-zinc-600"
                                     >
                                       &times;
                                     </button>
                                   </span>
                                 )}
-                                {def.hasKeyword && !skill.config.keyword && (
+                                {def.hasKeyword && !trigger.config.keyword && (
                                   <span className="inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] text-zinc-500">
                                     All posts tracked
                                   </span>
@@ -331,20 +331,20 @@ export default function SkillsPage() {
                           {isEnabled ? (
                             <>
                               <button
-                                onClick={() => toggleSkillStatus(skill!)}
+                                onClick={() => toggleTriggerStatus(trigger!)}
                                 className={`rounded-lg border px-3 py-1.5 text-[13px] font-medium transition-colors ${
-                                  skill!.status === "active"
+                                  trigger!.status === "active"
                                     ? "border-yellow-200 text-yellow-700 hover:bg-yellow-50"
                                     : "border-green-200 text-green-700 hover:bg-green-50"
                                 }`}
                               >
-                                {skill!.status === "active" ? "Pause" : "Resume"}
+                                {trigger!.status === "active" ? "Pause" : "Resume"}
                               </button>
                               {def.hasKeyword && (
                                 <button
                                   onClick={() => {
-                                    setShowKeywordModal(skill!._id);
-                                    setKeywordInput(skill!.config.keyword ?? "");
+                                    setShowKeywordModal(trigger!._id);
+                                    setKeywordInput(trigger!.config.keyword ?? "");
                                   }}
                                   className="rounded-lg border border-zinc-200 px-3 py-1.5 text-[13px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50"
                                 >
@@ -352,7 +352,7 @@ export default function SkillsPage() {
                                 </button>
                               )}
                               <button
-                                onClick={() => disableSkill(skill!._id)}
+                                onClick={() => disableTrigger(trigger!._id)}
                                 className="rounded-lg border border-red-200 px-3 py-1.5 text-[13px] font-medium text-red-600 transition-colors hover:bg-red-50"
                               >
                                 Disable
@@ -361,7 +361,7 @@ export default function SkillsPage() {
                           ) : (
                             <button
                               onClick={() =>
-                                def.hasKeyword ? setShowKeywordModal(def.type) : enableSkill(def.type, null)
+                                def.hasKeyword ? setShowKeywordModal(def.type) : enableTrigger(def.type, null)
                               }
                               disabled={enabling}
                               className="rounded-lg bg-zinc-900 px-4 py-1.5 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
@@ -389,7 +389,7 @@ export default function SkillsPage() {
               <div className="flex flex-col items-center justify-center py-16 text-center">
                 <p className="text-[14px] font-medium text-zinc-500">No pending jobs</p>
                 <p className="mt-1 text-[13px] text-zinc-400">
-                  Click &ldquo;Create Jobs&rdquo; to generate jobs for your active skills.
+                  Click &ldquo;Create Jobs&rdquo; to generate jobs for your active triggers.
                 </p>
               </div>
             ) : (
@@ -447,8 +447,8 @@ export default function SkillsPage() {
           >
             <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4">
               <h2 className="text-[15px] font-semibold text-zinc-900">
-                {getSkillForType("linkedin_content") &&
-                showKeywordModal === getSkillForType("linkedin_content")?._id
+                {getTriggerForType("linkedin_content") &&
+                showKeywordModal === getTriggerForType("linkedin_content")?._id
                   ? "Update Keyword Filter"
                   : "Enable LinkedIn Content Tracking"}
               </h2>
@@ -492,13 +492,13 @@ export default function SkillsPage() {
                 </button>
                 <button
                   onClick={async () => {
-                    const existingSkill = getSkillForType("linkedin_content");
-                    if (existingSkill && showKeywordModal === existingSkill._id) {
-                      await updateKeyword(existingSkill, keywordInput || null);
+                    const existingTrigger = getTriggerForType("linkedin_content");
+                    if (existingTrigger && showKeywordModal === existingTrigger._id) {
+                      await updateKeyword(existingTrigger, keywordInput || null);
                       setShowKeywordModal(null);
                       setKeywordInput("");
                     } else {
-                      await enableSkill("linkedin_content", keywordInput || null);
+                      await enableTrigger("linkedin_content", keywordInput || null);
                     }
                   }}
                   disabled={enabling}

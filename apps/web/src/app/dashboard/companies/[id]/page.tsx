@@ -5,7 +5,7 @@ import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import { LetterAvatar } from "../../components";
 
-interface LeadRecord {
+interface CompanyRecord {
   _id?: string;
   userEmails: string[];
   domain: string;
@@ -98,11 +98,11 @@ type TabType = "overview" | "buyers";
 /* ------------------------------------------------------------------ */
 
 function BuyersTab({
-  leadId,
+  companyId,
   apiBaseUrl,
   authToken,
 }: {
-  leadId: string;
+  companyId: string;
   apiBaseUrl: string;
   authToken: string;
 }) {
@@ -146,7 +146,7 @@ function BuyersTab({
     setNextCursor(null);
     setSearchError("");
 
-    void fetch(`${apiBaseUrl}/leads/${leadId}/buyers?buyerProfileId=${selectedProfileId}`, {
+    void fetch(`${apiBaseUrl}/companies/${companyId}/buyers?buyerProfileId=${selectedProfileId}`, {
       headers: { Authorization: `Bearer ${authToken}` },
     })
       .then(async (res) => {
@@ -161,7 +161,7 @@ function BuyersTab({
         }
       })
       .catch(() => {});
-  }, [apiBaseUrl, authToken, leadId, selectedProfileId]);
+  }, [apiBaseUrl, authToken, companyId, selectedProfileId]);
 
   async function handleSearch(cursor: string | null = null) {
     if (!selectedProfileId) return;
@@ -176,7 +176,7 @@ function BuyersTab({
     setSearchError("");
 
     try {
-      const response = await fetch(`${apiBaseUrl}/leads/${leadId}/find-buyers`, {
+      const response = await fetch(`${apiBaseUrl}/companies/${companyId}/find-buyers`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -447,17 +447,17 @@ function BuyersTab({
 }
 
 /* ------------------------------------------------------------------ */
-/*  Lead Detail Page                                                    */
+/*  Company Detail Page                                                 */
 /* ------------------------------------------------------------------ */
 
-export default function LeadDetailPage() {
+export default function CompanyDetailPage() {
   const router = useRouter();
   const params = useParams();
   const id = params.id as string;
   const apiBaseUrl = useMemo(() => getApiBaseUrl(), []);
 
   const [authToken, setAuthToken] = useState("");
-  const [lead, setLead] = useState<LeadRecord | null>(null);
+  const [company, setCompany] = useState<CompanyRecord | null>(null);
   const [persons, setPersons] = useState<PersonRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
@@ -470,17 +470,17 @@ export default function LeadDetailPage() {
     if (!authToken || !id) return;
     setIsRemoving(true);
     try {
-      const res = await fetch(`${apiBaseUrl}/leads/${id}`, {
+      const res = await fetch(`${apiBaseUrl}/companies/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${authToken}` },
       });
       if (!res.ok) {
         const data = (await res.json()) as { error?: string };
-        throw new Error(data.error ?? "Could not remove lead");
+        throw new Error(data.error ?? "Could not remove company");
       }
-      router.replace("/dashboard/leads");
+      router.replace("/dashboard/companies");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not remove lead");
+      setError(err instanceof Error ? err.message : "Could not remove company");
       setIsRemoving(false);
     }
   }
@@ -495,14 +495,14 @@ export default function LeadDetailPage() {
     if (!authToken || !id) return;
 
     Promise.all([
-      fetch(`${apiBaseUrl}/leads/${id}`, { headers: { Authorization: `Bearer ${authToken}` } }),
-      fetch(`${apiBaseUrl}/leads/${id}/persons`, { headers: { Authorization: `Bearer ${authToken}` } }),
-      fetch(`${apiBaseUrl}/leads/${id}/ats`, { headers: { Authorization: `Bearer ${authToken}` } }),
+      fetch(`${apiBaseUrl}/companies/${id}`, { headers: { Authorization: `Bearer ${authToken}` } }),
+      fetch(`${apiBaseUrl}/companies/${id}/persons`, { headers: { Authorization: `Bearer ${authToken}` } }),
+      fetch(`${apiBaseUrl}/companies/${id}/ats`, { headers: { Authorization: `Bearer ${authToken}` } }),
     ])
-      .then(async ([leadRes, personsRes, atsRes]) => {
-        if (!leadRes.ok) throw new Error("Lead not found");
-        const leadData = (await leadRes.json()) as { lead: LeadRecord };
-        setLead(leadData.lead);
+      .then(async ([companyRes, personsRes, atsRes]) => {
+        if (!companyRes.ok) throw new Error("Company not found");
+        const companyData = (await companyRes.json()) as { company: CompanyRecord };
+        setCompany(companyData.company);
 
         if (personsRes.ok) {
           const personsData = (await personsRes.json()) as { persons: PersonRecord[] };
@@ -515,7 +515,7 @@ export default function LeadDetailPage() {
         }
       })
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : "Could not load lead");
+        setError(err instanceof Error ? err.message : "Could not load company");
       })
       .finally(() => setIsLoading(false));
   }, [apiBaseUrl, authToken, id]);
@@ -524,7 +524,7 @@ export default function LeadDetailPage() {
     if (!authToken || !id) return;
     setIsDetectingATS(true);
     try {
-      const res = await fetch(`${apiBaseUrl}/leads/${id}/detect-ats`, {
+      const res = await fetch(`${apiBaseUrl}/companies/${id}/detect-ats`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -552,17 +552,17 @@ export default function LeadDetailPage() {
     );
   }
 
-  if (error || !lead) {
+  if (error || !company) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3">
-        <p className="text-sm text-zinc-500">{error || "Lead not found"}</p>
+        <p className="text-sm text-zinc-500">{error || "Company not found"}</p>
         <button onClick={() => router.back()} className="text-sm text-zinc-600 underline hover:text-zinc-900">Go back</button>
       </div>
     );
   }
 
-  const data = getFiberData(lead);
-  const name = (data?.preferred_name ?? lead.domain) as string;
+  const data = getFiberData(company);
+  const name = (data?.preferred_name ?? company.domain) as string;
   const logoUrl = data?.logo_url as string | undefined;
   const headline = data?.li_headline as string | undefined;
   const description = (data?.short_description ?? data?.li_description) as string | undefined;
@@ -625,7 +625,7 @@ export default function LeadDetailPage() {
           <button onClick={() => router.back()} className="rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600">
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
           </button>
-          <span className="flex-1 text-sm text-zinc-500">Back to Leads</span>
+          <span className="flex-1 text-sm text-zinc-500">Back to Companies</span>
           <button
             onClick={handleRemove}
             disabled={isRemoving}
@@ -847,7 +847,7 @@ export default function LeadDetailPage() {
           </div>
         ) : (
           <div className="mt-6">
-            <BuyersTab leadId={id} apiBaseUrl={apiBaseUrl} authToken={authToken} />
+            <BuyersTab companyId={id} apiBaseUrl={apiBaseUrl} authToken={authToken} />
           </div>
         )}
 

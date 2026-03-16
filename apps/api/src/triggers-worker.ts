@@ -1,12 +1,12 @@
 import { Queue, Worker } from "bullmq";
 import { ObjectId } from "mongodb";
 import { env } from "./env.js";
-import { getCompanyATSCollection, getJobsCollection, getLeadsCollection, getLinkedinContentForPersonCollection, getPersonsCollection, getSignalsCollection, getSkillJobsCollection, getSkillsCollection } from "./db.js";
+import { getCompaniesCollection, getCompanyATSCollection, getJobsCollection, getLinkedinContentForPersonCollection, getPersonsCollection, getSignalsCollection, getTriggerJobsCollection, getTriggersCollection } from "./db.js";
 import { fetchLinkedinPosts } from "./linkedin.js";
 import { fetchATSJobs } from "./parallel.js";
 import type { ATSJobsSignalData, JobData, LinkedinPostData } from "./types.js";
 
-const QUEUE_NAME = "skill-jobs";
+const QUEUE_NAME = "trigger-jobs";
 const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
 
 // Rate limit: 60 req/min from Fiber = 1 req/sec
@@ -29,7 +29,7 @@ function getRedisOpts() {
 
 let queue: Queue | null = null;
 
-export function getSkillJobQueue(): Queue {
+export function getTriggerJobQueue(): Queue {
   if (!queue) {
     queue = new Queue(QUEUE_NAME, {
       connection: getRedisOpts(),
@@ -46,8 +46,8 @@ export function getSkillJobQueue(): Queue {
 
 interface LinkedinPostJobData {
   type: "LinkedinPost";
-  skillJobId: string;
-  skillId: string;
+  triggerJobId: string;
+  triggerId: string;
   userEmail: string;
   personId: string;
   linkedinUrl: string;
@@ -57,50 +57,50 @@ interface LinkedinPostJobData {
 
 interface ATSJobsJobData {
   type: "ATSJobs";
-  skillJobId: string;
-  skillId: string;
+  triggerJobId: string;
+  triggerId: string;
   userEmail: string;
-  leadId: string;
+  companyId: string;
   atsUrl: string;
   domain: string;
 }
 
-type SkillJobData = LinkedinPostJobData | ATSJobsJobData;
+type TriggerJobData = LinkedinPostJobData | ATSJobsJobData;
 
 /**
- * Enqueue all pending SkillJobs for processing.
+ * Enqueue all pending TriggerJobs for processing.
  * Called by the midnight cron.
  */
 export async function enqueueAllPendingJobs(): Promise<number> {
-  const skillJobsCol = await getSkillJobsCollection();
-  const skillsCol = await getSkillsCollection();
+  const triggerJobsCol = await getTriggerJobsCollection();
+  const triggersCol = await getTriggersCollection();
 
-  // Only process jobs for active skills
-  const activeSkills = await skillsCol.find({ status: "active" }).toArray();
-  const activeSkillIds = new Set(activeSkills.map((s) => s._id!.toHexString()));
-  const skillConfigMap = new Map(activeSkills.map((s) => [s._id!.toHexString(), s]));
+  // Only process jobs for active triggers
+  const activeTriggers = await triggersCol.find({ status: "active" }).toArray();
+  const activeTriggerIds = new Set(activeTriggers.map((s) => s._id!.toHexString()));
+  const triggerConfigMap = new Map(activeTriggers.map((s) => [s._id!.toHexString(), s]));
 
-  // Reset all jobs for active skills back to pending for the new day's run
-  await skillJobsCol.updateMany(
-    { skillId: { $in: activeSkills.map((s) => s._id!) }, status: { $in: ["completed", "failed"] } },
+  // Reset all jobs for active triggers back to pending for the new day's run
+  await triggerJobsCol.updateMany(
+    { triggerId: { $in: activeTriggers.map((s) => s._id!) }, status: { $in: ["completed", "failed"] } },
     { $set: { status: "pending" } },
   );
 
-  const pendingJobs = await skillJobsCol.find({ status: "pending" }).toArray();
-  const jobQueue = getSkillJobQueue();
+  const pendingJobs = await triggerJobsCol.find({ status: "pending" }).toArray();
+  const jobQueue = getTriggerJobQueue();
   let enqueued = 0;
 
   // Enqueue in batches for parallel processing
   const bulkJobs = pendingJobs
-    .filter((job) => activeSkillIds.has(job.skillId.toHexString()))
+    .filter((job) => activeTriggerIds.has(job.triggerId.toHexString()))
     .map((job) => {
       if (job.jobType === "ATSJobs") {
         const jobData: ATSJobsJobData = {
           type: "ATSJobs",
-          skillJobId: job._id!.toHexString(),
-          skillId: job.skillId.toHexString(),
+          triggerJobId: job._id!.toHexString(),
+          triggerId: job.triggerId.toHexString(),
           userEmail: job.userEmail,
-          leadId: job.leadId!.toHexString(),
+          companyId: job.companyId!.toHexString(),
           atsUrl: job.atsUrl!,
           domain: job.domain!,
         };
@@ -110,15 +110,15 @@ export async function enqueueAllPendingJobs(): Promise<number> {
           opts: { jobId: `ats-${job._id!.toHexString()}-${Date.now()}` },
         };
       }
-      const skill = skillConfigMap.get(job.skillId.toHexString());
+      const trigger = triggerConfigMap.get(job.triggerId.toHexString());
       const jobData: LinkedinPostJobData = {
         type: "LinkedinPost",
-        skillJobId: job._id!.toHexString(),
-        skillId: job.skillId.toHexString(),
+        triggerJobId: job._id!.toHexString(),
+        triggerId: job.triggerId.toHexString(),
         userEmail: job.userEmail,
         personId: job.personId!.toHexString(),
         linkedinUrl: job.linkedinUrl!,
-        keyword: skill?.config?.keyword ?? null,
+        keyword: trigger?.config?.keyword ?? null,
         personName: "", // Will be resolved from the linkedinUrl slug
       };
       return {
@@ -133,38 +133,38 @@ export async function enqueueAllPendingJobs(): Promise<number> {
     enqueued = bulkJobs.length;
   }
 
-  console.log(`[skills-worker] Enqueued ${enqueued} LinkedIn post jobs`);
+  console.log(`[triggers-worker] Enqueued ${enqueued} LinkedIn post jobs`);
   return enqueued;
 }
 
 /**
- * Create/sync pending skill jobs for a specific user without running them.
+ * Create/sync pending trigger jobs for a specific user without running them.
  * Resets completed/failed jobs to pending and inserts any missing ones.
  */
 export async function createPendingJobs(userEmail: string): Promise<number> {
-  const skillsCol = await getSkillsCollection();
-  const skillJobsCol = await getSkillJobsCollection();
+  const triggersCol = await getTriggersCollection();
+  const triggerJobsCol = await getTriggerJobsCollection();
 
-  const activeSkills = await skillsCol.find({ userEmail, status: "active" }).toArray();
-  if (activeSkills.length === 0) return 0;
+  const activeTriggers = await triggersCol.find({ userEmail, status: "active" }).toArray();
+  if (activeTriggers.length === 0) return 0;
 
   // Reset completed/failed jobs back to pending
-  const resetResult = await skillJobsCol.updateMany(
-    { userEmail, skillId: { $in: activeSkills.map((s) => s._id!) }, status: { $in: ["completed", "failed"] } },
+  const resetResult = await triggerJobsCol.updateMany(
+    { userEmail, triggerId: { $in: activeTriggers.map((s) => s._id!) }, status: { $in: ["completed", "failed"] } },
     { $set: { status: "pending" } },
   );
 
   let created = resetResult.modifiedCount;
   const now = new Date().toISOString();
 
-  for (const skill of activeSkills) {
-    if (skill.skillType === "linkedin_content") {
+  for (const trigger of activeTriggers) {
+    if (trigger.triggerType === "linkedin_content") {
       const personsCol = await getPersonsCollection();
       const persons = await personsCol.find({ userEmails: userEmail }).toArray();
       for (const person of persons) {
         try {
-          await skillJobsCol.insertOne({
-            skillId: skill._id!,
+          await triggerJobsCol.insertOne({
+            triggerId: trigger._id!,
             userEmail,
             jobType: "LinkedinPost",
             personId: person._id!,
@@ -177,22 +177,22 @@ export async function createPendingJobs(userEmail: string): Promise<number> {
           // Already exists (unique index) — skip
         }
       }
-    } else if (skill.skillType === "ats_jobs") {
-      const leadsCol = await getLeadsCollection();
+    } else if (trigger.triggerType === "ats_jobs") {
+      const companiesCol = await getCompaniesCollection();
       const atsCol = await getCompanyATSCollection();
-      const userLeads = await leadsCol.find({ userEmails: userEmail }).toArray();
-      const leadIds = userLeads.map((l) => l._id!);
-      if (leadIds.length > 0) {
+      const userCompanies = await companiesCol.find({ userEmails: userEmail }).toArray();
+      const companyIds = userCompanies.map((c) => c._id!);
+      if (companyIds.length > 0) {
         const atsRecords = await atsCol
-          .find({ leadId: { $in: leadIds }, detectionStatus: "completed", careerPageUrl: { $ne: null } })
+          .find({ companyId: { $in: companyIds }, detectionStatus: "completed", careerPageUrl: { $ne: null } })
           .toArray();
         for (const ats of atsRecords) {
           try {
-            await skillJobsCol.insertOne({
-              skillId: skill._id!,
+            await triggerJobsCol.insertOne({
+              triggerId: trigger._id!,
               userEmail,
               jobType: "ATSJobs",
-              leadId: ats.leadId,
+              companyId: ats.companyId,
               atsUrl: ats.careerPageUrl!,
               domain: ats.domain,
               status: "pending",
@@ -211,43 +211,43 @@ export async function createPendingJobs(userEmail: string): Promise<number> {
 }
 
 /**
- * Enqueue all pending skill jobs for a specific user (without resetting status).
+ * Enqueue all pending trigger jobs for a specific user (without resetting status).
  */
 export async function enqueuePendingJobsForUser(userEmail: string): Promise<number> {
-  const skillJobsCol = await getSkillJobsCollection();
-  const skillsCol = await getSkillsCollection();
+  const triggerJobsCol = await getTriggerJobsCollection();
+  const triggersCol = await getTriggersCollection();
 
-  const activeSkills = await skillsCol.find({ userEmail, status: "active" }).toArray();
-  const activeSkillIds = new Set(activeSkills.map((s) => s._id!.toHexString()));
-  const skillConfigMap = new Map(activeSkills.map((s) => [s._id!.toHexString(), s]));
+  const activeTriggers = await triggersCol.find({ userEmail, status: "active" }).toArray();
+  const activeTriggerIds = new Set(activeTriggers.map((s) => s._id!.toHexString()));
+  const triggerConfigMap = new Map(activeTriggers.map((s) => [s._id!.toHexString(), s]));
 
-  const pendingJobs = await skillJobsCol.find({ userEmail, status: "pending" }).toArray();
-  const jobQueue = getSkillJobQueue();
+  const pendingJobs = await triggerJobsCol.find({ userEmail, status: "pending" }).toArray();
+  const jobQueue = getTriggerJobQueue();
 
   const bulkJobs = pendingJobs
-    .filter((job) => activeSkillIds.has(job.skillId.toHexString()))
+    .filter((job) => activeTriggerIds.has(job.triggerId.toHexString()))
     .map((job) => {
       if (job.jobType === "ATSJobs") {
         const data: ATSJobsJobData = {
           type: "ATSJobs",
-          skillJobId: job._id!.toHexString(),
-          skillId: job.skillId.toHexString(),
+          triggerJobId: job._id!.toHexString(),
+          triggerId: job.triggerId.toHexString(),
           userEmail: job.userEmail,
-          leadId: job.leadId!.toHexString(),
+          companyId: job.companyId!.toHexString(),
           atsUrl: job.atsUrl!,
           domain: job.domain!,
         };
         return { name: "ats-jobs", data, opts: { jobId: `ats-${job._id!.toHexString()}-${Date.now()}` } };
       }
-      const skill = skillConfigMap.get(job.skillId.toHexString());
+      const trigger = triggerConfigMap.get(job.triggerId.toHexString());
       const data: LinkedinPostJobData = {
         type: "LinkedinPost",
-        skillJobId: job._id!.toHexString(),
-        skillId: job.skillId.toHexString(),
+        triggerJobId: job._id!.toHexString(),
+        triggerId: job.triggerId.toHexString(),
         userEmail: job.userEmail,
         personId: job.personId!.toHexString(),
         linkedinUrl: job.linkedinUrl!,
-        keyword: skill?.config?.keyword ?? null,
+        keyword: trigger?.config?.keyword ?? null,
         personName: "",
       };
       return { name: "linkedin-post", data, opts: { jobId: `lp-${job._id!.toHexString()}-${Date.now()}` } };
@@ -261,36 +261,36 @@ export async function enqueuePendingJobsForUser(userEmail: string): Promise<numb
 }
 
 /**
- * Enqueue a single skill job by ID (resets it to pending first if needed).
+ * Enqueue a single trigger job by ID (resets it to pending first if needed).
  */
-export async function enqueueSpecificJob(skillJobId: string, userEmail: string): Promise<boolean> {
-  const skillJobsCol = await getSkillJobsCollection();
-  const skillsCol = await getSkillsCollection();
+export async function enqueueSpecificJob(triggerJobId: string, userEmail: string): Promise<boolean> {
+  const triggerJobsCol = await getTriggerJobsCollection();
+  const triggersCol = await getTriggersCollection();
 
   let job;
   try {
-    job = await skillJobsCol.findOne({ _id: new ObjectId(skillJobId), userEmail });
+    job = await triggerJobsCol.findOne({ _id: new ObjectId(triggerJobId), userEmail });
   } catch {
     return false;
   }
   if (!job) return false;
 
   if (job.status !== "pending" && job.status !== "processing") {
-    await skillJobsCol.updateOne({ _id: job._id }, { $set: { status: "pending" } });
+    await triggerJobsCol.updateOne({ _id: job._id }, { $set: { status: "pending" } });
   }
 
-  const skill = await skillsCol.findOne({ _id: job.skillId });
-  const jobQueue = getSkillJobQueue();
+  const trigger = await triggersCol.findOne({ _id: job.triggerId });
+  const jobQueue = getTriggerJobQueue();
 
   if (job.jobType === "ATSJobs") {
     await jobQueue.add(
       "ats-jobs",
       {
         type: "ATSJobs",
-        skillJobId: job._id!.toHexString(),
-        skillId: job.skillId.toHexString(),
+        triggerJobId: job._id!.toHexString(),
+        triggerId: job.triggerId.toHexString(),
         userEmail: job.userEmail,
-        leadId: job.leadId!.toHexString(),
+        companyId: job.companyId!.toHexString(),
         atsUrl: job.atsUrl!,
         domain: job.domain!,
       } satisfies ATSJobsJobData,
@@ -301,12 +301,12 @@ export async function enqueueSpecificJob(skillJobId: string, userEmail: string):
       "linkedin-post",
       {
         type: "LinkedinPost",
-        skillJobId: job._id!.toHexString(),
-        skillId: job.skillId.toHexString(),
+        triggerJobId: job._id!.toHexString(),
+        triggerId: job.triggerId.toHexString(),
         userEmail: job.userEmail,
         personId: job.personId!.toHexString(),
         linkedinUrl: job.linkedinUrl!,
-        keyword: skill?.config?.keyword ?? null,
+        keyword: trigger?.config?.keyword ?? null,
         personName: "",
       } satisfies LinkedinPostJobData,
       { jobId: `lp-${job._id!.toHexString()}-${Date.now()}` },
@@ -324,19 +324,19 @@ export async function enqueueSpecificJob(skillJobId: string, userEmail: string):
  * 4. Insert matching posts as signals
  */
 async function processLinkedinPostJob(jobData: LinkedinPostJobData): Promise<void> {
-  const skillJobsCol = await getSkillJobsCollection();
+  const triggerJobsCol = await getTriggerJobsCollection();
   const signalsCol = await getSignalsCollection();
-  const skillJobId = new ObjectId(jobData.skillJobId);
+  const triggerJobId = new ObjectId(jobData.triggerJobId);
 
   // Mark as processing
-  await skillJobsCol.updateOne({ _id: skillJobId }, { $set: { status: "processing" } });
+  await triggerJobsCol.updateOne({ _id: triggerJobId }, { $set: { status: "processing" } });
 
   try {
     const result = await fetchLinkedinPosts(jobData.linkedinUrl);
 
     if (!result.success) {
-      await skillJobsCol.updateOne(
-        { _id: skillJobId },
+      await triggerJobsCol.updateOne(
+        { _id: triggerJobId },
         { $set: { status: "failed", error: result.error, lastProcessedAt: new Date().toISOString() } },
       );
       throw new Error(result.error ?? "Failed to fetch LinkedIn posts");
@@ -386,7 +386,7 @@ async function processLinkedinPostJob(jobData: LinkedinPostJobData): Promise<voi
       try {
         await signalsCol.insertOne({
           userEmail: jobData.userEmail,
-          skillId: new ObjectId(jobData.skillId),
+          triggerId: new ObjectId(jobData.triggerId),
           signalType: "linkedin_post",
           personId: new ObjectId(jobData.personId),
           personName: post.authorName,
@@ -404,17 +404,17 @@ async function processLinkedinPostJob(jobData: LinkedinPostJobData): Promise<voi
       }
     }
 
-    await skillJobsCol.updateOne(
-      { _id: skillJobId },
+    await triggerJobsCol.updateOne(
+      { _id: triggerJobId },
       { $set: { status: "completed", lastProcessedAt: new Date().toISOString(), error: undefined } },
     );
 
     console.log(
-      `[skills-worker] Processed ${jobData.linkedinUrl}: ${result.posts.length} posts, ${recentPosts.length} recent, ${matchingPosts.length} signals created`,
+      `[triggers-worker] Processed ${jobData.linkedinUrl}: ${result.posts.length} posts, ${recentPosts.length} recent, ${matchingPosts.length} signals created`,
     );
   } catch (error) {
-    await skillJobsCol.updateOne(
-      { _id: skillJobId },
+    await triggerJobsCol.updateOne(
+      { _id: triggerJobId },
       {
         $set: {
           status: "failed",
@@ -434,19 +434,19 @@ async function processLinkedinPostJob(jobData: LinkedinPostJobData): Promise<voi
  * 3. Create signals for jobs posted in the last 24 hours
  */
 async function processATSJobsJob(jobData: ATSJobsJobData): Promise<void> {
-  const skillJobsCol = await getSkillJobsCollection();
+  const triggerJobsCol = await getTriggerJobsCollection();
   const jobsCol = await getJobsCollection();
   const signalsCol = await getSignalsCollection();
-  const skillJobId = new ObjectId(jobData.skillJobId);
+  const triggerJobId = new ObjectId(jobData.triggerJobId);
 
-  await skillJobsCol.updateOne({ _id: skillJobId }, { $set: { status: "processing" } });
+  await triggerJobsCol.updateOne({ _id: triggerJobId }, { $set: { status: "processing" } });
 
   try {
     const result = await fetchATSJobs(jobData.atsUrl);
 
     if (!result.success) {
-      await skillJobsCol.updateOne(
-        { _id: skillJobId },
+      await triggerJobsCol.updateOne(
+        { _id: triggerJobId },
         { $set: { status: "failed", error: result.error, lastProcessedAt: new Date().toISOString() } },
       );
       throw new Error(result.error ?? "Failed to fetch ATS jobs");
@@ -454,7 +454,7 @@ async function processATSJobsJob(jobData: ATSJobsJobData): Promise<void> {
 
     const fetchedAt = new Date().toISOString();
     const today = fetchedAt.slice(0, 10); // YYYY-MM-DD
-    const leadObjectId = new ObjectId(jobData.leadId);
+    const companyObjectId = new ObjectId(jobData.companyId);
     let newJobsCount = 0;
     const newRecentJobs: JobData[] = [];
 
@@ -463,7 +463,7 @@ async function processATSJobsJob(jobData: ATSJobsJobData): Promise<void> {
       const postedAt = (job.postedAt as string | null | undefined) ?? null;
 
       const jobDoc = {
-        leadId: leadObjectId,
+        companyId: companyObjectId,
         domain: jobData.domain,
         title: job.title ?? "Untitled",
         jobUrl,
@@ -474,7 +474,7 @@ async function processATSJobsJob(jobData: ATSJobsJobData): Promise<void> {
         rawData: job as Record<string, unknown>,
       };
 
-      // Try to insert — skip if already exists (dedup by leadId + jobUrl)
+      // Try to insert — skip if already exists (dedup by companyId + jobUrl)
       let isNew = false;
       try {
         await jobsCol.insertOne(jobDoc);
@@ -516,13 +516,13 @@ async function processATSJobsJob(jobData: ATSJobsJobData): Promise<void> {
         companyDomain: jobData.domain,
       };
       await signalsCol.updateOne(
-        { userEmail: jobData.userEmail, signalType: "ats_new_job", leadId: leadObjectId, signalDate: today },
+        { userEmail: jobData.userEmail, signalType: "ats_new_job", companyId: companyObjectId, signalDate: today },
         {
           $set: {
             userEmail: jobData.userEmail,
-            skillId: new ObjectId(jobData.skillId),
+            triggerId: new ObjectId(jobData.triggerId),
             signalType: "ats_new_job",
-            leadId: leadObjectId,
+            companyId: companyObjectId,
             companyDomain: jobData.domain,
             signalDate: today,
             data: signalData,
@@ -534,17 +534,17 @@ async function processATSJobsJob(jobData: ATSJobsJobData): Promise<void> {
       signalsCreated = 1;
     }
 
-    await skillJobsCol.updateOne(
-      { _id: skillJobId },
+    await triggerJobsCol.updateOne(
+      { _id: triggerJobId },
       { $set: { status: "completed", lastProcessedAt: fetchedAt, error: undefined } },
     );
 
     console.log(
-      `[skills-worker] ATS jobs for ${jobData.domain}: ${result.jobs.length} total, ${newJobsCount} new, ${signalsCreated} signals`,
+      `[triggers-worker] ATS jobs for ${jobData.domain}: ${result.jobs.length} total, ${newJobsCount} new, ${signalsCreated} signals`,
     );
   } catch (error) {
-    await skillJobsCol.updateOne(
-      { _id: skillJobId },
+    await triggerJobsCol.updateOne(
+      { _id: triggerJobId },
       {
         $set: {
           status: "failed",
@@ -570,8 +570,8 @@ function filterByKeyword(posts: LinkedinPostData[], keyword: string | null): Lin
  * Start the BullMQ worker that processes LinkedIn post jobs.
  * Call once at server startup.
  */
-export function startSkillsWorker(): void {
-  const worker = new Worker<SkillJobData>(
+export function startTriggersWorker(): void {
+  const worker = new Worker<TriggerJobData>(
     QUEUE_NAME,
     async (job) => {
       if (job.data.type === "ATSJobs") {
@@ -591,21 +591,21 @@ export function startSkillsWorker(): void {
   );
 
   worker.on("completed", (job) => {
-    console.log(`[skills-worker] Job ${job?.id} completed`);
+    console.log(`[triggers-worker] Job ${job?.id} completed`);
   });
 
   worker.on("failed", (job, err) => {
-    console.error(`[skills-worker] Job ${job?.id} failed:`, err.message);
+    console.error(`[triggers-worker] Job ${job?.id} failed:`, err.message);
   });
 
-  console.log("[skills-worker] Worker started");
+  console.log("[triggers-worker] Worker started");
 }
 
 /**
  * Schedule the midnight cron. Uses a simple setInterval approach
  * that checks every minute if it's midnight.
  */
-export function scheduleSkillsCron(): void {
+export function scheduleTriggersCron(): void {
   // Check every 60 seconds if it's time to run (within the 00:00 minute)
   let lastRunDate = "";
 
@@ -618,21 +618,21 @@ export function scheduleSkillsCron(): void {
     // Run at midnight (00:00)
     if (hour === 0 && minute === 0 && lastRunDate !== todayDate) {
       lastRunDate = todayDate;
-      console.log(`[skills-cron] Midnight run triggered for ${todayDate}`);
+      console.log(`[triggers-cron] Midnight run triggered for ${todayDate}`);
       try {
         await enqueueAllPendingJobs();
       } catch (err) {
-        console.error("[skills-cron] Failed to enqueue jobs:", err);
+        console.error("[triggers-cron] Failed to enqueue jobs:", err);
       }
     }
   }, 60_000);
 
-  console.log("[skills-cron] Cron scheduled (runs at midnight daily)");
+  console.log("[triggers-cron] Cron scheduled (runs at midnight daily)");
 }
 
 /**
  * Manually trigger job processing (useful for testing / on-demand runs).
  */
-export async function triggerSkillsProcessing(): Promise<number> {
+export async function triggerTriggersProcessing(): Promise<number> {
   return enqueueAllPendingJobs();
 }

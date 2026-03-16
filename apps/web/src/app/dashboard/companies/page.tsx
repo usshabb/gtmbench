@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { LetterAvatar, DATA_CHANGED_EVENT } from "../components";
 
-interface LeadRecord {
+interface CompanyRecord {
   _id?: string;
   userEmails: string[];
   domain: string;
@@ -23,10 +23,10 @@ interface LeadRecord {
 /* ------------------------------------------------------------------ */
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function getFiberData(lead: LeadRecord): Record<string, any> | null {
+function getFiberData(company: CompanyRecord): Record<string, any> | null {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const raw = lead.enrichmentData as any;
+    const raw = company.enrichmentData as any;
     return raw?.output?.data?.[0] ?? null;
   } catch {
     return null;
@@ -57,30 +57,30 @@ function getApiBaseUrl(): string {
 /* ------------------------------------------------------------------ */
 
 function CompanyRow({
-  lead,
+  company,
   onRemove,
   onATSClick,
   atsInfo,
 }: {
-  lead: LeadRecord;
+  company: CompanyRecord;
   onRemove: (id: string) => void;
   onATSClick: (id: string) => void;
   atsInfo?: { detectionStatus?: string; atsName?: string };
 }) {
-  const data = getFiberData(lead);
-  const name = data?.preferred_name ?? lead.domain;
+  const data = getFiberData(company);
+  const name = data?.preferred_name ?? company.domain;
   const logoUrl = data?.logo_url as string | undefined;
   const industry = (data?.standard_industries as string[] | undefined)?.[0];
   const location = data?.location_consensus?.formatted_address as string | undefined;
   const employees = data?.employee_count_consensus?.gte as number | undefined;
   const totalFunding = data?.total_funding_consensus as number | undefined;
-  const status = lead.enrichmentStatus;
+  const status = company.enrichmentStatus;
   const hasATS = atsInfo?.detectionStatus === "completed" && atsInfo?.atsName;
 
   return (
     <li>
     <Link
-      href={`/dashboard/leads/${lead._id}`}
+      href={`/dashboard/companies/${company._id}`}
       className="group flex cursor-pointer items-center gap-4 border-b border-zinc-100 px-5 py-3.5 transition-colors hover:bg-zinc-50"
     >
       {/* Logo */}
@@ -90,7 +90,7 @@ function CompanyRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate text-[13px] font-medium text-zinc-900">{name}</span>
-          <span className="shrink-0 text-[11px] text-zinc-400">{lead.domain}</span>
+          <span className="shrink-0 text-[11px] text-zinc-400">{company.domain}</span>
         </div>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-zinc-500">
           {industry && <span>{industry}</span>}
@@ -145,7 +145,7 @@ function CompanyRow({
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            if (lead._id) onATSClick(lead._id);
+            if (company._id) onATSClick(company._id);
           }}
           className="shrink-0 rounded-full border border-zinc-200 px-2 py-0.5 text-[11px] font-medium text-zinc-500 hover:bg-zinc-50 transition-colors flex items-center gap-1"
           title="Detect ATS"
@@ -162,10 +162,10 @@ function CompanyRow({
         onClick={(e) => {
           e.preventDefault();
           e.stopPropagation();
-          if (lead._id) onRemove(lead._id);
+          if (company._id) onRemove(company._id);
         }}
         className="shrink-0 rounded-lg p-1.5 text-zinc-300 opacity-0 transition-all hover:bg-red-50 hover:text-red-500 group-hover:opacity-100"
-        title="Remove from my leads"
+        title="Remove from my companies"
       >
         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
       </button>
@@ -188,7 +188,7 @@ export default function DashboardPage() {
   const [authToken, setAuthToken] = useState("");
   const [message, setMessage] = useState("");
   const [isLoadingList, setIsLoadingList] = useState(true);
-  const [leads, setLeads] = useState<LeadRecord[]>([]);
+  const [companies, setCompanies] = useState<CompanyRecord[]>([]);
   const [atsData, setATSData] = useState<Record<string, { detectionStatus?: string; atsName?: string }>>({});
 
   useEffect(() => {
@@ -200,28 +200,28 @@ export default function DashboardPage() {
     setAuthToken(storedToken);
   }, [router]);
 
-  const fetchLeads = useCallback(() => {
+  const fetchCompanies = useCallback(() => {
     if (!authToken) return;
     setIsLoadingList(true);
-    void fetch(`${apiBaseUrl}/leads`, {
+    void fetch(`${apiBaseUrl}/companies`, {
       headers: { Authorization: `Bearer ${authToken}` },
     })
       .then(async (response) => {
-        const result = (await response.json()) as { leads?: LeadRecord[]; error?: string };
-        if (!response.ok) throw new Error(result.error ?? "Could not load leads");
-        const loadedLeads = result.leads ?? [];
-        setLeads(loadedLeads);
+        const result = (await response.json()) as { companies?: CompanyRecord[]; error?: string };
+        if (!response.ok) throw new Error(result.error ?? "Could not load companies");
+        const loadedCompanies = result.companies ?? [];
+        setCompanies(loadedCompanies);
 
-        // Load ATS data for each lead
-        loadedLeads.forEach((lead) => {
-          if (lead._id) {
-            void fetch(`${apiBaseUrl}/leads/${lead._id}/ats`, {
+        // Load ATS data for each company
+        loadedCompanies.forEach((company) => {
+          if (company._id) {
+            void fetch(`${apiBaseUrl}/companies/${company._id}/ats`, {
               headers: { Authorization: `Bearer ${authToken}` },
             })
               .then(async (res) => {
                 const data = (await res.json()) as { ats?: { detectionStatus?: string; atsName?: string } | null };
-                if (data.ats && lead._id) {
-                  setATSData((prev) => ({ ...prev, [lead._id!]: data.ats! }));
+                if (data.ats && company._id) {
+                  setATSData((prev) => ({ ...prev, [company._id!]: data.ats! }));
                 }
               })
               .catch(() => {});
@@ -230,42 +230,42 @@ export default function DashboardPage() {
       })
       .catch((error: unknown) => {
         const errorMessage =
-          error instanceof Error ? error.message : "Could not load leads";
+          error instanceof Error ? error.message : "Could not load companies";
         setMessage(errorMessage);
       })
       .finally(() => setIsLoadingList(false));
   }, [apiBaseUrl, authToken]);
 
   useEffect(() => {
-    fetchLeads();
-  }, [fetchLeads]);
+    fetchCompanies();
+  }, [fetchCompanies]);
 
   useEffect(() => {
-    const handler = () => fetchLeads();
+    const handler = () => fetchCompanies();
     window.addEventListener(DATA_CHANGED_EVENT, handler);
     return () => window.removeEventListener(DATA_CHANGED_EVENT, handler);
-  }, [fetchLeads]);
+  }, [fetchCompanies]);
 
-  async function handleRemoveLead(id: string) {
+  async function handleRemoveCompany(id: string) {
     try {
-      const res = await fetch(`${apiBaseUrl}/leads/${id}`, {
+      const res = await fetch(`${apiBaseUrl}/companies/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${authToken}` },
       });
       if (!res.ok) {
         const data = (await res.json()) as { error?: string };
-        throw new Error(data.error ?? "Could not remove lead");
+        throw new Error(data.error ?? "Could not remove company");
       }
-      setLeads((prev) => prev.filter((l) => l._id !== id));
+      setCompanies((prev) => prev.filter((c) => c._id !== id));
     } catch (err) {
-      setMessage(err instanceof Error ? err.message : "Could not remove lead");
+      setMessage(err instanceof Error ? err.message : "Could not remove company");
     }
   }
 
   async function handleDetectATS(id: string) {
     try {
       setATSData((prev) => ({ ...prev, [id]: { detectionStatus: "pending" } }));
-      const res = await fetch(`${apiBaseUrl}/leads/${id}/detect-ats`, {
+      const res = await fetch(`${apiBaseUrl}/companies/${id}/detect-ats`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -291,9 +291,9 @@ export default function DashboardPage() {
       {/* Page header */}
       <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
         <div>
-          <h1 className="text-lg font-semibold text-zinc-900">Leads</h1>
+          <h1 className="text-lg font-semibold text-zinc-900">Companies</h1>
           <p className="text-[13px] text-zinc-500">
-            {leads.length} {leads.length === 1 ? "company" : "companies"}
+            {companies.length} {companies.length === 1 ? "company" : "companies"}
           </p>
         </div>
       </div>
@@ -305,32 +305,32 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Leads list */}
+      {/* Companies list */}
       <div className="flex-1 overflow-y-auto">
         {isLoadingList ? (
           <div className="flex flex-col items-center justify-center py-20">
             <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
-            <p className="mt-3 text-[13px] text-zinc-400">Loading leads...</p>
+            <p className="mt-3 text-[13px] text-zinc-400">Loading companies...</p>
           </div>
         ) : (
           <ul>
-            {leads.map((lead) => (
+            {companies.map((company) => (
               <CompanyRow
-                key={lead._id ?? lead.domain}
-                lead={lead}
-                onRemove={handleRemoveLead}
+                key={company._id ?? company.domain}
+                company={company}
+                onRemove={handleRemoveCompany}
                 onATSClick={handleDetectATS}
-                atsInfo={lead._id ? atsData[lead._id] : undefined}
+                atsInfo={company._id ? atsData[company._id] : undefined}
               />
             ))}
-            {leads.length === 0 && (
+            {companies.length === 0 && (
               <li className="flex flex-col items-center justify-center py-20 text-center">
                 <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-zinc-100">
                   <svg className="h-6 w-6 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                   </svg>
                 </div>
-                <p className="text-[13px] font-medium text-zinc-600">No leads yet</p>
+                <p className="text-[13px] font-medium text-zinc-600">No companies yet</p>
                 <p className="mt-1 text-[12px] text-zinc-400">Use the + button to add a company</p>
               </li>
             )}

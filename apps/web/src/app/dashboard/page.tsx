@@ -122,7 +122,7 @@ export default function SignalsPage() {
         <div>
           <h1 className="text-lg font-semibold text-zinc-900">Signals</h1>
           <p className="text-[13px] text-zinc-500">
-            Real-time buying signals from your skills
+            Real-time buying signals from your triggers
             {total > 0 && (
               <span className="ml-2 inline-flex items-center rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600">
                 {total}
@@ -158,7 +158,7 @@ export default function SignalsPage() {
               </div>
               <p className="text-[13px] font-medium text-zinc-600">No signals yet</p>
               <p className="mt-1 max-w-[280px] text-[12px] text-zinc-400">
-                Enable skills to start tracking activity. Signals will appear here when new LinkedIn posts are detected from your tracked people.
+                Enable triggers to start tracking activity. Signals will appear here when new LinkedIn posts are detected from your tracked people.
               </p>
             </div>
           </div>

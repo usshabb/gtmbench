@@ -1,44 +1,44 @@
 import { Collection, MongoClient } from "mongodb";
 import { env } from "./env.js";
-import { BuyerProfileRecord, BuyerSearchResultRecord, CompanyATSRecord, JobRecord, LeadRecord, LinkedinContentForPersonRecord, PersonRecord, SignalRecord, SkillJobRecord, SkillRecord } from "./types.js";
+import { BuyerProfileRecord, BuyerSearchResultRecord, CompanyATSRecord, CompanyRecord, JobRecord, LinkedinContentForPersonRecord, PersonRecord, SignalRecord, TriggerJobRecord, TriggerRecord } from "./types.js";
 
 const mongoClient = new MongoClient(env.MONGODB_URL);
 
-let leadsCollection: Collection<LeadRecord> | null = null;
+let companiesCollection: Collection<CompanyRecord> | null = null;
 let personsCollection: Collection<PersonRecord> | null = null;
 let buyerProfilesCollection: Collection<BuyerProfileRecord> | null = null;
-let skillsCollection: Collection<SkillRecord> | null = null;
-let skillJobsCollection: Collection<SkillJobRecord> | null = null;
+let triggersCollection: Collection<TriggerRecord> | null = null;
+let triggerJobsCollection: Collection<TriggerJobRecord> | null = null;
 let signalsCollection: Collection<SignalRecord> | null = null;
 let linkedinContentForPersonCollection: Collection<LinkedinContentForPersonRecord> | null = null;
 let buyerSearchResultsCollection: Collection<BuyerSearchResultRecord> | null = null;
 let companyATSCollection: Collection<CompanyATSRecord> | null = null;
 let jobsCollection: Collection<JobRecord> | null = null;
 
-export async function getLeadsCollection(): Promise<Collection<LeadRecord>> {
-  if (leadsCollection) return leadsCollection;
+export async function getCompaniesCollection(): Promise<Collection<CompanyRecord>> {
+  if (companiesCollection) return companiesCollection;
 
   await mongoClient.connect();
   const database = mongoClient.db(env.MONGODB_DB_NAME);
 
-  leadsCollection = database.collection<LeadRecord>("leads");
+  companiesCollection = database.collection<CompanyRecord>("companies");
 
   // Drop stale indexes from previous schema
   try {
-    await leadsCollection.dropIndex("domain_1");
+    await companiesCollection.dropIndex("domain_1");
   } catch {
     // Index may not exist, ignore
   }
   try {
-    await leadsCollection.dropIndex("userEmail_1_domain_1");
+    await companiesCollection.dropIndex("userEmail_1_domain_1");
   } catch {
     // Index may not exist, ignore
   }
 
-  await leadsCollection.createIndex({ domain: 1 }, { unique: true });
-  await leadsCollection.createIndex({ userEmails: 1 });
+  await companiesCollection.createIndex({ domain: 1 }, { unique: true });
+  await companiesCollection.createIndex({ userEmails: 1 });
 
-  return leadsCollection;
+  return companiesCollection;
 }
 
 export async function getBuyerProfilesCollection(): Promise<Collection<BuyerProfileRecord>> {
@@ -69,41 +69,41 @@ export async function getPersonsCollection(): Promise<Collection<PersonRecord>> 
   return personsCollection;
 }
 
-export async function getSkillsCollection(): Promise<Collection<SkillRecord>> {
-  if (skillsCollection) return skillsCollection;
+export async function getTriggersCollection(): Promise<Collection<TriggerRecord>> {
+  if (triggersCollection) return triggersCollection;
 
   await mongoClient.connect();
   const database = mongoClient.db(env.MONGODB_DB_NAME);
 
-  skillsCollection = database.collection<SkillRecord>("skills");
+  triggersCollection = database.collection<TriggerRecord>("triggers");
 
-  await skillsCollection.createIndex({ userEmail: 1, skillType: 1 }, { unique: true });
+  await triggersCollection.createIndex({ userEmail: 1, triggerType: 1 }, { unique: true });
 
-  return skillsCollection;
+  return triggersCollection;
 }
 
-export async function getSkillJobsCollection(): Promise<Collection<SkillJobRecord>> {
-  if (skillJobsCollection) return skillJobsCollection;
+export async function getTriggerJobsCollection(): Promise<Collection<TriggerJobRecord>> {
+  if (triggerJobsCollection) return triggerJobsCollection;
 
   await mongoClient.connect();
   const database = mongoClient.db(env.MONGODB_DB_NAME);
 
-  skillJobsCollection = database.collection<SkillJobRecord>("skillJobs");
+  triggerJobsCollection = database.collection<TriggerJobRecord>("triggerJobs");
 
-  await skillJobsCollection.createIndex({ skillId: 1 });
-  await skillJobsCollection.createIndex({ userEmail: 1 });
-  await skillJobsCollection.createIndex({ status: 1 });
+  await triggerJobsCollection.createIndex({ triggerId: 1 });
+  await triggerJobsCollection.createIndex({ userEmail: 1 });
+  await triggerJobsCollection.createIndex({ status: 1 });
 
   // Drop old non-sparse personId index and recreate as sparse (so ATSJobs docs without personId don't clash)
   try {
-    await skillJobsCollection.dropIndex("personId_1_skillId_1");
+    await triggerJobsCollection.dropIndex("personId_1_triggerId_1");
   } catch {
     // Index may not exist
   }
-  await skillJobsCollection.createIndex({ personId: 1, skillId: 1 }, { unique: true, sparse: true });
-  await skillJobsCollection.createIndex({ leadId: 1, skillId: 1 }, { unique: true, sparse: true });
+  await triggerJobsCollection.createIndex({ personId: 1, triggerId: 1 }, { unique: true, sparse: true });
+  await triggerJobsCollection.createIndex({ companyId: 1, triggerId: 1 }, { unique: true, sparse: true });
 
-  return skillJobsCollection;
+  return triggerJobsCollection;
 }
 
 export async function getLinkedinContentForPersonCollection(): Promise<Collection<LinkedinContentForPersonRecord>> {
@@ -140,12 +140,12 @@ export async function getSignalsCollection(): Promise<Collection<SignalRecord>> 
   await signalsCollection.createIndex({ "data.postId": 1, userEmail: 1 }, { unique: true, sparse: true });
   // Drop old per-job ATS dedup index, replaced by per-day aggregated dedup
   try {
-    await signalsCollection.dropIndex("leadId_1_data.jobUrl_1_userEmail_1");
+    await signalsCollection.dropIndex("companyId_1_data.jobUrl_1_userEmail_1");
   } catch {
     // Index may not exist
   }
   // Dedup for aggregated ATS signals: one per company per user per day
-  await signalsCollection.createIndex({ leadId: 1, userEmail: 1, signalDate: 1 }, { unique: true, sparse: true });
+  await signalsCollection.createIndex({ companyId: 1, userEmail: 1, signalDate: 1 }, { unique: true, sparse: true });
 
   return signalsCollection;
 }
@@ -158,7 +158,7 @@ export async function getBuyerSearchResultsCollection(): Promise<Collection<Buye
 
   buyerSearchResultsCollection = database.collection<BuyerSearchResultRecord>("buyerSearchResults");
 
-  await buyerSearchResultsCollection.createIndex({ leadId: 1, buyerProfileId: 1 }, { unique: true });
+  await buyerSearchResultsCollection.createIndex({ companyId: 1, buyerProfileId: 1 }, { unique: true });
   await buyerSearchResultsCollection.createIndex({ userEmail: 1 });
 
   return buyerSearchResultsCollection;
@@ -172,7 +172,7 @@ export async function getCompanyATSCollection(): Promise<Collection<CompanyATSRe
 
   companyATSCollection = database.collection<CompanyATSRecord>("companyATS");
 
-  await companyATSCollection.createIndex({ leadId: 1 }, { unique: true });
+  await companyATSCollection.createIndex({ companyId: 1 }, { unique: true });
   await companyATSCollection.createIndex({ domain: 1 });
 
   return companyATSCollection;
@@ -186,11 +186,11 @@ export async function getJobsCollection(): Promise<Collection<JobRecord>> {
 
   jobsCollection = database.collection<JobRecord>("jobs");
 
-  await jobsCollection.createIndex({ leadId: 1 });
+  await jobsCollection.createIndex({ companyId: 1 });
   await jobsCollection.createIndex({ domain: 1 });
   await jobsCollection.createIndex({ fetchedAt: -1 });
-  // Dedup by jobUrl per lead (sparse so null jobUrls don't collide)
-  await jobsCollection.createIndex({ leadId: 1, jobUrl: 1 }, { unique: true, sparse: true });
+  // Dedup by jobUrl per company (sparse so null jobUrls don't collide)
+  await jobsCollection.createIndex({ companyId: 1, jobUrl: 1 }, { unique: true, sparse: true });
 
   return jobsCollection;
 }
