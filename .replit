@@ -37,13 +37,13 @@ outputType = "webview"
 name = "Start Backend"
 author = "agent"
 
+[workflows.workflow.metadata]
+outputType = "console"
+
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "npm run dev --workspace api"
 waitForPort = 3000
-
-[workflows.workflow.metadata]
-outputType = "console"
 
 [[ports]]
 localPort = 3000
@@ -52,3 +52,8 @@ externalPort = 3000
 [[ports]]
 localPort = 5000
 externalPort = 80
+
+[userenv]
+
+[userenv.shared]
+PORT = "3000"
