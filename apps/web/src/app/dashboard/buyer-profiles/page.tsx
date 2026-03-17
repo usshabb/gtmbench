@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { safeJson } from "../components";
 
 interface BuyerProfile {
   _id: string;
@@ -81,7 +82,7 @@ function ProfileFormModal({
         body: JSON.stringify({ name: name.trim(), titles: filteredTitles }),
       });
 
-      const result = (await response.json()) as { profile?: unknown; error?: string };
+      const result = (await safeJson(response)) as { profile?: unknown; error?: string };
       if (!response.ok) throw new Error(result.error ?? "Something went wrong");
 
       onSaved();
@@ -300,7 +301,7 @@ export default function BuyerProfilesPage() {
       headers: { Authorization: `Bearer ${authToken}` },
     })
       .then(async (response) => {
-        const result = (await response.json()) as { profiles?: BuyerProfile[]; error?: string };
+        const result = (await safeJson(response)) as { profiles?: BuyerProfile[]; error?: string };
         if (!response.ok) throw new Error(result.error ?? "Could not load profiles");
         setProfiles(result.profiles ?? []);
       })
@@ -322,7 +323,7 @@ export default function BuyerProfilesPage() {
         headers: { Authorization: `Bearer ${authToken}` },
       });
       if (!response.ok) {
-        const result = (await response.json()) as { error?: string };
+        const result = (await safeJson(response)) as { error?: string };
         throw new Error(result.error ?? "Could not set default");
       }
       // Update local state
@@ -341,7 +342,7 @@ export default function BuyerProfilesPage() {
         headers: { Authorization: `Bearer ${authToken}` },
       });
       if (!response.ok) {
-        const result = (await response.json()) as { error?: string };
+        const result = (await safeJson(response)) as { error?: string };
         throw new Error(result.error ?? "Could not delete profile");
       }
       setProfiles((prev) => prev.filter((p) => p._id !== id));

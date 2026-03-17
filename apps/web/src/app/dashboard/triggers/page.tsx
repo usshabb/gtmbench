@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { safeJson } from "../components";
 
 const localStorageTokenKey = "gtmbench-token";
 
@@ -98,7 +99,7 @@ export default function TriggersPage() {
       const res = await fetch(`${apiBaseUrl}/triggers`, {
         headers: { Authorization: `Bearer ${authToken}` },
       });
-      const data = (await res.json()) as { triggers: Trigger[] };
+      const data = (await safeJson(res)) as { triggers: Trigger[] };
       setTriggers(data.triggers ?? []);
     } catch {
       // ignore
@@ -110,10 +111,15 @@ export default function TriggersPage() {
   async function fetchJobs(authToken: string) {
     setJobsLoading(true);
     try {
+      // Sync/create any missing trigger jobs first
+      await fetch(`${apiBaseUrl}/trigger-jobs/create`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
       const res = await fetch(`${apiBaseUrl}/trigger-jobs`, {
         headers: { Authorization: `Bearer ${authToken}` },
       });
-      const data = (await res.json()) as { jobs: TriggerJob[] };
+      const data = (await safeJson(res)) as { jobs: TriggerJob[] };
       setJobs(data.jobs ?? []);
     } catch {
       // ignore
@@ -385,9 +391,9 @@ export default function TriggersPage() {
               <div className="flex justify-center py-12">
                 <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
               </div>
-            ) : jobs.filter((j) => j.status === "pending").length === 0 ? (
+            ) : jobs.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-16 text-center">
-                <p className="text-[14px] font-medium text-zinc-500">No pending jobs</p>
+                <p className="text-[14px] font-medium text-zinc-500">No jobs</p>
                 <p className="mt-1 text-[13px] text-zinc-400">
                   Click &ldquo;Create Jobs&rdquo; to generate jobs for your active triggers.
                 </p>
@@ -399,11 +405,12 @@ export default function TriggersPage() {
                     <tr className="border-b border-zinc-100 bg-zinc-50">
                       <th className="px-4 py-3 text-left font-medium text-zinc-500">Type</th>
                       <th className="px-4 py-3 text-left font-medium text-zinc-500">Target</th>
+                      <th className="px-4 py-3 text-left font-medium text-zinc-500">Status</th>
                       <th className="px-4 py-3" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-100">
-                    {jobs.filter((j) => j.status === "pending").map((job) => (
+                    {jobs.map((job) => (
                       <tr key={job._id} className="hover:bg-zinc-50">
                         <td className="px-4 py-3 text-zinc-700">
                           {job.jobType === "LinkedinPost" ? "LinkedIn Post" : "ATS Jobs"}
@@ -413,14 +420,31 @@ export default function TriggersPage() {
                             ? (job.linkedinUrl?.replace("https://www.linkedin.com/in/", "") ?? "—")
                             : (job.domain ?? "—")}
                         </td>
-                        <td className="px-4 py-3 text-right">
-                          <button
-                            onClick={() => runJob(job._id)}
-                            disabled={runningJobId === job._id || job.status === "processing"}
-                            className="rounded-lg border border-zinc-200 px-2.5 py-1 text-[12px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-40"
+                        <td className="px-4 py-3">
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                              job.status === "completed"
+                                ? "bg-green-50 text-green-700"
+                                : job.status === "failed"
+                                  ? "bg-red-50 text-red-700"
+                                  : job.status === "processing"
+                                    ? "bg-blue-50 text-blue-700"
+                                    : "bg-yellow-50 text-yellow-700"
+                            }`}
                           >
-                            {runningJobId === job._id ? "Running..." : "Run"}
-                          </button>
+                            {job.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {(job.status === "pending" || job.status === "failed") && (
+                            <button
+                              onClick={() => runJob(job._id)}
+                              disabled={runningJobId === job._id || job.status === "processing"}
+                              className="rounded-lg border border-zinc-200 px-2.5 py-1 text-[12px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-40"
+                            >
+                              {runningJobId === job._id ? "Running..." : "Run"}
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}

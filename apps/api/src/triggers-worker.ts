@@ -4,6 +4,7 @@ import { env } from "./env.js";
 import { getCompaniesCollection, getCompanyATSCollection, getJobsCollection, getLinkedinContentForPersonCollection, getPersonsCollection, getSignalsCollection, getTriggerJobsCollection, getTriggersCollection } from "./db.js";
 import { fetchLinkedinPosts } from "./linkedin.js";
 import { fetchATSJobs } from "./parallel.js";
+import { detectCompanyATS } from "./firecrawl.js";
 import type { ATSJobsSignalData, JobData, LinkedinPostData } from "./types.js";
 
 const QUEUE_NAME = "trigger-jobs";
@@ -26,6 +27,7 @@ function parseRedisUrl(url: string): { host: string; port: number; password?: st
 function getRedisOpts() {
   return { ...parseRedisUrl(env.REDIS_URL), maxRetriesPerRequest: null };
 }
+
 
 let queue: Queue | null = null;
 
@@ -183,6 +185,47 @@ export async function createPendingJobs(userEmail: string): Promise<number> {
       const userCompanies = await companiesCol.find({ userEmails: userEmail }).toArray();
       const companyIds = userCompanies.map((c) => c._id!);
       if (companyIds.length > 0) {
+        // Auto-detect ATS for companies that don't have it yet
+        const existingAts = await atsCol.find({ companyId: { $in: companyIds } }).toArray();
+        const atsCompanyIdSet = new Set(existingAts.map((a) => a.companyId.toHexString()));
+        const companiesWithoutAts = userCompanies.filter((c) => !atsCompanyIdSet.has(c._id!.toHexString()));
+        for (const comp of companiesWithoutAts) {
+          console.log(`[createPendingJobs] Auto-detecting ATS for ${comp.domain}...`);
+          const atsNow = new Date().toISOString();
+          await atsCol.insertOne({
+            companyId: comp._id!,
+            domain: comp.domain,
+            detectedAt: atsNow,
+            detectionStatus: "pending",
+          });
+          const detection = await detectCompanyATS(comp.domain);
+          if (detection.success && detection.data) {
+            await atsCol.updateOne(
+              { companyId: comp._id! },
+              {
+                $set: {
+                  atsName: detection.data.atsName ?? null,
+                  atsUrlSlug: detection.data.atsSlug ?? null,
+                  careerPageUrl: detection.data.careerPageURL ?? null,
+                  detectionStatus: "completed",
+                  rawData: detection.rawData,
+                },
+              },
+            );
+          } else {
+            await atsCol.updateOne(
+              { companyId: comp._id! },
+              {
+                $set: {
+                  detectionStatus: "failed",
+                  detectionError: detection.error ?? "ATS detection failed",
+                  rawData: detection.rawData,
+                },
+              },
+            );
+          }
+        }
+
         const atsRecords = await atsCol
           .find({ companyId: { $in: companyIds }, detectionStatus: "completed", careerPageUrl: { $ne: null } })
           .toArray();
@@ -439,12 +482,18 @@ async function processATSJobsJob(jobData: ATSJobsJobData): Promise<void> {
   const signalsCol = await getSignalsCollection();
   const triggerJobId = new ObjectId(jobData.triggerJobId);
 
+  console.log(`[triggers-worker] [ATS] Starting job for domain=${jobData.domain} atsUrl=${jobData.atsUrl} companyId=${jobData.companyId} triggerJobId=${jobData.triggerJobId}`);
+
   await triggerJobsCol.updateOne({ _id: triggerJobId }, { $set: { status: "processing" } });
+  console.log(`[triggers-worker] [ATS] Marked triggerJob ${jobData.triggerJobId} as processing`);
 
   try {
+    console.log(`[triggers-worker] [ATS] Calling fetchATSJobs for ${jobData.atsUrl}...`);
     const result = await fetchATSJobs(jobData.atsUrl);
+    console.log(`[triggers-worker] [ATS] fetchATSJobs returned: success=${result.success} jobsCount=${result.jobs.length} error=${result.error ?? "none"}`);
 
     if (!result.success) {
+      console.error(`[triggers-worker] [ATS] fetchATSJobs failed for ${jobData.domain}: ${result.error}`);
       await triggerJobsCol.updateOne(
         { _id: triggerJobId },
         { $set: { status: "failed", error: result.error, lastProcessedAt: new Date().toISOString() } },
@@ -457,6 +506,8 @@ async function processATSJobsJob(jobData: ATSJobsJobData): Promise<void> {
     const companyObjectId = new ObjectId(jobData.companyId);
     let newJobsCount = 0;
     const newRecentJobs: JobData[] = [];
+
+    console.log(`[triggers-worker] [ATS] Processing ${result.jobs.length} jobs for ${jobData.domain}...`);
 
     for (const job of result.jobs) {
       const jobUrl = (job.url as string | null | undefined) ?? null;
@@ -480,9 +531,11 @@ async function processATSJobsJob(jobData: ATSJobsJobData): Promise<void> {
         await jobsCol.insertOne(jobDoc);
         isNew = true;
         newJobsCount++;
+        console.log(`[triggers-worker] [ATS] Inserted new job: "${jobDoc.title}" url=${jobUrl} for ${jobData.domain}`);
       } catch (err: unknown) {
         if (err instanceof Error && "code" in err && (err as Record<string, unknown>).code === 11000) {
           // Already stored — skip
+          console.log(`[triggers-worker] [ATS] Skipped duplicate job: "${jobDoc.title}" url=${jobUrl}`);
           continue;
         }
         throw err;
@@ -493,6 +546,8 @@ async function processATSJobsJob(jobData: ATSJobsJobData): Promise<void> {
         const isRecent = postedAt
           ? Date.now() - new Date(postedAt).getTime() < TWENTY_FOUR_HOURS_MS
           : true;
+
+        console.log(`[triggers-worker] [ATS] Job "${jobDoc.title}" postedAt=${postedAt} isRecent=${isRecent}`);
 
         if (isRecent) {
           newRecentJobs.push({
@@ -507,6 +562,8 @@ async function processATSJobsJob(jobData: ATSJobsJobData): Promise<void> {
       }
     }
 
+    console.log(`[triggers-worker] [ATS] ${jobData.domain}: ${newJobsCount} new jobs, ${newRecentJobs.length} recent jobs for signal`);
+
     // Create ONE aggregated signal for all new recent jobs at this company
     let signalsCreated = 0;
     if (newRecentJobs.length > 0) {
@@ -515,6 +572,7 @@ async function processATSJobsJob(jobData: ATSJobsJobData): Promise<void> {
         jobs: newRecentJobs,
         companyDomain: jobData.domain,
       };
+      console.log(`[triggers-worker] [ATS] Upserting signal for ${jobData.domain} date=${today} with ${newRecentJobs.length} jobs`);
       await signalsCol.updateOne(
         { userEmail: jobData.userEmail, signalType: "ats_new_job", companyId: companyObjectId, signalDate: today },
         {
@@ -532,6 +590,9 @@ async function processATSJobsJob(jobData: ATSJobsJobData): Promise<void> {
         { upsert: true },
       );
       signalsCreated = 1;
+      console.log(`[triggers-worker] [ATS] Signal upserted for ${jobData.domain}`);
+    } else {
+      console.log(`[triggers-worker] [ATS] No recent jobs for ${jobData.domain}, skipping signal creation`);
     }
 
     await triggerJobsCol.updateOne(
@@ -540,9 +601,10 @@ async function processATSJobsJob(jobData: ATSJobsJobData): Promise<void> {
     );
 
     console.log(
-      `[triggers-worker] ATS jobs for ${jobData.domain}: ${result.jobs.length} total, ${newJobsCount} new, ${signalsCreated} signals`,
+      `[triggers-worker] [ATS] DONE ${jobData.domain}: ${result.jobs.length} total, ${newJobsCount} new, ${signalsCreated} signals`,
     );
   } catch (error) {
+    console.error(`[triggers-worker] [ATS] FAILED for ${jobData.domain}:`, error instanceof Error ? error.message : error);
     await triggerJobsCol.updateOne(
       { _id: triggerJobId },
       {

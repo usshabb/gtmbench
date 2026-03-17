@@ -83,3 +83,18 @@ export const DATA_CHANGED_EVENT = "gtmbench:data-changed";
 export function dispatchDataChanged() {
   window.dispatchEvent(new CustomEvent(DATA_CHANGED_EVENT));
 }
+
+/**
+ * Safely parse a fetch Response as JSON.
+ * Throws a readable error if the response is not JSON (e.g. HTML 404 page).
+ */
+export async function safeJson<T = unknown>(res: Response): Promise<T> {
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    const text = await res.text();
+    throw new Error(
+      `Expected JSON from ${res.url} but got ${contentType || "unknown content-type"} (HTTP ${res.status}): ${text.slice(0, 120)}`,
+    );
+  }
+  return res.json() as Promise<T>;
+}

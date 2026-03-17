@@ -1,6 +1,6 @@
 import { Collection, MongoClient } from "mongodb";
 import { env } from "./env.js";
-import { BuyerProfileRecord, BuyerSearchResultRecord, CompanyATSRecord, CompanyRecord, JobRecord, LinkedinContentForPersonRecord, PersonRecord, SignalRecord, TriggerJobRecord, TriggerRecord } from "./types.js";
+import { BuyerProfileRecord, BuyerSearchResultRecord, CompanyATSRecord, CompanyRecord, JobRecord, LinkedinContentForPersonRecord, PersonRecord, SignalRecord, SkillRecord, TriggerJobRecord, TriggerRecord } from "./types.js";
 
 const mongoClient = new MongoClient(env.MONGODB_URL);
 
@@ -14,6 +14,7 @@ let linkedinContentForPersonCollection: Collection<LinkedinContentForPersonRecor
 let buyerSearchResultsCollection: Collection<BuyerSearchResultRecord> | null = null;
 let companyATSCollection: Collection<CompanyATSRecord> | null = null;
 let jobsCollection: Collection<JobRecord> | null = null;
+let skillsCollection: Collection<SkillRecord> | null = null;
 
 export async function getCompaniesCollection(): Promise<Collection<CompanyRecord>> {
   if (companiesCollection) return companiesCollection;
@@ -172,6 +173,13 @@ export async function getCompanyATSCollection(): Promise<Collection<CompanyATSRe
 
   companyATSCollection = database.collection<CompanyATSRecord>("companyATS");
 
+  // Drop stale index from previous schema
+  try {
+    await companyATSCollection.dropIndex("leadId_1");
+  } catch {
+    // Index may not exist, ignore
+  }
+
   await companyATSCollection.createIndex({ companyId: 1 }, { unique: true });
   await companyATSCollection.createIndex({ domain: 1 });
 
@@ -193,4 +201,17 @@ export async function getJobsCollection(): Promise<Collection<JobRecord>> {
   await jobsCollection.createIndex({ companyId: 1, jobUrl: 1 }, { unique: true, sparse: true });
 
   return jobsCollection;
+}
+
+export async function getSkillsCollection(): Promise<Collection<SkillRecord>> {
+  if (skillsCollection) return skillsCollection;
+
+  await mongoClient.connect();
+  const database = mongoClient.db(env.MONGODB_DB_NAME);
+
+  skillsCollection = database.collection<SkillRecord>("skills");
+
+  await skillsCollection.createIndex({ userEmail: 1, skillType: 1 }, { unique: true });
+
+  return skillsCollection;
 }

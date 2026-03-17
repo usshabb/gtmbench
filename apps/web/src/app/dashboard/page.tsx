@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { LetterAvatar } from "./components";
+import { LetterAvatar, safeJson } from "./components";
 
 const localStorageTokenKey = "gtmbench-token";
 
@@ -96,7 +96,7 @@ export default function SignalsPage() {
       const res = await fetch(`${apiBaseUrl}/signals?limit=50`, {
         headers: { Authorization: `Bearer ${authToken}` },
       });
-      const data = (await res.json()) as { signals: Signal[]; total: number };
+      const data = (await safeJson(res)) as { signals: Signal[]; total: number };
       setSignals(data.signals ?? []);
       setTotal(data.total ?? 0);
     } catch {

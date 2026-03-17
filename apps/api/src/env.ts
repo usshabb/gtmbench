@@ -8,6 +8,7 @@ const envSchema = z.object({
   FIBER_API_KEY: z.string().min(1),
   FIBER_API_BASE_URL: z.string().url().default("https://api.fiber.ai"),
   OPENAI_API_KEY: z.string().min(1),
+  FIRECRAWL_API_KEY: z.string().min(1),
   ALLOWED_ORIGIN: z.string().default("http://localhost:3000"),
   JWT_SECRET: z.string().default("dev-jwt-secret-change-in-production"),
   REDIS_URL: z.string().default("redis://localhost:6379"),

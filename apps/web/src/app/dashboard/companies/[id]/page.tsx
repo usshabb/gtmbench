@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
-import { LetterAvatar } from "../../components";
+import { LetterAvatar, safeJson } from "../../components";
 
 interface CompanyRecord {
   _id?: string;
@@ -91,7 +91,17 @@ function getApiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 }
 
-type TabType = "overview" | "buyers";
+type TabType = "overview" | "buyers" | "jobs";
+
+interface JobRecord {
+  _id?: string;
+  title: string;
+  jobUrl?: string | null;
+  location?: string | null;
+  department?: string | null;
+  postedAt?: string | null;
+  fetchedAt: string;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Buyers Tab                                                          */
@@ -126,7 +136,7 @@ function BuyersTab({
       headers: { Authorization: `Bearer ${authToken}` },
     })
       .then(async (res) => {
-        const data = (await res.json()) as { profiles?: BuyerProfile[] };
+        const data = (await safeJson(res)) as { profiles?: BuyerProfile[] };
         const loadedProfiles = data.profiles ?? [];
         setProfiles(loadedProfiles);
         // Select default profile, or first one
@@ -150,7 +160,7 @@ function BuyersTab({
       headers: { Authorization: `Bearer ${authToken}` },
     })
       .then(async (res) => {
-        const data = (await res.json()) as {
+        const data = (await safeJson(res)) as {
           result?: { buyers?: FiberPerson[]; fetchedAt?: string; nextCursor?: string | null } | null;
         };
         if (data.result) {
@@ -185,7 +195,7 @@ function BuyersTab({
         body: JSON.stringify({ buyerProfileId: selectedProfileId, cursor }),
       });
 
-      const data = (await response.json()) as {
+      const data = (await safeJson(response)) as {
         result?: { output?: { data?: FiberPerson[]; nextCursor?: string | null } };
         error?: string;
       };
@@ -235,7 +245,7 @@ function BuyersTab({
       });
 
       if (!response.ok) {
-        const data = (await response.json()) as { error?: string };
+        const data = (await safeJson(response)) as { error?: string };
         // 409 means already exists — that's fine, treat as success
         if (response.status !== 409) throw new Error(data.error ?? "Could not add person");
       }
@@ -447,6 +457,118 @@ function BuyersTab({
 }
 
 /* ------------------------------------------------------------------ */
+/*  Jobs Tab                                                             */
+/* ------------------------------------------------------------------ */
+
+function JobsTab({
+  companyId,
+  apiBaseUrl,
+  authToken,
+}: {
+  companyId: string;
+  apiBaseUrl: string;
+  authToken: string;
+}) {
+  const [jobs, setJobs] = useState<JobRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    void fetch(`${apiBaseUrl}/companies/${companyId}/jobs`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(async (res) => {
+        if (!res.ok) throw new Error("Failed to load jobs");
+        const data = (await safeJson(res)) as { jobs?: JobRecord[] };
+        setJobs(data.jobs ?? []);
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : "Failed to load jobs");
+      })
+      .finally(() => setIsLoading(false));
+  }, [apiBaseUrl, authToken, companyId]);
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16">
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-lg bg-red-50 px-4 py-3">
+        <p className="text-[13px] text-red-600">{error}</p>
+      </div>
+    );
+  }
+
+  if (jobs.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-center">
+        <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-zinc-100">
+          <svg className="h-6 w-6 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 00.75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 00-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0112 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 01-.673-.38m0 0A2.18 2.18 0 013 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 013.413-.387m7.5 0V5.25A2.25 2.25 0 0013.5 3h-3a2.25 2.25 0 00-2.25 2.25v.894m7.5 0a48.667 48.667 0 00-7.5 0M12 12.75h.008v.008H12v-.008z" />
+          </svg>
+        </div>
+        <p className="text-[13px] font-medium text-zinc-600">No jobs found</p>
+        <p className="mt-1 text-[12px] text-zinc-400">Jobs will appear here once they are fetched via ATS detection</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-400">
+        {jobs.length} {jobs.length === 1 ? "job" : "jobs"} posted
+      </h3>
+      <div className="space-y-1">
+        {jobs.map((job) => (
+          <div
+            key={job._id ?? job.jobUrl ?? job.title}
+            className="flex items-center gap-3 rounded-lg border border-zinc-100 px-4 py-3 transition-colors hover:bg-zinc-50"
+          >
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100">
+              <svg className="h-4 w-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 14.15v4.25c0 1.094-.787 2.036-1.872 2.18-2.087.277-4.216.42-6.378.42s-4.291-.143-6.378-.42c-1.085-.144-1.872-1.086-1.872-2.18v-4.25m16.5 0a2.18 2.18 0 00.75-1.661V8.706c0-1.081-.768-2.015-1.837-2.175a48.114 48.114 0 00-3.413-.387m4.5 8.006c-.194.165-.42.295-.673.38A23.978 23.978 0 0112 15.75c-2.648 0-5.195-.429-7.577-1.22a2.016 2.016 0 01-.673-.38m0 0A2.18 2.18 0 013 12.489V8.706c0-1.081.768-2.015 1.837-2.175a48.111 48.111 0 013.413-.387m7.5 0V5.25A2.25 2.25 0 0013.5 3h-3a2.25 2.25 0 00-2.25 2.25v.894m7.5 0a48.667 48.667 0 00-7.5 0M12 12.75h.008v.008H12v-.008z" />
+              </svg>
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-[13px] font-medium text-zinc-900">{job.title}</span>
+              </div>
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[11px] text-zinc-500">
+                {job.department && <span>{job.department}</span>}
+                {job.location && (
+                  <span className="flex items-center gap-1">
+                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.828 0l-4.243-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    {job.location}
+                  </span>
+                )}
+                {job.postedAt && (
+                  <span>Posted {new Date(job.postedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+                )}
+              </div>
+            </div>
+            {job.jobUrl && (
+              <a
+                href={job.jobUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="shrink-0 rounded-lg border border-zinc-200 px-3 py-1.5 text-[12px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50"
+              >
+                View
+              </a>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Company Detail Page                                                 */
 /* ------------------------------------------------------------------ */
 
@@ -465,6 +587,8 @@ export default function CompanyDetailPage() {
   const [isRemoving, setIsRemoving] = useState(false);
   const [atsData, setATSData] = useState<ATSRecord | null>(null);
   const [isDetectingATS, setIsDetectingATS] = useState(false);
+  const [enabledSkills, setEnabledSkills] = useState<{ _id: string; skillType: string; enabled: boolean }[]>([]);
+  const [showSkillsMenu, setShowSkillsMenu] = useState(false);
 
   async function handleRemove() {
     if (!authToken || !id) return;
@@ -475,7 +599,7 @@ export default function CompanyDetailPage() {
         headers: { Authorization: `Bearer ${authToken}` },
       });
       if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
+        const data = (await safeJson(res)) as { error?: string };
         throw new Error(data.error ?? "Could not remove company");
       }
       router.replace("/dashboard/companies");
@@ -491,6 +615,19 @@ export default function CompanyDetailPage() {
     setAuthToken(storedToken);
   }, [router]);
 
+  // Fetch enabled skills
+  useEffect(() => {
+    if (!authToken) return;
+    void fetch(`${apiBaseUrl}/skills`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(async (res) => {
+        const data = (await safeJson(res)) as { skills?: { _id: string; skillType: string; enabled: boolean }[] };
+        setEnabledSkills((data.skills ?? []).filter((s) => s.enabled));
+      })
+      .catch(() => {});
+  }, [apiBaseUrl, authToken]);
+
   useEffect(() => {
     if (!authToken || !id) return;
 
@@ -501,16 +638,16 @@ export default function CompanyDetailPage() {
     ])
       .then(async ([companyRes, personsRes, atsRes]) => {
         if (!companyRes.ok) throw new Error("Company not found");
-        const companyData = (await companyRes.json()) as { company: CompanyRecord };
+        const companyData = (await safeJson(companyRes)) as { company: CompanyRecord };
         setCompany(companyData.company);
 
         if (personsRes.ok) {
-          const personsData = (await personsRes.json()) as { persons: PersonRecord[] };
+          const personsData = (await safeJson(personsRes)) as { persons: PersonRecord[] };
           setPersons(personsData.persons ?? []);
         }
 
         if (atsRes.ok) {
-          const atsDataResponse = (await atsRes.json()) as { ats: ATSRecord | null };
+          const atsDataResponse = (await safeJson(atsRes)) as { ats: ATSRecord | null };
           setATSData(atsDataResponse.ats);
         }
       })
@@ -532,10 +669,10 @@ export default function CompanyDetailPage() {
         },
       });
       if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
+        const data = (await safeJson(res)) as { error?: string };
         throw new Error(data.error ?? "Could not detect ATS");
       }
-      const result = (await res.json()) as { ats: ATSRecord };
+      const result = (await safeJson(res)) as { ats: ATSRecord };
       setATSData(result.ats);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not detect ATS");
@@ -615,6 +752,7 @@ export default function CompanyDetailPage() {
   const tabs: { key: TabType; label: string }[] = [
     { key: "overview", label: "Overview" },
     { key: "buyers", label: "Buyers" },
+    { key: "jobs", label: "Jobs" },
   ];
 
   return (
@@ -626,6 +764,54 @@ export default function CompanyDetailPage() {
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
           </button>
           <span className="flex-1 text-sm text-zinc-500">Back to Companies</span>
+          {/* Skills 3-dot menu */}
+          {enabledSkills.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => setShowSkillsMenu((v) => !v)}
+                className="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-[12px] font-medium text-zinc-500 transition-colors hover:bg-zinc-50 hover:text-zinc-700"
+                title="Run skill"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
+                </svg>
+                Skills
+              </button>
+
+              {showSkillsMenu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setShowSkillsMenu(false)} />
+                  <div className="absolute right-0 top-full z-50 mt-1 w-52 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
+                    {enabledSkills.some((s) => s.skillType === "detect_ats") && (
+                      atsData?.detectionStatus === "completed" && atsData.atsName ? (
+                        <div className="flex items-center gap-2.5 px-3 py-2">
+                          <svg className="h-4 w-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                          </svg>
+                          <span className="text-[13px] text-zinc-500">ATS: {atsData.atsName}</span>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setShowSkillsMenu(false);
+                            handleDetectATS();
+                          }}
+                          disabled={isDetectingATS}
+                          className="flex w-full items-center gap-2.5 px-3 py-2 text-[13px] text-zinc-600 transition-colors hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-60"
+                        >
+                          <svg className="h-4 w-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                          </svg>
+                          {isDetectingATS ? "Detecting..." : atsData?.detectionStatus === "failed" ? "Retry Detect ATS" : "Detect ATS"}
+                        </button>
+                      )
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           <button
             onClick={handleRemove}
             disabled={isRemoving}
@@ -686,57 +872,51 @@ export default function CompanyDetailPage() {
           </div>
         </div>
 
-        {/* ATS Detection Section */}
-        <div className="mt-6 rounded-xl border border-zinc-100 bg-white px-5 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <svg className="h-5 w-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
-              <h3 className="text-sm font-medium text-zinc-700">Applicant Tracking System</h3>
-            </div>
-            {atsData?.detectionStatus === "completed" && atsData.atsName ? (
+        {/* ATS Detection Section - only shown when skill is enabled */}
+        {enabledSkills.some((s) => s.skillType === "detect_ats") && atsData && (
+          <div className="mt-6 rounded-xl border border-zinc-100 bg-white px-5 py-4">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-                  {atsData.atsName}
-                </span>
-                {atsData.careerPageUrl && (
-                  <a
-                    href={atsData.careerPageUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-xs text-blue-600 hover:text-blue-800 underline"
+                <svg className="h-5 w-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+                <h3 className="text-sm font-medium text-zinc-700">Applicant Tracking System</h3>
+              </div>
+              {atsData.detectionStatus === "completed" && atsData.atsName ? (
+                <div className="flex items-center gap-2">
+                  <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+                    {atsData.atsName}
+                  </span>
+                  {atsData.careerPageUrl && (
+                    <a
+                      href={atsData.careerPageUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-600 hover:text-blue-800 underline"
+                    >
+                      Visit Career Page
+                    </a>
+                  )}
+                </div>
+              ) : atsData.detectionStatus === "pending" || isDetectingATS ? (
+                <div className="flex items-center gap-2">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
+                  <span className="text-xs text-zinc-500">Detecting...</span>
+                </div>
+              ) : atsData.detectionStatus === "failed" ? (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-red-600">Detection failed</span>
+                  <button
+                    onClick={handleDetectATS}
+                    className="rounded-lg border border-zinc-200 px-3 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-50"
                   >
-                    Visit Career Page
-                  </a>
-                )}
-              </div>
-            ) : atsData?.detectionStatus === "pending" || isDetectingATS ? (
-              <div className="flex items-center gap-2">
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
-                <span className="text-xs text-zinc-500">Detecting...</span>
-              </div>
-            ) : atsData?.detectionStatus === "failed" ? (
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-red-600">Detection failed</span>
-                <button
-                  onClick={handleDetectATS}
-                  className="rounded-lg border border-zinc-200 px-3 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-50"
-                >
-                  Retry
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={handleDetectATS}
-                disabled={isDetectingATS}
-                className="rounded-lg bg-zinc-900 px-3 py-1 text-xs font-medium text-white hover:opacity-90 disabled:opacity-60"
-              >
-                Detect ATS
-              </button>
-            )}
+                    Retry
+                  </button>
+                </div>
+              ) : null}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Tab Content */}
         {activeTab === "overview" ? (
@@ -845,9 +1025,13 @@ export default function CompanyDetailPage() {
               </div>
             )}
           </div>
-        ) : (
+        ) : activeTab === "buyers" ? (
           <div className="mt-6">
             <BuyersTab companyId={id} apiBaseUrl={apiBaseUrl} authToken={authToken} />
+          </div>
+        ) : (
+          <div className="mt-6">
+            <JobsTab companyId={id} apiBaseUrl={apiBaseUrl} authToken={authToken} />
           </div>
         )}
 

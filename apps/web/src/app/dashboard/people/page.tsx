@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { LetterAvatar, DATA_CHANGED_EVENT } from "../components";
+import { LetterAvatar, DATA_CHANGED_EVENT, safeJson } from "../components";
 
 interface PersonRecord {
   _id?: string;
@@ -169,7 +169,7 @@ export default function PeoplePage() {
       headers: { Authorization: `Bearer ${authToken}` },
     })
       .then(async (response) => {
-        const result = (await response.json()) as { persons?: PersonRecord[]; error?: string };
+        const result = (await safeJson(response)) as { persons?: PersonRecord[]; error?: string };
         if (!response.ok) throw new Error(result.error ?? "Could not load people");
         setPersons(result.persons ?? []);
       })
@@ -198,7 +198,7 @@ export default function PeoplePage() {
         headers: { Authorization: `Bearer ${authToken}` },
       });
       if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
+        const data = (await safeJson(res)) as { error?: string };
         throw new Error(data.error ?? "Could not remove person");
       }
       setPersons((prev) => prev.filter((p) => p._id !== id));

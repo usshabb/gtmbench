@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { dispatchDataChanged } from "./components";
+import { dispatchDataChanged, safeJson } from "./components";
 
 const localStorageTokenKey = "gtmbench-token";
 
@@ -48,6 +48,15 @@ const navItems = [
     icon: (
       <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
         <path strokeLinecap="round" strokeLinejoin="round" d="M15 9h3.75M15 12h3.75M15 15h3.75M4.5 19.5h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15A2.25 2.25 0 002.25 6.75v10.5A2.25 2.25 0 004.5 19.5zm6-10.125a1.875 1.875 0 11-3.75 0 1.875 1.875 0 013.75 0zm1.294 6.336a6.721 6.721 0 01-3.17.789 6.721 6.721 0 01-3.168-.789 3.376 3.376 0 016.338 0z" />
+      </svg>
+    ),
+  },
+  {
+    label: "Skills",
+    href: "/dashboard/skills",
+    icon: (
+      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
       </svg>
     ),
   },
@@ -107,7 +116,7 @@ function GlobalActionModal({
           },
           body: JSON.stringify({ domain: value }),
         });
-        const result = (await response.json()) as { company?: unknown; error?: string };
+        const result = (await safeJson(response)) as { company?: unknown; error?: string };
         if (!response.ok) throw new Error(result.error ?? "Could not add company");
         onClose();
         router.push("/dashboard/companies");
@@ -122,7 +131,7 @@ function GlobalActionModal({
           },
           body: JSON.stringify({ linkedinUrl }),
         });
-        const result = (await response.json()) as { person?: unknown; error?: string };
+        const result = (await safeJson(response)) as { person?: unknown; error?: string };
         if (!response.ok) throw new Error(result.error ?? "Could not add person");
         onClose();
         router.push("/dashboard/people");
@@ -368,7 +377,7 @@ export default function DashboardLayout({
           router.replace("/");
           return;
         }
-        const data = (await response.json()) as { email: string };
+        const data = (await safeJson(response)) as { email: string };
         setUserEmail(data.email);
       })
       .catch(() => {

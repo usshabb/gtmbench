@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
-import { LetterAvatar } from "../../components";
+import { LetterAvatar, safeJson } from "../../components";
 
 interface PersonRecord {
   _id?: string;
@@ -76,7 +76,7 @@ export default function PersonDetailPage() {
         headers: { Authorization: `Bearer ${authToken}` },
       });
       if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
+        const data = (await safeJson(res)) as { error?: string };
         throw new Error(data.error ?? "Could not remove person");
       }
       router.replace("/dashboard/people");
@@ -98,7 +98,7 @@ export default function PersonDetailPage() {
     fetch(`${apiBaseUrl}/persons/${id}`, { headers: { Authorization: `Bearer ${authToken}` } })
       .then(async (res) => {
         if (!res.ok) throw new Error("Person not found");
-        const data = (await res.json()) as { person: PersonRecord };
+        const data = (await safeJson(res)) as { person: PersonRecord };
         setPerson(data.person);
 
         // If person has a company domain, fetch the company
@@ -108,7 +108,7 @@ export default function PersonDetailPage() {
               headers: { Authorization: `Bearer ${authToken}` },
             });
             if (companyRes.ok) {
-              const companyData = (await companyRes.json()) as { company: CompanyRecord };
+              const companyData = (await safeJson(companyRes)) as { company: CompanyRecord };
               setCompanyLead(companyData.company);
             }
           } catch {

@@ -2,7 +2,7 @@ import cors from "cors";
 import express from "express";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
-import { getBuyerProfilesCollection, getBuyerSearchResultsCollection, getCompanyATSCollection, getCompaniesCollection, getJobsCollection, getPersonsCollection, getSignalsCollection, getTriggerJobsCollection, getTriggersCollection } from "./db.js";
+import { getBuyerProfilesCollection, getBuyerSearchResultsCollection, getCompanyATSCollection, getCompaniesCollection, getJobsCollection, getPersonsCollection, getSignalsCollection, getSkillsCollection, getTriggerJobsCollection, getTriggersCollection } from "./db.js";
 import { env } from "./env.js";
 import { getEmailFromToken, requestOtp, verifyOtp } from "./auth.js";
 import { enrichDomainWithFiber, enrichPersonWithFiber, searchBuyersWithFiber } from "./fiber.js";
@@ -327,6 +327,25 @@ app.post("/persons", async (request, response) => {
       { _id: existingPerson._id },
       { $addToSet: { userEmails: userEmail } },
     );
+    // Create trigger job if user has an active linkedin_content trigger
+    try {
+      const triggersCol = await getTriggersCollection();
+      const linkedinTrigger = await triggersCol.findOne({ userEmail, triggerType: "linkedin_content", status: "active" });
+      if (linkedinTrigger) {
+        const triggerJobsCol = await getTriggerJobsCollection();
+        try {
+          await triggerJobsCol.insertOne({
+            triggerId: linkedinTrigger._id!,
+            userEmail,
+            jobType: "LinkedinPost" as const,
+            personId: existingPerson._id!,
+            linkedinUrl,
+            status: "pending" as const,
+            createdAt: new Date().toISOString(),
+          });
+        } catch { /* already exists */ }
+      }
+    } catch { /* ignore */ }
     const updatedPerson = await personsCollection.findOne({ _id: existingPerson._id });
     response.status(201).json({ person: updatedPerson });
     return;
@@ -427,6 +446,31 @@ app.post("/persons", async (request, response) => {
         );
       }
     }
+  }
+
+  // If user has an active linkedin_content trigger, create a trigger job for this person
+  try {
+    const triggersCol = await getTriggersCollection();
+    const linkedinTrigger = await triggersCol.findOne({ userEmail, triggerType: "linkedin_content", status: "active" });
+    if (linkedinTrigger) {
+      const triggerJobsCol = await getTriggerJobsCollection();
+      try {
+        await triggerJobsCol.insertOne({
+          triggerId: linkedinTrigger._id!,
+          userEmail,
+          jobType: "LinkedinPost" as const,
+          personId,
+          linkedinUrl,
+          status: "pending" as const,
+          createdAt: new Date().toISOString(),
+        });
+        console.log(`[add-person] Created linkedin_content trigger job for ${linkedinUrl}`);
+      } catch {
+        // Already exists (unique index) — skip
+      }
+    }
+  } catch (err) {
+    console.error(`[add-person] Error creating trigger job:`, err);
   }
 
   const savedPerson = await personsCollection.findOne({ _id: personId });
@@ -754,27 +798,40 @@ app.post("/companies/:id/detect-ats", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
   const companiesCollection = await getCompaniesCollection();
 
+  console.log(`[detect-ats] Request from ${userEmail} for company ${request.params.id}`);
+
   let company;
   try {
     company = await companiesCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
   } catch {
+    console.log(`[detect-ats] Invalid company ID: ${request.params.id}`);
     response.status(400).json({ error: "Invalid company ID" });
     return;
   }
 
   if (!company) {
+    console.log(`[detect-ats] Company not found: ${request.params.id}`);
     response.status(404).json({ error: "Company not found" });
     return;
   }
 
+  console.log(`[detect-ats] Found company: domain=${company.domain} id=${company._id}`);
+
   const atsCollection = await getCompanyATSCollection();
   const companyId = company._id!;
 
-  // Check if detection already exists
+  // Check if detection already exists and completed successfully
   const existing = await atsCollection.findOne({ companyId });
-  if (existing) {
+  if (existing && existing.detectionStatus === "completed") {
+    console.log(`[detect-ats] ATS already detected for ${company.domain}: atsName=${existing.atsName} status=${existing.detectionStatus}`);
     response.json({ ats: existing, message: "ATS already detected" });
     return;
+  }
+
+  // If a previous attempt failed or is pending, delete it so we can retry
+  if (existing) {
+    console.log(`[detect-ats] Removing previous ${existing.detectionStatus} ATS record for ${company.domain} to retry`);
+    await atsCollection.deleteOne({ companyId });
   }
 
   // Create pending record
@@ -785,9 +842,12 @@ app.post("/companies/:id/detect-ats", async (request, response) => {
     detectedAt: createdAt,
     detectionStatus: "pending",
   });
+  console.log(`[detect-ats] Created pending ATS record for ${company.domain}`);
 
   // Detect ATS
+  console.log(`[detect-ats] Calling detectCompanyATS for ${company.domain}...`);
   const detection = await detectCompanyATS(company.domain);
+  console.log(`[detect-ats] Detection result for ${company.domain}: success=${detection.success} atsName=${detection.data?.atsName ?? "N/A"} careerPageURL=${detection.data?.careerPageURL ?? "N/A"} error=${detection.error ?? "none"}`);
 
   if (detection.success && detection.data) {
     await atsCollection.updateOne(
@@ -802,6 +862,7 @@ app.post("/companies/:id/detect-ats", async (request, response) => {
         },
       },
     );
+    console.log(`[detect-ats] Updated ATS record to completed for ${company.domain}`);
   } else {
     await atsCollection.updateOne(
       { companyId },
@@ -813,6 +874,7 @@ app.post("/companies/:id/detect-ats", async (request, response) => {
         },
       },
     );
+    console.log(`[detect-ats] Updated ATS record to failed for ${company.domain}: ${detection.error}`);
   }
 
   const updated = await atsCollection.findOne({ companyId });
@@ -820,11 +882,13 @@ app.post("/companies/:id/detect-ats", async (request, response) => {
   // If ATS was successfully detected with a careerPageUrl, create an ATSJobs trigger job
   // for any active ats_jobs trigger this user has
   if (detection.success && detection.data?.careerPageURL) {
+    console.log(`[detect-ats] Checking for active ats_jobs trigger for user ${userEmail}...`);
     try {
       const triggersCol = await getTriggersCollection();
       const atsJobsTrigger = await triggersCol.findOne({ userEmail, triggerType: "ats_jobs", status: "active" });
 
       if (atsJobsTrigger) {
+        console.log(`[detect-ats] Found active ats_jobs trigger ${atsJobsTrigger._id}, creating trigger job for ${company.domain}`);
         const triggerJobsCol = await getTriggerJobsCollection();
         const now2 = new Date().toISOString();
         try {
@@ -838,15 +902,19 @@ app.post("/companies/:id/detect-ats", async (request, response) => {
             status: "pending",
             createdAt: now2,
           });
+          console.log(`[detect-ats] Created ATSJobs trigger job for ${company.domain}`);
         } catch {
-          // Already exists — ignore
+          console.log(`[detect-ats] ATSJobs trigger job already exists for ${company.domain}`);
         }
+      } else {
+        console.log(`[detect-ats] No active ats_jobs trigger found for user ${userEmail}`);
       }
-    } catch {
-      // Non-critical — don't fail the request
+    } catch (err) {
+      console.error(`[detect-ats] Error creating trigger job:`, err);
     }
   }
 
+  console.log(`[detect-ats] Returning ATS result for ${company.domain}: status=${updated?.detectionStatus}`);
   response.json({ ats: updated });
 });
 
@@ -953,7 +1021,7 @@ app.post("/triggers", async (request, response) => {
       jobsCreated = persons.length;
     }
   } else if (parsed.data.triggerType === "ats_jobs") {
-    // Create TriggerJob entries for all companies with ATS detected and careerPageUrl set
+    // Create TriggerJob entries for all companies — auto-detect ATS for those missing it
     const companiesCol = await getCompaniesCollection();
     const atsCol = await getCompanyATSCollection();
 
@@ -961,6 +1029,54 @@ app.post("/triggers", async (request, response) => {
     const companyIds = userCompanies.map((c) => c._id!);
 
     if (companyIds.length > 0) {
+      // Find companies that already have ATS detected
+      const existingAtsRecords = await atsCol
+        .find({ companyId: { $in: companyIds } })
+        .toArray();
+      const atsCompanyIdSet = new Set(existingAtsRecords.map((a) => a.companyId.toHexString()));
+
+      // Auto-detect ATS for companies that don't have it yet
+      const companiesWithoutAts = userCompanies.filter((c) => !atsCompanyIdSet.has(c._id!.toHexString()));
+      for (const comp of companiesWithoutAts) {
+        console.log(`[create-trigger] Auto-detecting ATS for ${comp.domain}...`);
+        const atsNow = new Date().toISOString();
+        await atsCol.insertOne({
+          companyId: comp._id!,
+          domain: comp.domain,
+          detectedAt: atsNow,
+          detectionStatus: "pending",
+        });
+        const detection = await detectCompanyATS(comp.domain);
+        if (detection.success && detection.data) {
+          await atsCol.updateOne(
+            { companyId: comp._id! },
+            {
+              $set: {
+                atsName: detection.data.atsName ?? null,
+                atsUrlSlug: detection.data.atsSlug ?? null,
+                careerPageUrl: detection.data.careerPageURL ?? null,
+                detectionStatus: "completed",
+                rawData: detection.rawData,
+              },
+            },
+          );
+          console.log(`[create-trigger] ATS detected for ${comp.domain}: ${detection.data.atsName}`);
+        } else {
+          await atsCol.updateOne(
+            { companyId: comp._id! },
+            {
+              $set: {
+                detectionStatus: "failed",
+                detectionError: detection.error ?? "ATS detection failed",
+                rawData: detection.rawData,
+              },
+            },
+          );
+          console.log(`[create-trigger] ATS detection failed for ${comp.domain}: ${detection.error}`);
+        }
+      }
+
+      // Now fetch all completed ATS records with careerPageUrl
       const atsRecords = await atsCol
         .find({ companyId: { $in: companyIds }, detectionStatus: "completed", careerPageUrl: { $ne: null } })
         .toArray();
@@ -1122,6 +1238,128 @@ app.delete("/signals/:id", async (request, response) => {
   }
 
   response.json({ success: true });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Skills endpoints                                                      */
+/* ------------------------------------------------------------------ */
+
+const skillTypeSchema = z.object({
+  skillType: z.enum(["detect_ats"]),
+});
+
+// GET all skills for the current user
+app.get("/skills", async (_request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const skillsCol = await getSkillsCollection();
+  const skills = await skillsCol.find({ userEmail }).toArray();
+  response.json({ skills });
+});
+
+// POST enable a skill
+app.post("/skills", async (request, response) => {
+  const parsed = skillTypeSchema.safeParse(request.body);
+  if (!parsed.success) {
+    response.status(400).json({ error: "Invalid skill type" });
+    return;
+  }
+
+  const userEmail = response.locals.userEmail as string;
+  const skillsCol = await getSkillsCollection();
+
+  const existing = await skillsCol.findOne({ userEmail, skillType: parsed.data.skillType });
+  if (existing) {
+    // Re-enable if disabled
+    if (!existing.enabled) {
+      await skillsCol.updateOne(
+        { _id: existing._id },
+        { $set: { enabled: true, updatedAt: new Date().toISOString() } },
+      );
+      const updated = await skillsCol.findOne({ _id: existing._id });
+      response.json({ skill: updated });
+      return;
+    }
+    response.json({ skill: existing, message: "Skill already enabled" });
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const result = await skillsCol.insertOne({
+    userEmail,
+    skillType: parsed.data.skillType,
+    enabled: true,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const skill = await skillsCol.findOne({ _id: result.insertedId });
+  response.status(201).json({ skill });
+});
+
+// PUT toggle a skill
+app.put("/skills/:id", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const skillsCol = await getSkillsCollection();
+
+  let skill;
+  try {
+    skill = await skillsCol.findOne({ _id: new ObjectId(request.params.id), userEmail });
+  } catch {
+    response.status(400).json({ error: "Invalid skill ID" });
+    return;
+  }
+  if (!skill) {
+    response.status(404).json({ error: "Skill not found" });
+    return;
+  }
+
+  const enabled = typeof request.body.enabled === "boolean" ? request.body.enabled : !skill.enabled;
+  await skillsCol.updateOne(
+    { _id: skill._id },
+    { $set: { enabled, updatedAt: new Date().toISOString() } },
+  );
+
+  const updated = await skillsCol.findOne({ _id: skill._id });
+  response.json({ skill: updated });
+});
+
+// DELETE disable a skill
+app.delete("/skills/:id", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const skillsCol = await getSkillsCollection();
+
+  let skill;
+  try {
+    skill = await skillsCol.findOne({ _id: new ObjectId(request.params.id), userEmail });
+  } catch {
+    response.status(400).json({ error: "Invalid skill ID" });
+    return;
+  }
+  if (!skill) {
+    response.status(404).json({ error: "Skill not found" });
+    return;
+  }
+
+  await skillsCol.updateOne(
+    { _id: skill._id },
+    { $set: { enabled: false, updatedAt: new Date().toISOString() } },
+  );
+
+  response.json({ success: true });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Global error handler — always return JSON, never HTML                 */
+/* ------------------------------------------------------------------ */
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const message = err instanceof Error ? err.message : "Internal server error";
+  const stack = err instanceof Error ? err.stack : undefined;
+  console.error("[global-error]", message, stack);
+  if (!res.headersSent) {
+    res.status(500).json({ error: message });
+  }
 });
 
 /* ------------------------------------------------------------------ */

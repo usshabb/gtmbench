@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { LetterAvatar, DATA_CHANGED_EVENT } from "../components";
+import { LetterAvatar, DATA_CHANGED_EVENT, safeJson } from "../components";
 
 interface CompanyRecord {
   _id?: string;
@@ -56,17 +56,26 @@ function getApiBaseUrl(): string {
 /*  Company Row                                                        */
 /* ------------------------------------------------------------------ */
 
+interface SkillRecord {
+  _id: string;
+  skillType: string;
+  enabled: boolean;
+}
+
 function CompanyRow({
   company,
   onRemove,
   onATSClick,
   atsInfo,
+  enabledSkills,
 }: {
   company: CompanyRecord;
   onRemove: (id: string) => void;
   onATSClick: (id: string) => void;
   atsInfo?: { detectionStatus?: string; atsName?: string };
+  enabledSkills: SkillRecord[];
 }) {
+  const [showMenu, setShowMenu] = useState(false);
   const data = getFiberData(company);
   const name = data?.preferred_name ?? company.domain;
   const logoUrl = data?.logo_url as string | undefined;
@@ -76,6 +85,7 @@ function CompanyRow({
   const totalFunding = data?.total_funding_consensus as number | undefined;
   const status = company.enrichmentStatus;
   const hasATS = atsInfo?.detectionStatus === "completed" && atsInfo?.atsName;
+  const hasDetectATS = enabledSkills.some((s) => s.skillType === "detect_ats");
 
   return (
     <li>
@@ -132,29 +142,67 @@ function CompanyRow({
         {status}
       </span>
 
-      {/* ATS Detection Badge/Button */}
-      {hasATS ? (
+      {/* ATS badge (if detected) */}
+      {hasATS && (
         <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 flex items-center gap-1">
           <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
           </svg>
           {atsInfo?.atsName}
         </span>
-      ) : (
-        <button
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            if (company._id) onATSClick(company._id);
-          }}
-          className="shrink-0 rounded-full border border-zinc-200 px-2 py-0.5 text-[11px] font-medium text-zinc-500 hover:bg-zinc-50 transition-colors flex items-center gap-1"
-          title="Detect ATS"
-        >
-          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-          </svg>
-          Detect ATS
-        </button>
+      )}
+
+      {/* 3-dot menu for skills */}
+      {enabledSkills.length > 0 && (
+        <div className="relative">
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setShowMenu((v) => !v);
+            }}
+            className="shrink-0 rounded-lg p-1.5 text-zinc-300 opacity-0 transition-all hover:bg-zinc-100 hover:text-zinc-600 group-hover:opacity-100"
+            title="Run skill"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
+            </svg>
+          </button>
+
+          {showMenu && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(false); }} />
+              <div className="absolute right-0 top-full z-50 mt-1 w-48 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
+                {hasDetectATS && !hasATS && (
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setShowMenu(false);
+                      if (company._id) onATSClick(company._id);
+                    }}
+                    className="flex w-full items-center gap-2.5 px-3 py-2 text-[13px] text-zinc-600 transition-colors hover:bg-zinc-50 hover:text-zinc-900"
+                  >
+                    <svg className="h-4 w-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                    Detect ATS
+                  </button>
+                )}
+                {hasDetectATS && hasATS && (
+                  <div className="px-3 py-2 text-[12px] text-zinc-400">
+                    ATS already detected
+                  </div>
+                )}
+                {!hasDetectATS && enabledSkills.length === 0 && (
+                  <div className="px-3 py-2 text-[12px] text-zinc-400">
+                    No skills available
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
       )}
 
       {/* Remove button */}
@@ -190,6 +238,7 @@ export default function DashboardPage() {
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [companies, setCompanies] = useState<CompanyRecord[]>([]);
   const [atsData, setATSData] = useState<Record<string, { detectionStatus?: string; atsName?: string }>>({});
+  const [enabledSkills, setEnabledSkills] = useState<SkillRecord[]>([]);
 
   useEffect(() => {
     const storedToken = window.localStorage.getItem(localStorageTokenKey);
@@ -200,6 +249,19 @@ export default function DashboardPage() {
     setAuthToken(storedToken);
   }, [router]);
 
+  // Fetch enabled skills
+  useEffect(() => {
+    if (!authToken) return;
+    void fetch(`${apiBaseUrl}/skills`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(async (res) => {
+        const data = (await safeJson(res)) as { skills?: SkillRecord[] };
+        setEnabledSkills((data.skills ?? []).filter((s) => s.enabled));
+      })
+      .catch(() => {});
+  }, [apiBaseUrl, authToken]);
+
   const fetchCompanies = useCallback(() => {
     if (!authToken) return;
     setIsLoadingList(true);
@@ -207,7 +269,7 @@ export default function DashboardPage() {
       headers: { Authorization: `Bearer ${authToken}` },
     })
       .then(async (response) => {
-        const result = (await response.json()) as { companies?: CompanyRecord[]; error?: string };
+        const result = (await safeJson(response)) as { companies?: CompanyRecord[]; error?: string };
         if (!response.ok) throw new Error(result.error ?? "Could not load companies");
         const loadedCompanies = result.companies ?? [];
         setCompanies(loadedCompanies);
@@ -219,7 +281,7 @@ export default function DashboardPage() {
               headers: { Authorization: `Bearer ${authToken}` },
             })
               .then(async (res) => {
-                const data = (await res.json()) as { ats?: { detectionStatus?: string; atsName?: string } | null };
+                const data = (await safeJson(res)) as { ats?: { detectionStatus?: string; atsName?: string } | null };
                 if (data.ats && company._id) {
                   setATSData((prev) => ({ ...prev, [company._id!]: data.ats! }));
                 }
@@ -253,7 +315,7 @@ export default function DashboardPage() {
         headers: { Authorization: `Bearer ${authToken}` },
       });
       if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
+        const data = (await safeJson(res)) as { error?: string };
         throw new Error(data.error ?? "Could not remove company");
       }
       setCompanies((prev) => prev.filter((c) => c._id !== id));
@@ -273,10 +335,10 @@ export default function DashboardPage() {
         },
       });
       if (!res.ok) {
-        const data = (await res.json()) as { error?: string };
+        const data = (await safeJson(res)) as { error?: string };
         throw new Error(data.error ?? "Could not detect ATS");
       }
-      const result = (await res.json()) as { ats?: { detectionStatus?: string; atsName?: string } };
+      const result = (await safeJson(res)) as { ats?: { detectionStatus?: string; atsName?: string } };
       if (result.ats) {
         setATSData((prev) => ({ ...prev, [id]: result.ats! }));
       }
@@ -321,6 +383,7 @@ export default function DashboardPage() {
                 onRemove={handleRemoveCompany}
                 onATSClick={handleDetectATS}
                 atsInfo={company._id ? atsData[company._id] : undefined}
+                enabledSkills={enabledSkills}
               />
             ))}
             {companies.length === 0 && (

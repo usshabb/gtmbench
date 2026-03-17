@@ -168,6 +168,21 @@ export interface SignalRecord {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Skills                                                               */
+/* ------------------------------------------------------------------ */
+
+export type SkillType = "detect_ats";
+
+export interface SkillRecord {
+  _id?: ObjectId;
+  userEmail: string;
+  skillType: SkillType;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Company ATS                                                         */
 /* ------------------------------------------------------------------ */
 
