@@ -95,14 +95,28 @@ export async function getTriggerJobsCollection(): Promise<Collection<TriggerJobR
   await triggerJobsCollection.createIndex({ userEmail: 1 });
   await triggerJobsCollection.createIndex({ status: 1 });
 
-  // Drop old non-sparse personId index and recreate as sparse (so ATSJobs docs without personId don't clash)
+  // Drop old sparse indexes — sparse:true still indexes null values, causing
+  // duplicate key errors when multiple LinkedinPost jobs share companyId=null
+  // (or multiple ATSJobs share personId=null). Replace with partialFilterExpression
+  // so the unique index only covers documents that actually have the field.
   try {
     await triggerJobsCollection.dropIndex("personId_1_triggerId_1");
   } catch {
     // Index may not exist
   }
-  await triggerJobsCollection.createIndex({ personId: 1, triggerId: 1 }, { unique: true, sparse: true });
-  await triggerJobsCollection.createIndex({ companyId: 1, triggerId: 1 }, { unique: true, sparse: true });
+  try {
+    await triggerJobsCollection.dropIndex("companyId_1_triggerId_1");
+  } catch {
+    // Index may not exist
+  }
+  await triggerJobsCollection.createIndex(
+    { personId: 1, triggerId: 1 },
+    { unique: true, partialFilterExpression: { personId: { $exists: true, $type: "objectId" } } },
+  );
+  await triggerJobsCollection.createIndex(
+    { companyId: 1, triggerId: 1 },
+    { unique: true, partialFilterExpression: { companyId: { $exists: true, $type: "objectId" } } },
+  );
 
   return triggerJobsCollection;
 }

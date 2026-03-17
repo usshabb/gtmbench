@@ -331,6 +331,7 @@ app.post("/persons", async (request, response) => {
     try {
       const triggersCol = await getTriggersCollection();
       const linkedinTrigger = await triggersCol.findOne({ userEmail, triggerType: "linkedin_content", status: "active" });
+      console.log(`[add-person] Existing person path: linkedinTrigger found=${!!linkedinTrigger} for userEmail=${userEmail}`);
       if (linkedinTrigger) {
         const triggerJobsCol = await getTriggerJobsCollection();
         try {
@@ -343,9 +344,14 @@ app.post("/persons", async (request, response) => {
             status: "pending" as const,
             createdAt: new Date().toISOString(),
           });
-        } catch { /* already exists */ }
+          console.log(`[add-person] Created trigger job for existing person ${existingPerson._id} (${linkedinUrl})`);
+        } catch (err: any) {
+          console.log(`[add-person] Trigger job already exists for existing person ${existingPerson._id}: ${err.message}`);
+        }
       }
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.error(`[add-person] Error creating trigger job for existing person:`, err);
+    }
     const updatedPerson = await personsCollection.findOne({ _id: existingPerson._id });
     response.status(201).json({ person: updatedPerson });
     return;
@@ -452,6 +458,7 @@ app.post("/persons", async (request, response) => {
   try {
     const triggersCol = await getTriggersCollection();
     const linkedinTrigger = await triggersCol.findOne({ userEmail, triggerType: "linkedin_content", status: "active" });
+    console.log(`[add-person] New person path: linkedinTrigger found=${!!linkedinTrigger} for userEmail=${userEmail}`);
     if (linkedinTrigger) {
       const triggerJobsCol = await getTriggerJobsCollection();
       try {
@@ -464,13 +471,13 @@ app.post("/persons", async (request, response) => {
           status: "pending" as const,
           createdAt: new Date().toISOString(),
         });
-        console.log(`[add-person] Created linkedin_content trigger job for ${linkedinUrl}`);
-      } catch {
-        // Already exists (unique index) — skip
+        console.log(`[add-person] Created linkedin_content trigger job for new person ${personId} (${linkedinUrl})`);
+      } catch (err: any) {
+        console.log(`[add-person] Trigger job already exists for new person ${personId}: ${err.message}`);
       }
     }
   } catch (err) {
-    console.error(`[add-person] Error creating trigger job:`, err);
+    console.error(`[add-person] Error creating trigger job for new person:`, err);
   }
 
   const savedPerson = await personsCollection.findOne({ _id: personId });
@@ -1006,6 +1013,10 @@ app.post("/triggers", async (request, response) => {
     // Create TriggerJob entries for all persons this user tracks
     const personsCol = await getPersonsCollection();
     const persons = await personsCol.find({ userEmails: userEmail }).toArray();
+    console.log(`[create-trigger] Found ${persons.length} persons for userEmail=${userEmail}`);
+    for (const p of persons) {
+      console.log(`[create-trigger]   person _id=${p._id} linkedinUrl=${p.linkedinUrl} userEmails=${JSON.stringify(p.userEmails)}`);
+    }
 
     if (persons.length > 0) {
       const jobDocs = persons.map((person) => ({
@@ -1017,8 +1028,18 @@ app.post("/triggers", async (request, response) => {
         status: "pending" as const,
         createdAt: now,
       }));
-      await triggerJobsCol.insertMany(jobDocs);
-      jobsCreated = persons.length;
+      console.log(`[create-trigger] Attempting to insert ${jobDocs.length} trigger jobs for triggerId=${triggerId}`);
+      try {
+        const bulkResult = await triggerJobsCol.insertMany(jobDocs, { ordered: false });
+        jobsCreated = bulkResult.insertedCount;
+        console.log(`[create-trigger] insertMany succeeded: insertedCount=${bulkResult.insertedCount}`);
+      } catch (err: any) {
+        // With ordered:false, BulkWriteError is thrown but successful inserts still go through
+        jobsCreated = err?.result?.insertedCount ?? err?.insertedCount ?? 0;
+        console.error(`[create-trigger] insertMany error: ${err.message}, insertedCount=${jobsCreated}`);
+      }
+    } else {
+      console.log(`[create-trigger] No persons found for ${userEmail} — skipping trigger job creation`);
     }
   } else if (parsed.data.triggerType === "ats_jobs") {
     // Create TriggerJob entries for all companies — auto-detect ATS for those missing it
@@ -1173,6 +1194,13 @@ app.get("/trigger-jobs", async (_request, response) => {
   const userEmail = response.locals.userEmail as string;
   const triggerJobsCol = await getTriggerJobsCollection();
   const jobs = await triggerJobsCol.find({ userEmail }).sort({ createdAt: -1 }).limit(500).toArray();
+  console.log(`[get-trigger-jobs] Returning ${jobs.length} trigger jobs for userEmail=${userEmail}`);
+  const linkedinJobs = jobs.filter(j => j.jobType === "LinkedinPost");
+  const atsJobs = jobs.filter(j => j.jobType === "ATSJobs");
+  console.log(`[get-trigger-jobs] Breakdown: ${linkedinJobs.length} LinkedinPost, ${atsJobs.length} ATSJobs`);
+  for (const j of linkedinJobs) {
+    console.log(`[get-trigger-jobs]   LinkedinPost: _id=${j._id} personId=${j.personId} linkedinUrl=${j.linkedinUrl} status=${j.status}`);
+  }
   response.json({ jobs });
 });
 

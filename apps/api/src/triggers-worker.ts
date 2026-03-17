@@ -144,10 +144,12 @@ export async function enqueueAllPendingJobs(): Promise<number> {
  * Resets completed/failed jobs to pending and inserts any missing ones.
  */
 export async function createPendingJobs(userEmail: string): Promise<number> {
+  console.log(`[createPendingJobs] Starting for userEmail=${userEmail}`);
   const triggersCol = await getTriggersCollection();
   const triggerJobsCol = await getTriggerJobsCollection();
 
   const activeTriggers = await triggersCol.find({ userEmail, status: "active" }).toArray();
+  console.log(`[createPendingJobs] Found ${activeTriggers.length} active triggers`);
   if (activeTriggers.length === 0) return 0;
 
   // Reset completed/failed jobs back to pending
@@ -155,6 +157,7 @@ export async function createPendingJobs(userEmail: string): Promise<number> {
     { userEmail, triggerId: { $in: activeTriggers.map((s) => s._id!) }, status: { $in: ["completed", "failed"] } },
     { $set: { status: "pending" } },
   );
+  console.log(`[createPendingJobs] Reset ${resetResult.modifiedCount} completed/failed jobs to pending`);
 
   let created = resetResult.modifiedCount;
   const now = new Date().toISOString();
@@ -163,6 +166,18 @@ export async function createPendingJobs(userEmail: string): Promise<number> {
     if (trigger.triggerType === "linkedin_content") {
       const personsCol = await getPersonsCollection();
       const persons = await personsCol.find({ userEmails: userEmail }).toArray();
+      console.log(`[createPendingJobs] linkedin_content trigger ${trigger._id}: found ${persons.length} persons for userEmail=${userEmail}`);
+      for (const p of persons) {
+        console.log(`[createPendingJobs]   person _id=${p._id} linkedinUrl=${p.linkedinUrl} userEmails=${JSON.stringify(p.userEmails)}`);
+      }
+
+      // Also log existing trigger jobs for this trigger to understand the current state
+      const existingJobs = await triggerJobsCol.find({ triggerId: trigger._id!, userEmail }).toArray();
+      console.log(`[createPendingJobs] Existing trigger jobs for this trigger: ${existingJobs.length}`);
+      for (const j of existingJobs) {
+        console.log(`[createPendingJobs]   job _id=${j._id} personId=${j.personId} linkedinUrl=${j.linkedinUrl} status=${j.status}`);
+      }
+
       for (const person of persons) {
         try {
           await triggerJobsCol.insertOne({
@@ -175,8 +190,9 @@ export async function createPendingJobs(userEmail: string): Promise<number> {
             createdAt: now,
           });
           created++;
-        } catch {
-          // Already exists (unique index) — skip
+          console.log(`[createPendingJobs] Created new trigger job for person ${person._id} (${person.linkedinUrl})`);
+        } catch (err: any) {
+          console.log(`[createPendingJobs] Skipped person ${person._id} (${person.linkedinUrl}): ${err.message}`);
         }
       }
     } else if (trigger.triggerType === "ats_jobs") {
@@ -250,6 +266,7 @@ export async function createPendingJobs(userEmail: string): Promise<number> {
     }
   }
 
+  console.log(`[createPendingJobs] Done. Total created/reset: ${created}`);
   return created;
 }
 
