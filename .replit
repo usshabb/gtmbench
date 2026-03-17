@@ -56,4 +56,3 @@ externalPort = 80
 [userenv]
 
 [userenv.shared]
-PORT = "3000"
