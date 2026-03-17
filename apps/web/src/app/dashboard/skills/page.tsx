@@ -30,7 +30,7 @@ const AVAILABLE_SKILLS = [
 const localStorageTokenKey = "gtmbench-token";
 
 function getApiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
+  return process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api-proxy";
 }
 
 export default function SkillsPage() {

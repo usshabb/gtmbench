@@ -3,12 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 5000 -H 0.0.0.0",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 5000 -H 0.0.0.0",
     "lint": "eslint"
   },
   "dependencies": {
+    "@tailwindcss/oxide": "^4.2.1",
+    "lightningcss": "^1.31.1",
     "next": "16.1.6",
     "react": "19.2.3",
     "react-dom": "19.2.3"

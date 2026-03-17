@@ -15,7 +15,7 @@ const app = express();
 
 app.use(
   cors({
-    origin: env.ALLOWED_ORIGIN,
+    origin: env.ALLOWED_ORIGIN === "*" ? true : env.ALLOWED_ORIGIN,
   }),
 );
 app.use(express.json());

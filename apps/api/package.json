@@ -5,7 +5,7 @@
   "description": "GTMbench API service",
   "type": "module",
   "scripts": {
-    "dev": "redis-cli CONFIG SET maxmemory-policy noeviction > /dev/null 2>&1; tsx watch src/index.ts",
+    "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "drop-tables": "tsx src/drop-tables.ts"
