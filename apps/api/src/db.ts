@@ -1,6 +1,6 @@
 import { Collection, MongoClient } from "mongodb";
 import { env } from "./env.js";
-import { BuyerProfileRecord, BuyerSearchResultRecord, CompanyATSRecord, CompanyRecord, JobRecord, LinkedinContentForPersonRecord, PersonRecord, SignalRecord, SkillRecord, TriggerJobRecord, TriggerRecord } from "./types.js";
+import { BuyerProfileRecord, BuyerSearchResultRecord, CompanyATSRecord, CompanyRecord, JobRecord, LinkedinPostForUserRecord, PersonRecord, SignalRecord, SkillRecord, TriggerJobRecord, TriggerRecord } from "./types.js";
 
 const mongoClient = new MongoClient(env.MONGODB_URL);
 
@@ -10,11 +10,11 @@ let buyerProfilesCollection: Collection<BuyerProfileRecord> | null = null;
 let triggersCollection: Collection<TriggerRecord> | null = null;
 let triggerJobsCollection: Collection<TriggerJobRecord> | null = null;
 let signalsCollection: Collection<SignalRecord> | null = null;
-let linkedinContentForPersonCollection: Collection<LinkedinContentForPersonRecord> | null = null;
 let buyerSearchResultsCollection: Collection<BuyerSearchResultRecord> | null = null;
 let companyATSCollection: Collection<CompanyATSRecord> | null = null;
 let jobsCollection: Collection<JobRecord> | null = null;
 let skillsCollection: Collection<SkillRecord> | null = null;
+let linkedinPostsForUserCollection: Collection<LinkedinPostForUserRecord> | null = null;
 
 export async function getCompaniesCollection(): Promise<Collection<CompanyRecord>> {
   if (companiesCollection) return companiesCollection;
@@ -121,21 +121,6 @@ export async function getTriggerJobsCollection(): Promise<Collection<TriggerJobR
   return triggerJobsCollection;
 }
 
-export async function getLinkedinContentForPersonCollection(): Promise<Collection<LinkedinContentForPersonRecord>> {
-  if (linkedinContentForPersonCollection) return linkedinContentForPersonCollection;
-
-  await mongoClient.connect();
-  const database = mongoClient.db(env.MONGODB_DB_NAME);
-
-  linkedinContentForPersonCollection = database.collection<LinkedinContentForPersonRecord>("linkedinContentForPerson");
-
-  await linkedinContentForPersonCollection.createIndex({ personId: 1 });
-  await linkedinContentForPersonCollection.createIndex({ postId: 1 }, { unique: true });
-  await linkedinContentForPersonCollection.createIndex({ linkedinUrl: 1 });
-
-  return linkedinContentForPersonCollection;
-}
-
 export async function getSignalsCollection(): Promise<Collection<SignalRecord>> {
   if (signalsCollection) return signalsCollection;
 
@@ -215,6 +200,28 @@ export async function getJobsCollection(): Promise<Collection<JobRecord>> {
   await jobsCollection.createIndex({ companyId: 1, jobUrl: 1 }, { unique: true, sparse: true });
 
   return jobsCollection;
+}
+
+export async function getLinkedinPostsForUserCollection(): Promise<Collection<LinkedinPostForUserRecord>> {
+  if (linkedinPostsForUserCollection) return linkedinPostsForUserCollection;
+
+  await mongoClient.connect();
+  const database = mongoClient.db(env.MONGODB_DB_NAME);
+
+  linkedinPostsForUserCollection = database.collection<LinkedinPostForUserRecord>("linkedinPostsForUser");
+
+  await linkedinPostsForUserCollection.createIndex({ userEmail: 1, postedAt: -1 });
+  await linkedinPostsForUserCollection.createIndex({ personId: 1 });
+  // Dedup: one row per (user, post)
+  await linkedinPostsForUserCollection.createIndex({ userEmail: 1, postId: 1 }, { unique: true });
+
+  return linkedinPostsForUserCollection;
+}
+
+/** Raw accessor for the legacy linkedinContentForPerson collection (migration use only). */
+export async function getLegacyLinkedinContentForPersonCollection() {
+  await mongoClient.connect();
+  return mongoClient.db(env.MONGODB_DB_NAME).collection("linkedinContentForPerson");
 }
 
 export async function getSkillsCollection(): Promise<Collection<SkillRecord>> {

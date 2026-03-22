@@ -72,7 +72,7 @@ function CompanyRow({
   company: CompanyRecord;
   onRemove: (id: string) => void;
   onATSClick: (id: string) => void;
-  atsInfo?: { detectionStatus?: string; atsName?: string };
+  atsInfo?: { detectionStatus?: string; atsName?: string | null; careerPageUrl?: string | null };
   enabledSkills: SkillRecord[];
 }) {
   const [showMenu, setShowMenu] = useState(false);
@@ -101,6 +101,17 @@ function CompanyRow({
         <div className="flex items-center gap-2">
           <span className="truncate text-[13px] font-medium text-zinc-900">{name}</span>
           <span className="shrink-0 text-[11px] text-zinc-400">{company.domain}</span>
+          {hasATS && atsInfo?.atsName && (
+            <a
+              href={atsInfo.careerPageUrl ?? undefined}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-zinc-900 text-white hover:bg-zinc-700 cursor-pointer transition-colors"
+            >
+              {atsInfo.atsName}
+            </a>
+          )}
         </div>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-zinc-500">
           {industry && <span>{industry}</span>}
@@ -129,26 +140,14 @@ function CompanyRow({
         )}
       </div>
 
-      {/* Status badge */}
-      <span
-        className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-          status === "completed"
-            ? "bg-emerald-50 text-emerald-700"
-            : status === "failed"
-              ? "bg-red-50 text-red-600"
-              : "bg-amber-50 text-amber-700"
-        }`}
-      >
-        {status}
-      </span>
-
-      {/* ATS badge (if detected) */}
-      {hasATS && (
-        <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 flex items-center gap-1">
-          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
-          {atsInfo?.atsName}
+      {/* Status badge — only show non-completed states */}
+      {status !== "completed" && (
+        <span
+          className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+            status === "failed" ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-700"
+          }`}
+        >
+          {status}
         </span>
       )}
 
@@ -237,7 +236,7 @@ export default function DashboardPage() {
   const [message, setMessage] = useState("");
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [companies, setCompanies] = useState<CompanyRecord[]>([]);
-  const [atsData, setATSData] = useState<Record<string, { detectionStatus?: string; atsName?: string }>>({});
+  const [atsData, setATSData] = useState<Record<string, { detectionStatus?: string; atsName?: string | null; careerPageUrl?: string | null }>>({});
   const [enabledSkills, setEnabledSkills] = useState<SkillRecord[]>([]);
 
   useEffect(() => {
@@ -281,7 +280,7 @@ export default function DashboardPage() {
               headers: { Authorization: `Bearer ${authToken}` },
             })
               .then(async (res) => {
-                const data = (await safeJson(res)) as { ats?: { detectionStatus?: string; atsName?: string } | null };
+                const data = (await safeJson(res)) as { ats?: { detectionStatus?: string; atsName?: string | null; careerPageUrl?: string | null } | null };
                 if (data.ats && company._id) {
                   setATSData((prev) => ({ ...prev, [company._id!]: data.ats! }));
                 }
@@ -338,7 +337,7 @@ export default function DashboardPage() {
         const data = (await safeJson(res)) as { error?: string };
         throw new Error(data.error ?? "Could not detect ATS");
       }
-      const result = (await safeJson(res)) as { ats?: { detectionStatus?: string; atsName?: string } };
+      const result = (await safeJson(res)) as { ats?: { detectionStatus?: string; atsName?: string | null; careerPageUrl?: string | null } };
       if (result.ats) {
         setATSData((prev) => ({ ...prev, [id]: result.ats! }));
       }

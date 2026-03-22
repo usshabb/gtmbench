@@ -22,6 +22,25 @@ const firecrawlATSSchema = z.object({
   career_portal_url: z.string().describe("Direct public careers/jobs portal URL"),
 });
 
+const KNOWN_ATS: string[] = [
+  "Ashby", "Greenhouse", "Lever", "Workday", "Notion", "Workable",
+  "BambooHR", "iCIMS", "Taleo", "SmartRecruiters", "JazzHR", "Bullhorn",
+  "Jobvite", "Recruitee", "Personio", "HiBob", "Rippling", "Gusto",
+  "SAP", "Oracle", "Breezy", "Zoho", "Comeet", "Pinpoint",
+];
+
+function normalizeATSName(raw: string): string {
+  const cleaned = raw.trim();
+  // Check for a known vendor match (case-insensitive)
+  const lower = cleaned.toLowerCase();
+  const match = KNOWN_ATS.find((name) => lower.includes(name.toLowerCase()));
+  if (match) return match;
+  // Strip anything after ( or – or , and take at most the first 2 words
+  const stripped = cleaned.replace(/[(–\-,].*/, "").trim();
+  const words = stripped.split(/\s+/).slice(0, 2);
+  return words.join(" ");
+}
+
 export async function detectCompanyATS(domain: string): Promise<ATSDetectionResponse> {
   try {
     console.log(`[firecrawl-ats] Detecting ATS for ${domain}...`);
@@ -53,12 +72,13 @@ export async function detectCompanyATS(domain: string): Promise<ATSDetectionResp
       };
     }
 
-    const atsSlug = data.ats.toLowerCase().replace(/\s+/g, "_");
+    const atsName = normalizeATSName(data.ats);
+    const atsSlug = atsName.toLowerCase().replace(/\s+/g, "_");
 
     return {
       success: true,
       data: {
-        atsName: data.ats,
+        atsName,
         careerPageURL: data.career_portal_url || "",
         atsSlug,
       },

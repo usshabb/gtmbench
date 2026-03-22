@@ -99,8 +99,10 @@ export interface LinkedinPostData {
   isReshare: boolean;
 }
 
-export interface LinkedinContentForPersonRecord {
+
+export interface LinkedinPostForUserRecord {
   _id?: ObjectId;
+  userEmail: string;
   personId: ObjectId;
   linkedinUrl: string;
   postId: string;

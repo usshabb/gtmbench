@@ -1,7 +1,7 @@
 import { Queue, Worker } from "bullmq";
 import { ObjectId } from "mongodb";
 import { env } from "./env.js";
-import { getCompaniesCollection, getCompanyATSCollection, getJobsCollection, getLinkedinContentForPersonCollection, getPersonsCollection, getSignalsCollection, getTriggerJobsCollection, getTriggersCollection } from "./db.js";
+import { getCompaniesCollection, getCompanyATSCollection, getJobsCollection, getLinkedinPostsForUserCollection, getPersonsCollection, getSignalsCollection, getTriggerJobsCollection, getTriggersCollection } from "./db.js";
 import { fetchLinkedinPosts } from "./linkedin.js";
 import { fetchATSJobs } from "./parallel.js";
 import { detectCompanyATS } from "./firecrawl.js";
@@ -402,13 +402,15 @@ async function processLinkedinPostJob(jobData: LinkedinPostJobData): Promise<voi
       throw new Error(result.error ?? "Failed to fetch LinkedIn posts");
     }
 
-    // Store all fetched posts in LinkedinContentForPerson
-    const linkedinContentCol = await getLinkedinContentForPersonCollection();
+    // Store all fetched posts in LinkedinPostsForUser (per-user store)
+    const linkedinPostsForUserCol = await getLinkedinPostsForUserCollection();
     const fetchedAt = new Date().toISOString();
+    const personObjectId = new ObjectId(jobData.personId);
     for (const post of result.posts) {
       try {
-        await linkedinContentCol.insertOne({
-          personId: new ObjectId(jobData.personId),
+        await linkedinPostsForUserCol.insertOne({
+          userEmail: jobData.userEmail,
+          personId: personObjectId,
           linkedinUrl: jobData.linkedinUrl,
           postId: post.postId,
           postUrl: post.postUrl,
@@ -424,24 +426,17 @@ async function processLinkedinPostJob(jobData: LinkedinPostJobData): Promise<voi
           fetchedAt,
         });
       } catch (err: unknown) {
-        // Duplicate postId — skip
-        if (err instanceof Error && "code" in err && (err as any).code === 11000) {
-          continue;
+        // Duplicate (userEmail, postId) — skip
+        if (!(err instanceof Error && "code" in err && (err as any).code === 11000)) {
+          throw err;
         }
-        throw err;
       }
     }
 
-    const now = Date.now();
-    const recentPosts = result.posts.filter((post) => {
-      const postTime = new Date(post.postedAt).getTime();
-      return now - postTime < TWENTY_FOUR_HOURS_MS;
-    });
+    // Apply keyword filter if configured, then create signals for all matching posts
+    const matchingPosts = filterByKeyword(result.posts, jobData.keyword);
 
-    // Apply keyword filter if configured
-    const matchingPosts = filterByKeyword(recentPosts, jobData.keyword);
-
-    // Bulk insert signals (skip duplicates)
+    // Bulk insert signals (skip duplicates via unique index on data.postId+userEmail)
     for (const post of matchingPosts) {
       try {
         await signalsCol.insertOne({
@@ -453,7 +448,7 @@ async function processLinkedinPostJob(jobData: LinkedinPostJobData): Promise<voi
           personLinkedinUrl: jobData.linkedinUrl,
           data: post,
           matchedKeyword: jobData.keyword,
-          createdAt: new Date().toISOString(),
+          createdAt: post.postedAt,
         });
       } catch (err: unknown) {
         // Duplicate key error (signal already exists) — skip
@@ -470,7 +465,7 @@ async function processLinkedinPostJob(jobData: LinkedinPostJobData): Promise<voi
     );
 
     console.log(
-      `[triggers-worker] Processed ${jobData.linkedinUrl}: ${result.posts.length} posts, ${recentPosts.length} recent, ${matchingPosts.length} signals created`,
+      `[triggers-worker] Processed ${jobData.linkedinUrl}: ${result.posts.length} posts, ${matchingPosts.length} signals created`,
     );
   } catch (error) {
     await triggerJobsCol.updateOne(

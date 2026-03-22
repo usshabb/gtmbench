@@ -107,18 +107,16 @@ function PersonRow({
         </div>
       </div>
 
-      {/* Status badge */}
-      <span
-        className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-          status === "completed"
-            ? "bg-emerald-50 text-emerald-700"
-            : status === "failed"
-              ? "bg-red-50 text-red-600"
-              : "bg-amber-50 text-amber-700"
-        }`}
-      >
-        {status}
-      </span>
+      {/* Status badge — only show non-completed states */}
+      {status !== "completed" && (
+        <span
+          className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+            status === "failed" ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-700"
+          }`}
+        >
+          {status}
+        </span>
+      )}
 
       {/* Remove button */}
       <button

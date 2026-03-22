@@ -2,7 +2,7 @@ import cors from "cors";
 import express from "express";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
-import { getBuyerProfilesCollection, getBuyerSearchResultsCollection, getCompanyATSCollection, getCompaniesCollection, getJobsCollection, getPersonsCollection, getSignalsCollection, getSkillsCollection, getTriggerJobsCollection, getTriggersCollection } from "./db.js";
+import { getBuyerProfilesCollection, getBuyerSearchResultsCollection, getCompanyATSCollection, getCompaniesCollection, getJobsCollection, getLegacyLinkedinContentForPersonCollection, getLinkedinPostsForUserCollection, getPersonsCollection, getSignalsCollection, getSkillsCollection, getTriggerJobsCollection, getTriggersCollection } from "./db.js";
 import { env } from "./env.js";
 import { getEmailFromToken, requestOtp, verifyOtp } from "./auth.js";
 import { enrichDomainWithFiber, enrichPersonWithFiber, searchBuyersWithFiber } from "./fiber.js";
@@ -1236,36 +1236,176 @@ app.post("/trigger-jobs/:id/run", async (request, response) => {
 app.get("/signals", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
   const signalsCol = await getSignalsCollection();
+  const postsCol = await getLinkedinPostsForUserCollection();
 
-  const limit = Math.min(parseInt(request.query.limit as string) || 50, 100);
+  const limit = Math.min(parseInt(request.query.limit as string) || 50, 200);
   const offset = parseInt(request.query.offset as string) || 0;
 
-  const [signals, total] = await Promise.all([
-    signalsCol.find({ userEmail }).sort({ createdAt: -1 }).skip(offset).limit(limit).toArray(),
-    signalsCol.countDocuments({ userEmail }),
+  const since = request.query.since ? new Date(request.query.since as string).toISOString() : null;
+  const before = request.query.before ? new Date(request.query.before as string).toISOString() : null;
+
+  // Build date filter for each collection (LinkedIn uses postedAt, ATS uses createdAt)
+  const postDateFilter: Record<string, string> = {};
+  const atsDateFilter: Record<string, string> = {};
+  if (since) { postDateFilter.$gte = since; atsDateFilter.$gte = since; }
+  if (before) { postDateFilter.$lt = before; atsDateFilter.$lt = before; }
+
+  const linkedinFilter: Record<string, unknown> = { userEmail };
+  if (since || before) linkedinFilter.postedAt = postDateFilter;
+
+  const atsFilter: Record<string, unknown> = { userEmail, signalType: "ats_new_job" };
+  if (since || before) atsFilter.createdAt = atsDateFilter;
+
+  // Fetch from both sources in parallel
+  const [rawPosts, atsSignals] = await Promise.all([
+    postsCol.find(linkedinFilter).sort({ postedAt: -1 }).toArray(),
+    signalsCol.find(atsFilter).sort({ createdAt: -1 }).toArray(),
   ]);
+
+  // Shape LinkedIn posts into signal-like objects
+  const linkedinSignals = rawPosts.map((post) => ({
+    _id: post._id,
+    signalType: "linkedin_post" as const,
+    personName: post.authorName,
+    personLinkedinUrl: post.linkedinUrl,
+    matchedKeyword: null,
+    createdAt: post.postedAt,
+    data: {
+      postId: post.postId,
+      postUrl: post.postUrl,
+      caption: post.caption,
+      postedAt: post.postedAt,
+      authorName: post.authorName,
+      authorLinkedinUrl: post.authorLinkedinUrl,
+      authorProfilePicture: post.authorProfilePicture,
+      engagement: post.engagement,
+      imageUrls: post.imageUrls,
+      hasVideo: post.hasVideo,
+      isReshare: post.isReshare,
+    },
+  }));
+
+  // Merge and sort by date descending
+  const all = [...linkedinSignals, ...atsSignals].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+
+  const total = all.length;
+  const signals = all.slice(offset, offset + limit);
 
   response.json({ signals, total, limit, offset });
 });
 
 app.delete("/signals/:id", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
-  const signalsCol = await getSignalsCollection();
 
-  let result;
+  let id: ObjectId;
   try {
-    result = await signalsCol.deleteOne({ _id: new ObjectId(request.params.id), userEmail });
+    id = new ObjectId(request.params.id);
   } catch {
     response.status(400).json({ error: "Invalid signal ID" });
     return;
   }
 
-  if (result.deletedCount === 0) {
-    response.status(404).json({ error: "Signal not found" });
+  // Try ATS signals collection first, then LinkedIn posts collection
+  const signalsCol = await getSignalsCollection();
+  const atsResult = await signalsCol.deleteOne({ _id: id, userEmail });
+  if (atsResult.deletedCount > 0) {
+    response.json({ success: true });
     return;
   }
 
-  response.json({ success: true });
+  const postsCol = await getLinkedinPostsForUserCollection();
+  const postResult = await postsCol.deleteOne({ _id: id, userEmail });
+  if (postResult.deletedCount > 0) {
+    response.json({ success: true });
+    return;
+  }
+
+  response.status(404).json({ error: "Signal not found" });
+});
+
+app.post("/signals/backfill-linkedin", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const postsCol = await getLinkedinPostsForUserCollection();
+  const legacyCol = await getLegacyLinkedinContentForPersonCollection();
+  const signalsCol = await getSignalsCollection();
+  const triggersCol = await getTriggersCollection();
+  const personsCol = await getPersonsCollection();
+
+  const trigger = await triggersCol.findOne({ userEmail, triggerType: "linkedin_content" });
+
+  // Collect posts from new per-user collection
+  const newPosts = await postsCol.find({ userEmail }).toArray();
+
+  // Also collect posts from legacy collection (filtered by persons the user tracks)
+  const userPersons = await personsCol.find({ userEmails: userEmail }).toArray();
+  const legacyPosts = await legacyCol.find({ personId: { $in: userPersons.map((p) => p._id!) } }).toArray();
+
+  // Merge, deduplicating by postId (prefer new collection records)
+  const seen = new Set<string>();
+  const allPosts: Array<{
+    personId: ObjectId;
+    linkedinUrl: string;
+    postId: string;
+    postUrl: string;
+    caption: string | null;
+    postedAt: string;
+    authorName: string;
+    authorLinkedinUrl: string;
+    authorProfilePicture: string | null;
+    engagement: { numComments: number; numShares: number; numReactions: number };
+    imageUrls: string[] | null;
+    hasVideo: boolean;
+    isReshare: boolean;
+  }> = [];
+
+  for (const p of [...newPosts, ...legacyPosts]) {
+    const pid = p.postId as string;
+    if (seen.has(pid)) continue;
+    seen.add(pid);
+    allPosts.push(p as typeof allPosts[number]);
+  }
+
+  let created = 0;
+  let skipped = 0;
+
+  for (const post of allPosts) {
+    try {
+      await signalsCol.insertOne({
+        userEmail,
+        triggerId: trigger?._id ?? new ObjectId(),
+        signalType: "linkedin_post",
+        personId: post.personId,
+        personName: post.authorName,
+        personLinkedinUrl: post.linkedinUrl,
+        data: {
+          postId: post.postId,
+          postUrl: post.postUrl,
+          caption: post.caption,
+          postedAt: post.postedAt,
+          authorName: post.authorName,
+          authorLinkedinUrl: post.authorLinkedinUrl,
+          authorProfilePicture: post.authorProfilePicture,
+          engagement: post.engagement,
+          imageUrls: post.imageUrls,
+          hasVideo: post.hasVideo,
+          isReshare: post.isReshare,
+        },
+        matchedKeyword: trigger?.config?.keyword ?? null,
+        createdAt: post.postedAt,
+      });
+      created++;
+    } catch (err: unknown) {
+      if (err instanceof Error && "code" in err && (err as any).code === 11000) {
+        skipped++;
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  response.json({ created, skipped, total: allPosts.length });
 });
 
 /* ------------------------------------------------------------------ */
