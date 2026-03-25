@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { LetterAvatar, safeJson } from "../../components";
 
@@ -49,14 +49,32 @@ function getLocation(data: Record<string, any>): string | undefined {
   return parts.length > 0 ? parts.join(", ") : undefined;
 }
 
+interface EmailThread {
+  id: string;
+  subject: string;
+  from: string;
+  to: string;
+  date: string;
+  snippet: string;
+}
+
 const localStorageTokenKey = "gtmbench-token";
 function getApiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
 }
 
 export default function PersonDetailPage() {
+  return (
+    <Suspense>
+      <PersonDetailInner />
+    </Suspense>
+  );
+}
+
+function PersonDetailInner() {
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const id = params.id as string;
   const apiBaseUrl = useMemo(() => getApiBaseUrl(), []);
 
@@ -66,6 +84,26 @@ export default function PersonDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [isRemoving, setIsRemoving] = useState(false);
+
+  // Gmail state
+  const [gmailConnected, setGmailConnected] = useState(false);
+  const [emails, setEmails] = useState<EmailThread[]>([]);
+  const [emailsLoading, setEmailsLoading] = useState(false);
+  const [showCompose, setShowCompose] = useState(false);
+  const [composeTo, setComposeTo] = useState("");
+  const [composeSubject, setComposeSubject] = useState("");
+  const [composeBody, setComposeBody] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState("");
+  const [sendSuccess, setSendSuccess] = useState(false);
+  const gmailChecked = useRef(false);
+  const emailsAutoLoaded = useRef(false);
+
+  // Email enrichment state
+  const [enriching, setEnriching] = useState(false);
+  const [enrichError, setEnrichError] = useState("");
+  const [showManualEmail, setShowManualEmail] = useState(false);
+  const [manualEmailInput, setManualEmailInput] = useState("");
 
   async function handleRemove() {
     if (!authToken || !id) return;
@@ -91,6 +129,38 @@ export default function PersonDetailPage() {
     if (!storedToken) { router.replace("/"); return; }
     setAuthToken(storedToken);
   }, [router]);
+
+  // Check Gmail connection status once we have a token
+  useEffect(() => {
+    if (!authToken || gmailChecked.current) return;
+    gmailChecked.current = true;
+    void fetch(`${apiBaseUrl}/gmail/status`, { headers: { Authorization: `Bearer ${authToken}` } })
+      .then(async (res) => {
+        const data = (await safeJson(res)) as { connected: boolean };
+        setGmailConnected(data.connected);
+      })
+      .catch(() => {});
+  }, [apiBaseUrl, authToken]);
+
+  // If Google redirected back with ?gmail=connected, refresh status
+  useEffect(() => {
+    if (searchParams.get("gmail") === "connected") {
+      setGmailConnected(true);
+    }
+  }, [searchParams]);
+
+  // Auto-load emails once Gmail is connected and person data is available
+  useEffect(() => {
+    if (!gmailConnected || !person || !authToken || emailsAutoLoaded.current) return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const raw = (person.enrichmentData as any)?.output?.data?.[0] as Record<string, any> | null ?? null;
+    const email: string = raw?.work_email ?? raw?.emails?.[0] ?? raw?.personal_email ?? raw?.email ?? "";
+    if (!email) return;
+    emailsAutoLoaded.current = true;
+    void loadEmails(email);
+  // loadEmails is stable — only re-run when these change
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gmailConnected, person, authToken]);
 
   useEffect(() => {
     if (!authToken || !id) return;
@@ -121,6 +191,106 @@ export default function PersonDetailPage() {
       })
       .finally(() => setIsLoading(false));
   }, [apiBaseUrl, authToken, id]);
+
+  async function connectGmail() {
+    const res = await fetch(
+      `${apiBaseUrl}/auth/google/url?returnPath=/dashboard/people/${id}`,
+      { headers: { Authorization: `Bearer ${authToken}` } },
+    );
+    const data = (await safeJson(res)) as { url: string };
+    if (data.url) window.location.href = data.url;
+  }
+
+  async function loadEmails(personEmail: string) {
+    if (!authToken || !personEmail) return;
+    setEmailsLoading(true);
+    try {
+      const res = await fetch(
+        `${apiBaseUrl}/persons/${id}/emails?personEmail=${encodeURIComponent(personEmail)}`,
+        { headers: { Authorization: `Bearer ${authToken}` } },
+      );
+      const data = (await safeJson(res)) as { emails: EmailThread[] };
+      setEmails(data.emails ?? []);
+    } catch {
+      // ignore
+    } finally {
+      setEmailsLoading(false);
+    }
+  }
+
+  async function handleSendEmail() {
+    if (!composeTo || !composeSubject || !composeBody) return;
+    setSending(true);
+    setSendError("");
+    try {
+      const res = await fetch(`${apiBaseUrl}/persons/${id}/emails`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ to: composeTo, subject: composeSubject, body: composeBody }),
+      });
+      if (!res.ok) {
+        const data = (await safeJson(res)) as { error?: string };
+        throw new Error(data.error ?? "Failed to send");
+      }
+      setSendSuccess(true);
+      setComposeSubject("");
+      setComposeBody("");
+      setTimeout(() => { setShowCompose(false); setSendSuccess(false); }, 1500);
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : "Failed to send email");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handleReEnrich() {
+    if (!authToken) return;
+    setEnriching(true);
+    setEnrichError("");
+    try {
+      const res = await fetch(`${apiBaseUrl}/persons/${id}/re-enrich`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!res.ok) {
+        const data = (await safeJson(res)) as { error?: string };
+        throw new Error(data.error ?? "Enrichment failed");
+      }
+      const data = (await safeJson(res)) as { person: PersonRecord };
+      setPerson(data.person);
+      emailsAutoLoaded.current = false; // allow auto-load to re-trigger with new email
+    } catch (err) {
+      setEnrichError(err instanceof Error ? err.message : "Enrichment failed");
+    } finally {
+      setEnriching(false);
+    }
+  }
+
+  async function handleSetManualEmail() {
+    const email = manualEmailInput.trim();
+    if (!email || !authToken) return;
+    setEnriching(true);
+    setEnrichError("");
+    try {
+      const res = await fetch(`${apiBaseUrl}/persons/${id}/set-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ email }),
+      });
+      if (!res.ok) {
+        const data = (await safeJson(res)) as { error?: string };
+        throw new Error(data.error ?? "Failed to save email");
+      }
+      const data = (await safeJson(res)) as { person: PersonRecord };
+      setPerson(data.person);
+      emailsAutoLoaded.current = false;
+      setShowManualEmail(false);
+    } catch (err) {
+      setEnrichError(err instanceof Error ? err.message : "Failed to save email");
+    } finally {
+      setEnriching(false);
+    }
+  }
 
   if (isLoading) {
     return (
@@ -169,6 +339,16 @@ export default function PersonDetailPage() {
   }[] | undefined;
 
   const skills = data?.skills as string[] | undefined;
+
+  // Extract person's email from Fiber enrichment data
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rawData = data as Record<string, any> | null;
+  const personEmail: string =
+    rawData?.work_email ??
+    rawData?.emails?.[0] ??
+    rawData?.personal_email ??
+    rawData?.email ??
+    "";
 
   const infoItems = [
     { label: "Title", value: title ?? null },
@@ -314,6 +494,182 @@ export default function PersonDetailPage() {
               {skills.slice(0, 15).map((skill) => (
                 <span key={skill} className="rounded-md bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-600">{skill}</span>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* Email */}
+        <div className="mt-6">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">Email</h2>
+            <div className="flex items-center gap-2">
+              {gmailConnected && (
+                <button
+                  onClick={() => { setShowCompose(true); setComposeTo(personEmail); }}
+                  className="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-1.5 text-[12px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+                  Send Email
+                </button>
+              )}
+              {!gmailConnected && (
+                <button
+                  onClick={connectGmail}
+                  className="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-1.5 text-[12px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50"
+                >
+                  <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4-8 5-8-5V6l8 5 8-5v2z"/></svg>
+                  Connect Gmail
+                </button>
+              )}
+              {gmailConnected && personEmail && !emailsLoading && (
+                <button
+                  onClick={() => loadEmails(personEmail)}
+                  className="text-[12px] text-zinc-400 hover:text-zinc-600"
+                >
+                  Refresh
+                </button>
+              )}
+            </div>
+          </div>
+
+          {!gmailConnected && (
+            <div className="rounded-xl border border-dashed border-zinc-200 px-5 py-6 text-center">
+              <p className="text-[13px] text-zinc-500">Connect Gmail to see email history and send emails.</p>
+            </div>
+          )}
+
+          {gmailConnected && !personEmail && (
+            <div className="rounded-xl border border-dashed border-zinc-200 px-5 py-5">
+              <p className="mb-1 text-[13px] font-medium text-zinc-700">No email address found for this person.</p>
+              <p className="mb-4 text-[12px] text-zinc-400">Enrich via Fiber to fetch their work email from LinkedIn, or add it manually.</p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => void handleReEnrich()}
+                  disabled={enriching}
+                  className="flex items-center gap-1.5 rounded-lg bg-zinc-900 px-4 py-2 text-[13px] font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
+                >
+                  {enriching && !showManualEmail ? (
+                    <><div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />Enriching...</>
+                  ) : "Enrich with Fiber"}
+                </button>
+                <button
+                  onClick={() => { setShowManualEmail((v) => !v); setEnrichError(""); }}
+                  className="text-[12px] text-zinc-400 hover:text-zinc-600 underline"
+                >
+                  Add email manually
+                </button>
+              </div>
+              {showManualEmail && (
+                <div className="mt-3 flex items-center gap-2">
+                  <input
+                    type="email"
+                    value={manualEmailInput}
+                    onChange={(e) => setManualEmailInput(e.target.value)}
+                    placeholder="e.g. cory@useparallel.com"
+                    className="flex-1 rounded-lg border border-zinc-200 px-3 py-2 text-[13px] text-zinc-800 outline-none focus:border-zinc-400"
+                    onKeyDown={(e) => { if (e.key === "Enter") void handleSetManualEmail(); }}
+                  />
+                  <button
+                    onClick={() => void handleSetManualEmail()}
+                    disabled={enriching || !manualEmailInput.trim()}
+                    className="rounded-lg border border-zinc-200 px-3 py-2 text-[12px] font-medium text-zinc-600 hover:bg-zinc-50 disabled:opacity-50"
+                  >
+                    {enriching && showManualEmail ? "Saving..." : "Save"}
+                  </button>
+                </div>
+              )}
+              {enrichError && <p className="mt-2 text-[12px] text-red-500">{enrichError}</p>}
+            </div>
+          )}
+
+          {gmailConnected && personEmail && emailsLoading && (
+            <div className="flex justify-center py-6">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
+            </div>
+          )}
+
+          {gmailConnected && personEmail && !emailsLoading && emails.length === 0 && (
+            <p className="text-[13px] text-zinc-400">No emails found with this person.</p>
+          )}
+
+          {emails.length > 0 && (
+            <div className="space-y-2">
+              {emails.map((email) => (
+                <div key={email.id} className="rounded-xl border border-zinc-100 px-4 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-[13px] font-medium text-zinc-800 truncate">{email.subject}</p>
+                    <span className="shrink-0 text-[11px] text-zinc-400">
+                      {email.date ? new Date(email.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-[11px] text-zinc-400 truncate">
+                    {email.from.includes(personEmail) ? `From: ${email.from}` : `To: ${email.to}`}
+                  </p>
+                  {email.snippet && (
+                    <p className="mt-1 text-[12px] leading-relaxed text-zinc-500 line-clamp-2">{email.snippet}</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Compose modal */}
+        {showCompose && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+            <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4">
+                <h3 className="text-[14px] font-semibold text-zinc-900">New Email</h3>
+                <button onClick={() => { setShowCompose(false); setSendError(""); setSendSuccess(false); }} className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+              <div className="px-5 py-4 space-y-3">
+                <div>
+                  <label className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">To</label>
+                  <input
+                    type="email"
+                    value={composeTo}
+                    onChange={(e) => setComposeTo(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-[13px] text-zinc-800 outline-none focus:border-zinc-400"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">Subject</label>
+                  <input
+                    type="text"
+                    value={composeSubject}
+                    onChange={(e) => setComposeSubject(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-[13px] text-zinc-800 outline-none focus:border-zinc-400"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">Message</label>
+                  <textarea
+                    rows={6}
+                    value={composeBody}
+                    onChange={(e) => setComposeBody(e.target.value)}
+                    className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-[13px] text-zinc-800 outline-none focus:border-zinc-400 resize-none"
+                  />
+                </div>
+                {sendError && <p className="text-[12px] text-red-500">{sendError}</p>}
+                {sendSuccess && <p className="text-[12px] text-emerald-600">Email sent!</p>}
+              </div>
+              <div className="flex justify-end gap-2 border-t border-zinc-100 px-5 py-4">
+                <button
+                  onClick={() => { setShowCompose(false); setSendError(""); }}
+                  className="rounded-lg px-4 py-2 text-[13px] text-zinc-500 hover:bg-zinc-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSendEmail}
+                  disabled={sending || !composeTo || !composeSubject || !composeBody}
+                  className="rounded-lg bg-zinc-900 px-4 py-2 text-[13px] font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
+                >
+                  {sending ? "Sending..." : "Send"}
+                </button>
+              </div>
             </div>
           </div>
         )}

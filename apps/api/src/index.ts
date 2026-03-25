@@ -1,13 +1,15 @@
 import cors from "cors";
+import { randomUUID } from "crypto";
 import express from "express";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
-import { getBuyerProfilesCollection, getBuyerSearchResultsCollection, getCompanyATSCollection, getCompaniesCollection, getJobsCollection, getLegacyLinkedinContentForPersonCollection, getLinkedinPostsForUserCollection, getPersonsCollection, getSignalsCollection, getSkillsCollection, getTriggerJobsCollection, getTriggersCollection } from "./db.js";
+import { getBuyerProfilesCollection, getBuyerSearchResultsCollection, getCompanyATSCollection, getCompaniesCollection, getGoogleTokensCollection, getInvitesCollection, getJobsCollection, getLegacyLinkedinContentForPersonCollection, getLinkedinPostsForUserCollection, getPersonsCollection, getSignalsCollection, getSkillsCollection, getTriggerJobsCollection, getTriggersCollection, getUsersCollection, getWorkspacesCollection } from "./db.js";
 import { env } from "./env.js";
-import { getEmailFromToken, requestOtp, verifyOtp } from "./auth.js";
-import { enrichDomainWithFiber, enrichPersonWithFiber, searchBuyersWithFiber } from "./fiber.js";
+import { getEmailFromToken, signToken } from "./auth.js";
+import { enrichDomainWithFiber, enrichPersonByEmailWithFiber, enrichPersonWithFiber, findPersonEmailWithFiber, searchBuyersWithFiber } from "./fiber.js";
 import { startTriggersWorker, scheduleTriggersCron, triggerTriggersProcessing, createPendingJobs, enqueuePendingJobsForUser, enqueueSpecificJob } from "./triggers-worker.js";
 import { detectCompanyATS } from "./firecrawl.js";
+import { exchangeCodeForTokens, getCalendarEvents, getEmailsWithPerson, getGoogleAuthUrl, getInboxThreads, getUserInfoFromGoogle, sendGmail } from "./google.js";
 
 const app = express();
 
@@ -17,15 +19,6 @@ app.use(
   }),
 );
 app.use(express.json());
-
-const emailSchema = z.object({
-  email: z.string().email(),
-});
-
-const verifySchema = z.object({
-  email: z.string().email(),
-  code: z.string().min(4),
-});
 
 const createCompanySchema = z.object({
   domain: z.string().min(3).toLowerCase(),
@@ -52,6 +45,77 @@ function sanitizeDomain(rawDomain: string): string {
   return rawDomain.replace(/^https?:\/\//, "").replace(/\/.*$/, "").trim();
 }
 
+/**
+ * Extract top-level fields from a Fiber enrichment payload.
+ * Returns workEmail and companyDomain (with email-domain fallback).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractPersonFields(enrichmentPayload: any): { workEmail?: string; companyDomain?: string } {
+  const personData = enrichmentPayload?.output?.data?.[0];
+  if (!personData) return {};
+
+  const workEmail: string | undefined =
+    personData.work_email ?? personData.emails?.[0] ?? personData.personal_email ?? personData.email ?? undefined;
+
+  const currentJob = personData.current_job;
+  let companyDomain: string | undefined =
+    currentJob?.company_domain ?? currentJob?.company_website_domain ?? undefined;
+  if (companyDomain) companyDomain = sanitizeDomain(companyDomain);
+
+  // Fallback: derive company domain from work email
+  if (!companyDomain && workEmail) {
+    const emailDomain = workEmail.split("@")[1];
+    if (emailDomain && !["gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "icloud.com"].includes(emailDomain)) {
+      companyDomain = emailDomain;
+    }
+  }
+
+  return { workEmail, companyDomain };
+}
+
+/**
+ * Ensure a company record exists for the given domain, creating + enriching it if needed.
+ */
+async function ensureCompany(domain: string, userEmail: string): Promise<void> {
+  const companiesCol = await getCompaniesCollection();
+  const existing = await companiesCol.findOne({ domain });
+  if (existing) {
+    await companiesCol.updateOne({ _id: existing._id }, { $addToSet: { userEmails: userEmail } });
+    return;
+  }
+  const ins = await companiesCol.insertOne({
+    userEmails: [userEmail],
+    domain,
+    createdAt: new Date().toISOString(),
+    enrichmentStatus: "pending",
+  });
+  const companyEnrichment = await enrichDomainWithFiber(domain);
+  if (companyEnrichment.success) {
+    await companiesCol.updateOne({ _id: ins.insertedId }, {
+      $set: { enrichedAt: new Date().toISOString(), enrichmentStatus: "completed", enrichmentData: companyEnrichment.payload },
+    });
+  } else {
+    await companiesCol.updateOne({ _id: ins.insertedId }, {
+      $set: { enrichedAt: new Date().toISOString(), enrichmentStatus: "failed", enrichmentError: companyEnrichment.error ?? "Fiber enrichment failed", enrichmentData: companyEnrichment.payload },
+    });
+  }
+}
+
+/**
+ * Return all member emails for the workspace that userEmail belongs to.
+ * Falls back to [userEmail] if the user has no workspace.
+ */
+async function getWorkspaceMemberEmails(userEmail: string): Promise<string[]> {
+  const usersCol = await getUsersCollection();
+  const user = await usersCol.findOne({ email: userEmail });
+  if (!user?.workspaceId) return [userEmail];
+  const members = await usersCol.find({ workspaceId: user.workspaceId }).toArray();
+  const emails = members.map((m) => m.email);
+  // Always include the requester even if somehow not in the list
+  if (!emails.includes(userEmail)) emails.push(userEmail);
+  return emails;
+}
+
 function getBearerToken(headerValue?: string): string | null {
   if (!headerValue) return null;
   const [scheme, token] = headerValue.split(" ");
@@ -63,33 +127,152 @@ app.get("/health", (_request, response) => {
   response.json({ status: "ok" });
 });
 
-app.post("/auth/request-code", (request, response) => {
-  const result = emailSchema.safeParse(request.body);
-  if (!result.success) {
-    response.status(400).json({ error: "Invalid email" });
-    return;
-  }
-
-  requestOtp(result.data.email);
-  response.json({
-    message: "OTP generated. Use 7777 for now.",
-  });
+// Public — return Google OAuth URL for sign-in (no auth required)
+app.get("/auth/google/signin-url", (request, response) => {
+  const returnPath = (request.query.returnPath as string) || "/dashboard";
+  const inviteToken = (request.query.inviteToken as string) || null;
+  const state = Buffer.from(JSON.stringify({ mode: "signin", returnPath, inviteToken })).toString("base64");
+  const url = getGoogleAuthUrl(state);
+  response.json({ url });
 });
 
-app.post("/auth/verify-code", (request, response) => {
-  const result = verifySchema.safeParse(request.body);
-  if (!result.success) {
-    response.status(400).json({ error: "Invalid input" });
+// Public — Google OAuth callback (handles both sign-in and account-connect modes)
+app.get("/auth/google/callback", async (request, response) => {
+  const { code, state } = request.query as { code?: string; state?: string };
+
+  if (!code || !state) {
+    response.status(400).send("Missing code or state");
     return;
   }
 
-  const token = verifyOtp(result.data.email, result.data.code);
-  if (!token) {
-    response.status(401).json({ error: "Invalid code or email" });
+  let mode: string;
+  let userEmail: string | undefined;
+  let returnPath: string;
+  let inviteToken: string | null;
+  try {
+    const decoded = JSON.parse(Buffer.from(state, "base64").toString("utf8"));
+    mode = decoded.mode ?? "connect";
+    userEmail = decoded.userEmail;
+    returnPath = decoded.returnPath ?? "/dashboard";
+    inviteToken = decoded.inviteToken ?? null;
+  } catch {
+    response.status(400).send("Invalid state");
     return;
   }
 
-  response.json({ token });
+  try {
+    const tokens = await exchangeCodeForTokens(code);
+
+    if (mode === "signin") {
+      // Get real email from Google
+      const googleInfo = await getUserInfoFromGoogle(tokens.access_token!, tokens.refresh_token ?? null);
+      const email = googleInfo.email.toLowerCase();
+
+      // Store Google tokens
+      const googleTokensCol = await getGoogleTokensCollection();
+      await googleTokensCol.updateOne(
+        { userEmail: email },
+        {
+          $set: {
+            userEmail: email,
+            accessToken: tokens.access_token!,
+            refreshToken: tokens.refresh_token ?? null,
+            expiryDate: tokens.expiry_date ?? null,
+            scope: tokens.scope ?? null,
+            updatedAt: new Date().toISOString(),
+          },
+        },
+        { upsert: true },
+      );
+
+      // Upsert user record — auto-populate name/photo from Google on first sign-in
+      const usersCol = await getUsersCollection();
+      const now = new Date().toISOString();
+      const existingUser = await usersCol.findOne({ email });
+      if (!existingUser) {
+        await usersCol.insertOne({
+          email,
+          fullName: googleInfo.name ?? null,
+          profilePhotoUrl: googleInfo.picture ?? null,
+          role: "admin",
+          onboardingComplete: false,
+          createdAt: now,
+          updatedAt: now,
+        });
+      } else {
+        // Update photo/name from Google if not already set
+        const updates: Record<string, unknown> = { updatedAt: now };
+        if (!existingUser.fullName && googleInfo.name) updates.fullName = googleInfo.name;
+        if (!existingUser.profilePhotoUrl && googleInfo.picture) updates.profilePhotoUrl = googleInfo.picture;
+        await usersCol.updateOne({ email }, { $set: updates });
+      }
+
+      const user = await usersCol.findOne({ email });
+      const jwt = signToken(email);
+
+      // Redirect to frontend with token
+      const params = new URLSearchParams({
+        token: jwt,
+        onboardingComplete: String(user?.onboardingComplete ?? false),
+        ...(inviteToken ? { invite: inviteToken } : {}),
+      });
+      response.redirect(`${env.ALLOWED_ORIGIN}/auth/callback?${params.toString()}`);
+    } else {
+      // "connect" mode — add another Google account to the workspace
+      if (!userEmail) {
+        response.status(400).send("Missing userEmail for connect mode");
+        return;
+      }
+
+      // Get email from Google to know which account was connected
+      const googleInfo = await getUserInfoFromGoogle(tokens.access_token!, tokens.refresh_token ?? null);
+      const connectedEmail = googleInfo.email.toLowerCase();
+
+      const googleTokensCol = await getGoogleTokensCollection();
+      await googleTokensCol.updateOne(
+        { userEmail: connectedEmail },
+        {
+          $set: {
+            userEmail: connectedEmail,
+            accessToken: tokens.access_token!,
+            refreshToken: tokens.refresh_token ?? null,
+            expiryDate: tokens.expiry_date ?? null,
+            scope: tokens.scope ?? null,
+            updatedAt: new Date().toISOString(),
+          },
+        },
+        { upsert: true },
+      );
+
+      // If the connected email is a different workspace member, upsert their token only
+      // (no new user record needed — they must sign in themselves)
+      response.redirect(`${env.ALLOWED_ORIGIN}${returnPath}?gmail=connected`);
+    }
+  } catch (err) {
+    console.error("[google-callback] Failed:", err);
+    if (mode === "signin") {
+      response.redirect(`${env.ALLOWED_ORIGIN}/auth/callback?error=google_auth_failed`);
+    } else {
+      response.redirect(`${env.ALLOWED_ORIGIN}${returnPath}?gmail=error`);
+    }
+  }
+});
+
+// Public: look up an invite by token (used on onboarding page before login)
+app.get("/invite/:token", async (request, response) => {
+  const invitesCol = await getInvitesCollection();
+  const invite = await invitesCol.findOne({ token: request.params.token, status: "pending" });
+  if (!invite) {
+    response.status(404).json({ error: "Invite not found or expired" });
+    return;
+  }
+  if (new Date(invite.expiresAt) < new Date()) {
+    response.status(410).json({ error: "Invite has expired" });
+    return;
+  }
+  const workspacesCol = await getWorkspacesCollection();
+  const workspace = await workspacesCol.findOne({ _id: invite.workspaceId });
+  response.json({ invite, workspace });
 });
 
 app.use((request, response, next) => {
@@ -117,15 +300,264 @@ app.use((request, response, next) => {
   next();
 });
 
-app.get("/me", (_request, response) => {
+app.get("/me", async (_request, response) => {
   const email = response.locals.userEmail as string;
-  response.json({ email });
+  const usersCol = await getUsersCollection();
+  const user = await usersCol.findOne({ email });
+  if (!user) {
+    // Legacy: user exists via JWT but no UserRecord yet — return minimal profile
+    response.json({ email, onboardingComplete: false });
+    return;
+  }
+  let workspace = null;
+  if (user.workspaceId) {
+    const workspacesCol = await getWorkspacesCollection();
+    workspace = await workspacesCol.findOne({ _id: user.workspaceId });
+  }
+  response.json({ email, user, workspace, onboardingComplete: user.onboardingComplete });
+});
+
+app.put("/me", async (request, response) => {
+  const email = response.locals.userEmail as string;
+  const { fullName, profilePhotoUrl, shareWithWorkspace } = request.body as {
+    fullName?: string;
+    profilePhotoUrl?: string;
+    shareWithWorkspace?: boolean;
+  };
+  const usersCol = await getUsersCollection();
+  const now = new Date().toISOString();
+  await usersCol.updateOne(
+    { email },
+    {
+      $set: {
+        ...(fullName !== undefined ? { fullName } : {}),
+        ...(profilePhotoUrl !== undefined ? { profilePhotoUrl } : {}),
+        ...(shareWithWorkspace !== undefined ? { shareWithWorkspace } : {}),
+        updatedAt: now,
+      },
+    },
+  );
+  const user = await usersCol.findOne({ email });
+  response.json({ user });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Workspace lookup (by domain)                                       */
+/* ------------------------------------------------------------------ */
+
+app.get("/workspace/lookup", async (request, response) => {
+  const domain = (request.query.domain as string | undefined)?.toLowerCase().trim();
+  if (!domain) {
+    response.status(400).json({ error: "domain query param required" });
+    return;
+  }
+  const workspacesCol = await getWorkspacesCollection();
+  const workspace = await workspacesCol.findOne({ domain });
+  response.json({ workspace: workspace ?? null });
+});
+
+app.get("/workspace", async (_request, response) => {
+  const email = response.locals.userEmail as string;
+  const usersCol = await getUsersCollection();
+  const user = await usersCol.findOne({ email });
+  if (!user?.workspaceId) {
+    response.json({ workspace: null });
+    return;
+  }
+  const workspacesCol = await getWorkspacesCollection();
+  const workspace = await workspacesCol.findOne({ _id: user.workspaceId });
+  response.json({ workspace: workspace ?? null });
+});
+
+app.put("/workspace", async (request, response) => {
+  const email = response.locals.userEmail as string;
+  const usersCol = await getUsersCollection();
+  const user = await usersCol.findOne({ email });
+  if (!user?.workspaceId) {
+    response.status(404).json({ error: "No workspace found" });
+    return;
+  }
+  const { name, logoUrl, websiteUrl, description } = request.body as {
+    name?: string; logoUrl?: string; websiteUrl?: string; description?: string;
+  };
+  const workspacesCol = await getWorkspacesCollection();
+  const now = new Date().toISOString();
+  await workspacesCol.updateOne(
+    { _id: user.workspaceId },
+    { $set: { ...(name ? { name } : {}), ...(logoUrl !== undefined ? { logoUrl } : {}), ...(websiteUrl !== undefined ? { websiteUrl } : {}), ...(description !== undefined ? { description } : {}), updatedAt: now } },
+  );
+  const workspace = await workspacesCol.findOne({ _id: user.workspaceId });
+  response.json({ workspace });
+});
+
+app.get("/workspace/members", async (_request, response) => {
+  const email = response.locals.userEmail as string;
+  const usersCol = await getUsersCollection();
+  const user = await usersCol.findOne({ email });
+  if (!user?.workspaceId) {
+    response.json({ members: [] });
+    return;
+  }
+  const members = await usersCol.find({ workspaceId: user.workspaceId }).toArray();
+  response.json({ members });
+});
+
+// Create an invite link for the workspace
+app.post("/workspace/invite", async (_request, response) => {
+  const email = response.locals.userEmail as string;
+  const usersCol = await getUsersCollection();
+  const user = await usersCol.findOne({ email });
+  if (!user?.workspaceId) {
+    response.status(400).json({ error: "You don't have a workspace" });
+    return;
+  }
+  const invitesCol = await getInvitesCollection();
+  const token = randomUUID();
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days
+  await invitesCol.insertOne({
+    workspaceId: user.workspaceId,
+    invitedByEmail: email,
+    email: null,
+    token,
+    status: "pending",
+    createdAt: now.toISOString(),
+    expiresAt: expiresAt.toISOString(),
+  });
+  const workspacesCol = await getWorkspacesCollection();
+  const workspace = await workspacesCol.findOne({ _id: user.workspaceId });
+  response.json({ token, workspace });
+});
+
+// Get pending invites for the workspace
+app.get("/workspace/invites", async (_request, response) => {
+  const email = response.locals.userEmail as string;
+  const usersCol = await getUsersCollection();
+  const user = await usersCol.findOne({ email });
+  if (!user?.workspaceId) {
+    response.json({ invites: [] });
+    return;
+  }
+  const invitesCol = await getInvitesCollection();
+  const invites = await invitesCol
+    .find({ workspaceId: user.workspaceId, status: "pending" })
+    .sort({ createdAt: -1 })
+    .toArray();
+  response.json({ invites });
+});
+
+// Revoke an invite
+app.delete("/workspace/invites/:token", async (request, response) => {
+  const email = response.locals.userEmail as string;
+  const usersCol = await getUsersCollection();
+  const user = await usersCol.findOne({ email });
+  if (!user?.workspaceId) {
+    response.status(404).json({ error: "Not found" });
+    return;
+  }
+  const invitesCol = await getInvitesCollection();
+  await invitesCol.deleteOne({ token: request.params.token, workspaceId: user.workspaceId });
+  response.json({ ok: true });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Onboarding completion                                              */
+/* ------------------------------------------------------------------ */
+
+app.post("/onboarding/complete", async (request, response) => {
+  const email = response.locals.userEmail as string;
+  const {
+    fullName,
+    profilePhotoUrl,
+    workspaceName,
+    workspaceDomain,
+    workspaceLogoUrl,
+    workspaceWebsiteUrl,
+    workspaceDescription,
+    joinExistingWorkspaceId,
+    inviteToken,
+  } = request.body as {
+    fullName?: string;
+    profilePhotoUrl?: string;
+    workspaceName?: string;
+    workspaceDomain?: string;
+    workspaceLogoUrl?: string;
+    workspaceWebsiteUrl?: string;
+    workspaceDescription?: string;
+    joinExistingWorkspaceId?: string;
+    inviteToken?: string;
+  };
+
+  const usersCol = await getUsersCollection();
+  const workspacesCol = await getWorkspacesCollection();
+  const now = new Date().toISOString();
+
+  let workspaceId;
+  let isInvited = false;
+
+  if (inviteToken) {
+    // Join via invite link
+    const invitesCol = await getInvitesCollection();
+    const invite = await invitesCol.findOne({ token: inviteToken, status: "pending" });
+    if (!invite || new Date(invite.expiresAt) < new Date()) {
+      response.status(400).json({ error: "Invite is invalid or expired" });
+      return;
+    }
+    workspaceId = invite.workspaceId;
+    isInvited = true;
+    // Mark invite accepted
+    await invitesCol.updateOne({ _id: invite._id }, { $set: { status: "accepted" } });
+  } else if (joinExistingWorkspaceId) {
+    // Join an existing workspace
+    try {
+      workspaceId = new ObjectId(joinExistingWorkspaceId);
+    } catch {
+      response.status(400).json({ error: "Invalid workspace ID" });
+      return;
+    }
+  } else if (workspaceName && workspaceDomain) {
+    // Create a new workspace (or find existing by domain)
+    const domain = sanitizeDomain(workspaceDomain).toLowerCase();
+    const existing = await workspacesCol.findOne({ domain });
+    if (existing) {
+      workspaceId = existing._id;
+    } else {
+      const insertResult = await workspacesCol.insertOne({
+        name: workspaceName,
+        domain,
+        logoUrl: workspaceLogoUrl ?? null,
+        websiteUrl: workspaceWebsiteUrl ?? null,
+        description: workspaceDescription ?? null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      workspaceId = insertResult.insertedId;
+    }
+  }
+
+  await usersCol.updateOne(
+    { email },
+    {
+      $set: {
+        ...(fullName ? { fullName } : {}),
+        ...(profilePhotoUrl !== undefined ? { profilePhotoUrl } : {}),
+        ...(workspaceId ? { workspaceId, role: isInvited ? ("member" as const) : ("admin" as const) } : {}),
+        onboardingComplete: true,
+        updatedAt: now,
+      },
+    },
+  );
+
+  const user = await usersCol.findOne({ email });
+  const workspace = workspaceId ? await workspacesCol.findOne({ _id: workspaceId }) : null;
+  response.json({ user, workspace });
 });
 
 app.get("/companies", async (_request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const companiesCollection = await getCompaniesCollection();
-  const companies = await companiesCollection.find({ userEmails: userEmail }).sort({ createdAt: -1 }).toArray();
+  const companies = await companiesCollection.find({ userEmails: { $in: memberEmails } }).sort({ createdAt: -1 }).toArray();
   response.json({ companies });
 });
 
@@ -282,8 +714,9 @@ function normalizeLinkedinUrl(raw: string): string {
 
 app.get("/persons", async (_request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const personsCollection = await getPersonsCollection();
-  const persons = await personsCollection.find({ userEmails: userEmail }).sort({ createdAt: -1 }).toArray();
+  const persons = await personsCollection.find({ userEmails: { $in: memberEmails } }).sort({ createdAt: -1 }).toArray();
   response.json({ persons });
 });
 
@@ -368,32 +801,41 @@ app.post("/persons", async (request, response) => {
   const personId = insertResult.insertedId;
   const enrichment = await enrichPersonWithFiber(linkedinUrl);
 
-  // Extract company domain from enrichment data
-  let companyDomain: string | undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let enrichmentPayload = enrichment.payload as any;
+
   if (enrichment.success) {
     try {
-      const personData = (enrichment.payload as any)?.output?.data?.[0];
-      const currentJob = personData?.current_job;
-      // Try company_domain first, then fall back to company_website_domain
-      companyDomain = currentJob?.company_domain ?? currentJob?.company_website_domain ?? undefined;
-      if (companyDomain) {
-        companyDomain = sanitizeDomain(companyDomain);
-      }
-    } catch {
-      // Ignore extraction errors
-    }
+      const personData = enrichmentPayload?.output?.data?.[0];
 
+      // If no work email, try people-search by name + domain
+      const hasEmail = !!(personData?.work_email ?? personData?.emails?.[0] ?? personData?.personal_email);
+      const { companyDomain: domainFromFiber } = extractPersonFields(enrichmentPayload);
+      if (!hasEmail && personData?.first_name && personData?.last_name && domainFromFiber) {
+        const foundEmail = await findPersonEmailWithFiber(personData.first_name, personData.last_name, domainFromFiber);
+        if (foundEmail) {
+          enrichmentPayload = {
+            ...enrichmentPayload,
+            output: { ...enrichmentPayload.output, data: [{ ...personData, work_email: foundEmail }] },
+          };
+        }
+      }
+    } catch { /* ignore */ }
+
+    const { workEmail, companyDomain } = extractPersonFields(enrichmentPayload);
     await personsCollection.updateOne(
       { _id: personId },
       {
         $set: {
           enrichedAt: new Date().toISOString(),
           enrichmentStatus: "completed",
-          enrichmentData: enrichment.payload,
+          enrichmentData: enrichmentPayload,
+          ...(workEmail ? { workEmail } : {}),
           ...(companyDomain ? { companyDomain } : {}),
         },
       },
     );
+    if (companyDomain) await ensureCompany(companyDomain, userEmail);
   } else {
     await personsCollection.updateOne(
       { _id: personId },
@@ -402,56 +844,10 @@ app.post("/persons", async (request, response) => {
           enrichedAt: new Date().toISOString(),
           enrichmentStatus: "failed",
           enrichmentError: enrichment.error ?? "Fiber enrichment failed",
-          enrichmentData: enrichment.payload,
+          enrichmentData: enrichmentPayload,
         },
       },
     );
-  }
-
-  // Auto-enrich the company if we found a domain
-  if (companyDomain) {
-    const companiesCollection = await getCompaniesCollection();
-    const existingCompany = await companiesCollection.findOne({ domain: companyDomain });
-    if (existingCompany) {
-      // Just add user association if not already present
-      await companiesCollection.updateOne(
-        { _id: existingCompany._id },
-        { $addToSet: { userEmails: userEmail } },
-      );
-    } else {
-      // Create and enrich the company
-      const companyInsert = await companiesCollection.insertOne({
-        userEmails: [userEmail],
-        domain: companyDomain,
-        createdAt: new Date().toISOString(),
-        enrichmentStatus: "pending",
-      });
-      const companyEnrichment = await enrichDomainWithFiber(companyDomain);
-      if (companyEnrichment.success) {
-        await companiesCollection.updateOne(
-          { _id: companyInsert.insertedId },
-          {
-            $set: {
-              enrichedAt: new Date().toISOString(),
-              enrichmentStatus: "completed",
-              enrichmentData: companyEnrichment.payload,
-            },
-          },
-        );
-      } else {
-        await companiesCollection.updateOne(
-          { _id: companyInsert.insertedId },
-          {
-            $set: {
-              enrichedAt: new Date().toISOString(),
-              enrichmentStatus: "failed",
-              enrichmentError: companyEnrichment.error ?? "Fiber enrichment failed",
-              enrichmentData: companyEnrichment.payload,
-            },
-          },
-        );
-      }
-    }
   }
 
   // If user has an active linkedin_content trigger, create a trigger job for this person
@@ -484,6 +880,110 @@ app.post("/persons", async (request, response) => {
   response.status(201).json({ person: savedPerson });
 });
 
+// Add a person by work email — looks up their LinkedIn via Fiber, then enriches fully
+app.post("/persons/by-email", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const { email } = request.body as { email?: string };
+
+  if (!email || !email.includes("@")) {
+    response.status(400).json({ error: "Please provide a valid email address" });
+    return;
+  }
+
+  const workEmail = email.trim().toLowerCase();
+  const personsCol = await getPersonsCollection();
+
+  // Check if we already track a person with this email
+  const existing = await personsCol.findOne({ workEmail, userEmails: userEmail });
+  if (existing) {
+    response.status(409).json({ error: "Person already exists", person: existing });
+    return;
+  }
+
+  // Derive company domain from email
+  const emailDomain = workEmail.split("@")[1] ?? "";
+  const freeDomains = ["gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "icloud.com"];
+  const companyDomainFromEmail = !freeDomains.includes(emailDomain) ? emailDomain : undefined;
+
+  // Use Fiber email-to-person/single to get LinkedIn + full profile
+  const fiberResult = await enrichPersonByEmailWithFiber(workEmail);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let enrichmentPayload = fiberResult.payload as any;
+  let linkedinUrl: string | undefined;
+
+  if (fiberResult.success && enrichmentPayload) {
+    const personData = enrichmentPayload?.output?.data?.[0];
+    linkedinUrl =
+      personData?.linkedin_url ??
+      personData?.linkedinUrl ??
+      personData?.linkedin ??
+      undefined;
+    if (linkedinUrl) linkedinUrl = normalizeLinkedinUrl(linkedinUrl);
+  }
+
+  // If Fiber returned a LinkedIn URL, check if that person already exists
+  if (linkedinUrl) {
+    const existingByLinkedin = await personsCol.findOne({ linkedinUrl, userEmails: userEmail });
+    if (existingByLinkedin) {
+      response.status(409).json({ error: "Person already exists", person: existingByLinkedin });
+      return;
+    }
+    // If person exists under another user, add this user and return
+    const existingGlobal = await personsCol.findOne({ linkedinUrl });
+    if (existingGlobal) {
+      await personsCol.updateOne(
+        { _id: existingGlobal._id },
+        { $addToSet: { userEmails: userEmail }, $set: { workEmail } },
+      );
+      const updated = await personsCol.findOne({ _id: existingGlobal._id });
+      response.status(201).json({ person: updated });
+      return;
+    }
+  }
+
+  // If Fiber returned a LinkedIn URL, do a full kitchen-sink enrichment for richer data
+  if (linkedinUrl) {
+    const kitchenSink = await enrichPersonWithFiber(linkedinUrl);
+    if (kitchenSink.success && kitchenSink.payload) {
+      enrichmentPayload = kitchenSink.payload;
+    }
+  }
+
+  const { companyDomain: domainFromFiber } = extractPersonFields(enrichmentPayload);
+  const resolvedWorkEmail = workEmail; // we know the email — always use the provided one
+  const resolvedDomain = domainFromFiber ?? companyDomainFromEmail;
+
+  // Ensure enrichment payload reflects the known email
+  if (enrichmentPayload?.output?.data?.[0] && !enrichmentPayload.output.data[0].work_email) {
+    enrichmentPayload = {
+      ...enrichmentPayload,
+      output: {
+        ...enrichmentPayload.output,
+        data: [{ ...enrichmentPayload.output.data[0], work_email: resolvedWorkEmail }],
+      },
+    };
+  }
+
+  const createdAt = new Date().toISOString();
+  const insertResult = await personsCol.insertOne({
+    userEmails: [userEmail],
+    linkedinUrl: linkedinUrl ?? `email:${resolvedWorkEmail}`, // stub URL if no LinkedIn found
+    workEmail: resolvedWorkEmail,
+    ...(resolvedDomain ? { companyDomain: resolvedDomain } : {}),
+    createdAt,
+    enrichedAt: fiberResult.success ? createdAt : undefined,
+    enrichmentStatus: fiberResult.success ? "completed" : "failed",
+    enrichmentData: enrichmentPayload ?? undefined,
+    ...(fiberResult.success ? {} : { enrichmentError: fiberResult.error ?? "Fiber lookup failed" }),
+  });
+
+  if (resolvedDomain) await ensureCompany(resolvedDomain, userEmail);
+
+  const savedPerson = await personsCol.findOne({ _id: insertResult.insertedId });
+  response.status(201).json({ person: savedPerson });
+});
+
 app.delete("/persons/:id", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
   const personsCollection = await getPersonsCollection();
@@ -513,8 +1013,9 @@ app.delete("/persons/:id", async (request, response) => {
 
 app.get("/buyer-profiles", async (_request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const collection = await getBuyerProfilesCollection();
-  const profiles = await collection.find({ userEmail }).sort({ createdAt: -1 }).toArray();
+  const profiles = await collection.find({ userEmail: { $in: memberEmails } }).sort({ createdAt: -1 }).toArray();
   response.json({ profiles });
 });
 
@@ -973,8 +1474,9 @@ const updateTriggerSchema = z.object({
 
 app.get("/triggers", async (_request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const collection = await getTriggersCollection();
-  const triggers = await collection.find({ userEmail }).sort({ createdAt: -1 }).toArray();
+  const triggers = await collection.find({ userEmail: { $in: memberEmails } }).sort({ createdAt: -1 }).toArray();
   response.json({ triggers });
 });
 
@@ -1235,6 +1737,7 @@ app.post("/trigger-jobs/:id/run", async (request, response) => {
 
 app.get("/signals", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const signalsCol = await getSignalsCollection();
   const postsCol = await getLinkedinPostsForUserCollection();
 
@@ -1250,10 +1753,10 @@ app.get("/signals", async (request, response) => {
   if (since) { postDateFilter.$gte = since; atsDateFilter.$gte = since; }
   if (before) { postDateFilter.$lt = before; atsDateFilter.$lt = before; }
 
-  const linkedinFilter: Record<string, unknown> = { userEmail };
+  const linkedinFilter: Record<string, unknown> = { userEmail: { $in: memberEmails } };
   if (since || before) linkedinFilter.postedAt = postDateFilter;
 
-  const atsFilter: Record<string, unknown> = { userEmail, signalType: "ats_new_job" };
+  const atsFilter: Record<string, unknown> = { userEmail: { $in: memberEmails }, signalType: "ats_new_job" };
   if (since || before) atsFilter.createdAt = atsDateFilter;
 
   // Fetch from both sources in parallel
@@ -1416,11 +1919,12 @@ const skillTypeSchema = z.object({
   skillType: z.enum(["detect_ats"]),
 });
 
-// GET all skills for the current user
+// GET all skills for the workspace
 app.get("/skills", async (_request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const skillsCol = await getSkillsCollection();
-  const skills = await skillsCol.find({ userEmail }).toArray();
+  const skills = await skillsCol.find({ userEmail: { $in: memberEmails } }).toArray();
   response.json({ skills });
 });
 
@@ -1527,6 +2031,415 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
   console.error("[global-error]", message, stack);
   if (!res.headersSent) {
     res.status(500).json({ error: message });
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/*  Google OAuth + Gmail                                                 */
+/* ------------------------------------------------------------------ */
+
+// Connect an additional Google account to the workspace (must be signed in)
+app.get("/auth/google/url", (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const returnPath = (request.query.returnPath as string) || "/dashboard/settings/workspace";
+  const state = Buffer.from(JSON.stringify({ mode: "connect", userEmail, returnPath })).toString("base64");
+  const url = getGoogleAuthUrl(state);
+  response.json({ url });
+});
+
+// Workspace-level Gmail/Calendar connection status
+app.get("/gmail/status", async (_request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+  const googleTokensCol = await getGoogleTokensCollection();
+  const connectedTokens = await googleTokensCol.find({ userEmail: { $in: memberEmails } }).toArray();
+  const connected = connectedTokens.length > 0;
+  const connectedUsers = connectedTokens.map((t) => ({ email: t.userEmail }));
+  // Also return whether the requesting user specifically has their account connected
+  const selfConnected = connectedTokens.some((t) => t.userEmail === userEmail);
+  response.json({ connected, selfConnected, connectedUsers });
+});
+
+// Unified inbox — threads from all workspace members' Gmail connections
+app.get("/inbox/emails", async (_request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+  const googleTokensCol = await getGoogleTokensCollection();
+  const personsCol = await getPersonsCollection();
+  const usersCol = await getUsersCollection();
+
+  // Build member name map + sharing eligibility
+  const memberUserRecords = await usersCol.find({ email: { $in: memberEmails } }).toArray();
+  const memberNameMap = new Map(memberUserRecords.map((u) => [u.email, u.fullName ?? u.email]));
+
+  // Only use tokens from members who have sharing enabled (or are the requester themselves)
+  const sharingEnabledEmails = new Set([userEmail]);
+  for (const m of memberUserRecords) {
+    if (m.email !== userEmail && m.shareWithWorkspace !== false) sharingEnabledEmails.add(m.email);
+  }
+
+  // Collect workspace members with Gmail connected and sharing enabled
+  const allTokens = await googleTokensCol.find({ userEmail: { $in: [...sharingEnabledEmails] } }).toArray();
+  if (allTokens.length === 0) {
+    response.status(403).json({ error: "Gmail not connected" });
+    return;
+  }
+
+  // Collect all tracked persons with enriched emails (workspace-wide)
+  const persons = await personsCol.find({ userEmails: { $in: memberEmails }, enrichmentStatus: "completed" }).toArray();
+  const personEmailMeta: { email: string; name: string; personId: string }[] = [];
+  const seen = new Set<string>();
+
+  for (const person of persons) {
+    const email: string | undefined =
+      person.workEmail ??
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ((person.enrichmentData as any)?.output?.data?.[0]?.work_email) ??
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ((person.enrichmentData as any)?.output?.data?.[0]?.emails?.[0]);
+    if (!email || seen.has(email.toLowerCase())) continue;
+    seen.add(email.toLowerCase());
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = (person.enrichmentData as any)?.output?.data?.[0];
+    const nameParts = [data?.first_name, data?.last_name].filter(Boolean);
+    const name: string = data?.name ?? (nameParts.length > 0 ? nameParts.join(" ") : email);
+    personEmailMeta.push({ email, name, personId: person._id!.toHexString() });
+  }
+
+  if (personEmailMeta.length === 0) {
+    response.json({ threads: [], personEmails: [], connectedUsers: [] });
+    return;
+  }
+
+  try {
+    // Fetch from all connected Gmail accounts in parallel, tag each thread with source
+    const emailToPersonId = new Map(personEmailMeta.map((p) => [p.email.toLowerCase(), p.personId]));
+    const allThreadResults = await Promise.all(
+      allTokens.map(async (tokenRecord) => {
+        try {
+          const threads = await getInboxThreads(tokenRecord.accessToken, tokenRecord.refreshToken, personEmailMeta);
+          return threads.map((t) => ({
+            ...t,
+            personId: emailToPersonId.get(t.personEmail.toLowerCase()),
+            sourceUserEmail: tokenRecord.userEmail,
+            sourceUserName: memberNameMap.get(tokenRecord.userEmail) ?? tokenRecord.userEmail,
+          }));
+        } catch {
+          return [];
+        }
+      }),
+    );
+
+    // Merge all threads (no global dedup — frontend deduplicates for "All" view)
+    // Each thread retains its sourceUserEmail so per-user filtering works correctly
+    const merged = allThreadResults.flat();
+    merged.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    const connectedUsers = allTokens.map((t) => ({
+      email: t.userEmail,
+      name: memberNameMap.get(t.userEmail) ?? t.userEmail,
+    }));
+
+    response.json({ threads: merged, personEmails: personEmailMeta, connectedUsers });
+  } catch (err) {
+    console.error("[inbox] Failed:", err);
+    response.status(500).json({ error: "Failed to fetch inbox" });
+  }
+});
+
+// Get calendar events — aggregated from all workspace members with Calendar connected
+app.get("/calendar/events", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+  const googleTokensCol = await getGoogleTokensCollection();
+  const personsCol = await getPersonsCollection();
+  const usersCol = await getUsersCollection();
+
+  // Member name map + sharing eligibility
+  const memberUserRecords = await usersCol.find({ email: { $in: memberEmails } }).toArray();
+  const memberNameMap = new Map(memberUserRecords.map((u) => [u.email, u.fullName ?? u.email]));
+
+  // Only use tokens from members who have sharing enabled (or are the requester themselves)
+  const sharingEnabledEmails = new Set([userEmail]);
+  for (const m of memberUserRecords) {
+    if (m.email !== userEmail && m.shareWithWorkspace !== false) sharingEnabledEmails.add(m.email);
+  }
+
+  const allTokens = await googleTokensCol.find({ userEmail: { $in: [...sharingEnabledEmails] } }).toArray();
+  if (allTokens.length === 0) {
+    response.status(403).json({ error: "Google not connected" });
+    return;
+  }
+
+  // Default: covers the requested month
+  const now = new Date();
+  const timeMin = (request.query.timeMin as string) ?? new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  const timeMax = (request.query.timeMax as string) ?? new Date(now.getFullYear(), now.getMonth() + 2, 0).toISOString();
+
+  // Build email → person map for attendee matching (workspace-wide)
+  const allPersons = await personsCol.find({ userEmails: { $in: memberEmails }, enrichmentStatus: "completed" }).toArray();
+  const emailToPersonMap = new Map<string, { personId: string; name: string }>();
+  for (const person of allPersons) {
+    const email: string | undefined =
+      person.workEmail ??
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (person.enrichmentData as any)?.output?.data?.[0]?.work_email;
+    if (!email) continue;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = (person.enrichmentData as any)?.output?.data?.[0];
+    const nameParts = [data?.first_name, data?.last_name].filter(Boolean);
+    const name = data?.name ?? (nameParts.length > 0 ? nameParts.join(" ") : email);
+    emailToPersonMap.set(email.toLowerCase(), { personId: person._id!.toHexString(), name });
+  }
+
+  try {
+    // Fetch from all connected accounts in parallel
+    const allResults = await Promise.all(
+      allTokens.map(async (tokenRecord) => {
+        try {
+          const events = await getCalendarEvents(tokenRecord.accessToken, tokenRecord.refreshToken, timeMin, timeMax);
+          return events.map((event) => {
+            const matchedPersons = event.attendees
+              .map((a) => {
+                const match = emailToPersonMap.get(a.email.toLowerCase());
+                return match ? { personId: match.personId, name: match.name, email: a.email } : null;
+              })
+              .filter(Boolean);
+            return {
+              ...event,
+              matchedPersons,
+              sourceUserEmail: tokenRecord.userEmail,
+              sourceUserName: memberNameMap.get(tokenRecord.userEmail) ?? tokenRecord.userEmail,
+            };
+          });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          const isPermission =
+            msg.includes("insufficient") ||
+            msg.includes("insufficientPermissions") ||
+            msg.includes("ACCESS_TOKEN_SCOPE_INSUFFICIENT") ||
+            (err as { code?: number }).code === 403;
+          if (isPermission && tokenRecord.userEmail === userEmail) {
+            throw Object.assign(new Error("needs_calendar_permission"), { isPermission: true });
+          }
+          return [];
+        }
+      }),
+    );
+
+    // Merge all events (no global dedup — frontend deduplicates for "All" view)
+    const merged = allResults.flat();
+    merged.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+
+    const connectedUsers = allTokens.map((t) => ({
+      email: t.userEmail,
+      name: memberNameMap.get(t.userEmail) ?? t.userEmail,
+    }));
+
+    response.json({ events: merged, connectedUsers });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const isPermission = msg === "needs_calendar_permission";
+    console.error("[calendar] Failed:", msg);
+    response
+      .status(isPermission ? 403 : 500)
+      .json({ error: isPermission ? "needs_calendar_permission" : "Failed to fetch calendar events" });
+  }
+});
+
+// Get last 5 emails exchanged with a person
+app.get("/persons/:id/emails", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const personsCol = await getPersonsCollection();
+  const googleTokensCol = await getGoogleTokensCollection();
+
+  let person;
+  try {
+    person = await personsCol.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+  } catch {
+    response.status(400).json({ error: "Invalid person ID" });
+    return;
+  }
+  if (!person) {
+    response.status(404).json({ error: "Person not found" });
+    return;
+  }
+
+  const tokenRecord = await googleTokensCol.findOne({ userEmail });
+  if (!tokenRecord) {
+    response.status(403).json({ error: "Gmail not connected" });
+    return;
+  }
+
+  const personEmail = request.query.personEmail as string;
+  if (!personEmail) {
+    response.status(400).json({ error: "personEmail query param required" });
+    return;
+  }
+
+  try {
+    const emails = await getEmailsWithPerson(tokenRecord.accessToken, tokenRecord.refreshToken, personEmail);
+    response.json({ emails });
+  } catch (err) {
+    console.error("[gmail-threads] Failed:", err);
+    response.status(500).json({ error: "Failed to fetch emails" });
+  }
+});
+
+// Re-enrich a person via Fiber using their LinkedIn URL (kitchen-sink/person)
+app.post("/persons/:id/re-enrich", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const personsCol = await getPersonsCollection();
+
+  let person;
+  try {
+    person = await personsCol.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+  } catch {
+    response.status(400).json({ error: "Invalid person ID" });
+    return;
+  }
+  if (!person) {
+    response.status(404).json({ error: "Person not found" });
+    return;
+  }
+
+  // Mark as pending while enriching
+  await personsCol.updateOne(
+    { _id: new ObjectId(request.params.id) },
+    { $set: { enrichmentStatus: "pending" } },
+  );
+
+  const enrichment = await enrichPersonWithFiber(person.linkedinUrl);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let enrichmentPayload = enrichment.payload as any;
+
+  if (enrichment.success) {
+    try {
+      const personData = enrichmentPayload?.output?.data?.[0];
+      const hasEmail = !!(personData?.work_email ?? personData?.emails?.[0] ?? personData?.personal_email);
+      const { companyDomain: domainFromFiber } = extractPersonFields(enrichmentPayload);
+      if (!hasEmail && personData?.first_name && personData?.last_name && domainFromFiber) {
+        const foundEmail = await findPersonEmailWithFiber(personData.first_name, personData.last_name, domainFromFiber);
+        if (foundEmail) {
+          enrichmentPayload = {
+            ...enrichmentPayload,
+            output: { ...enrichmentPayload.output, data: [{ ...personData, work_email: foundEmail }] },
+          };
+        }
+      }
+    } catch { /* ignore */ }
+
+    const { workEmail, companyDomain } = extractPersonFields(enrichmentPayload);
+    await personsCol.updateOne(
+      { _id: new ObjectId(request.params.id) },
+      {
+        $set: {
+          enrichedAt: new Date().toISOString(),
+          enrichmentStatus: "completed",
+          enrichmentData: enrichmentPayload,
+          ...(workEmail ? { workEmail } : {}),
+          ...(companyDomain ? { companyDomain } : {}),
+        },
+      },
+    );
+    if (companyDomain) await ensureCompany(companyDomain, userEmail);
+  } else {
+    await personsCol.updateOne(
+      { _id: new ObjectId(request.params.id) },
+      {
+        $set: {
+          enrichedAt: new Date().toISOString(),
+          enrichmentStatus: "failed",
+          enrichmentError: enrichment.error ?? "Fiber enrichment failed",
+          enrichmentData: enrichmentPayload,
+        },
+      },
+    );
+  }
+
+  const updatedPerson = await personsCol.findOne({ _id: new ObjectId(request.params.id) });
+  response.json({ person: updatedPerson, enriched: enrichment.success });
+});
+
+// Save a manually-provided email for a person (no Fiber call needed)
+app.post("/persons/:id/set-email", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const { email } = request.body as { email: string };
+
+  if (!email) {
+    response.status(400).json({ error: "email is required" });
+    return;
+  }
+
+  const personsCol = await getPersonsCollection();
+
+  let person;
+  try {
+    person = await personsCol.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+  } catch {
+    response.status(400).json({ error: "Invalid person ID" });
+    return;
+  }
+  if (!person) {
+    response.status(404).json({ error: "Person not found" });
+    return;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const existing = (person.enrichmentData ?? { output: { data: [{}] } }) as any;
+  const updatedEnrichmentData = {
+    ...existing,
+    output: {
+      ...(existing.output ?? {}),
+      data: [{ ...(existing.output?.data?.[0] ?? {}), work_email: email }],
+    },
+  };
+
+  await personsCol.updateOne(
+    { _id: new ObjectId(request.params.id) },
+    { $set: { enrichmentData: updatedEnrichmentData } },
+  );
+
+  const updatedPerson = await personsCol.findOne({ _id: new ObjectId(request.params.id) });
+  response.json({ person: updatedPerson });
+});
+
+// Send an email to a person
+app.post("/persons/:id/emails", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const personsCol = await getPersonsCollection();
+  const googleTokensCol = await getGoogleTokensCollection();
+
+  let person;
+  try {
+    person = await personsCol.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+  } catch {
+    response.status(400).json({ error: "Invalid person ID" });
+    return;
+  }
+  if (!person) {
+    response.status(404).json({ error: "Person not found" });
+    return;
+  }
+
+  const tokenRecord = await googleTokensCol.findOne({ userEmail });
+  if (!tokenRecord) {
+    response.status(403).json({ error: "Gmail not connected" });
+    return;
+  }
+
+  const { to, subject, body } = request.body as { to: string; subject: string; body: string };
+  if (!to || !subject || !body) {
+    response.status(400).json({ error: "to, subject, and body are required" });
+    return;
+  }
+
+  try {
+    await sendGmail(tokenRecord.accessToken, tokenRecord.refreshToken, to, subject, body);
+    response.json({ success: true });
+  } catch (err) {
+    console.error("[gmail-send] Failed:", err);
+    response.status(500).json({ error: "Failed to send email" });
   }
 });
 

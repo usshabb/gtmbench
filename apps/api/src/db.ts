@@ -1,6 +1,6 @@
 import { Collection, MongoClient } from "mongodb";
 import { env } from "./env.js";
-import { BuyerProfileRecord, BuyerSearchResultRecord, CompanyATSRecord, CompanyRecord, JobRecord, LinkedinPostForUserRecord, PersonRecord, SignalRecord, SkillRecord, TriggerJobRecord, TriggerRecord } from "./types.js";
+import { BuyerProfileRecord, BuyerSearchResultRecord, CompanyATSRecord, CompanyRecord, GoogleTokenRecord, InviteRecord, JobRecord, LinkedinPostForUserRecord, PersonRecord, SignalRecord, SkillRecord, TriggerJobRecord, TriggerRecord, UserRecord, WorkspaceRecord } from "./types.js";
 
 const mongoClient = new MongoClient(env.MONGODB_URL);
 
@@ -15,6 +15,10 @@ let companyATSCollection: Collection<CompanyATSRecord> | null = null;
 let jobsCollection: Collection<JobRecord> | null = null;
 let skillsCollection: Collection<SkillRecord> | null = null;
 let linkedinPostsForUserCollection: Collection<LinkedinPostForUserRecord> | null = null;
+let googleTokensCollection: Collection<GoogleTokenRecord> | null = null;
+let workspacesCollection: Collection<WorkspaceRecord> | null = null;
+let usersCollection: Collection<UserRecord> | null = null;
+let invitesCollection: Collection<InviteRecord> | null = null;
 
 export async function getCompaniesCollection(): Promise<Collection<CompanyRecord>> {
   if (companiesCollection) return companiesCollection;
@@ -66,6 +70,7 @@ export async function getPersonsCollection(): Promise<Collection<PersonRecord>> 
   await personsCollection.createIndex({ linkedinUrl: 1 }, { unique: true });
   await personsCollection.createIndex({ userEmails: 1 });
   await personsCollection.createIndex({ companyDomain: 1 });
+  await personsCollection.createIndex({ workEmail: 1 }, { sparse: true });
 
   return personsCollection;
 }
@@ -216,6 +221,44 @@ export async function getLinkedinPostsForUserCollection(): Promise<Collection<Li
   await linkedinPostsForUserCollection.createIndex({ userEmail: 1, postId: 1 }, { unique: true });
 
   return linkedinPostsForUserCollection;
+}
+
+export async function getGoogleTokensCollection(): Promise<Collection<GoogleTokenRecord>> {
+  if (googleTokensCollection) return googleTokensCollection;
+  await mongoClient.connect();
+  const database = mongoClient.db(env.MONGODB_DB_NAME);
+  googleTokensCollection = database.collection<GoogleTokenRecord>("googleTokens");
+  await googleTokensCollection.createIndex({ userEmail: 1 }, { unique: true });
+  return googleTokensCollection;
+}
+
+export async function getWorkspacesCollection(): Promise<Collection<WorkspaceRecord>> {
+  if (workspacesCollection) return workspacesCollection;
+  await mongoClient.connect();
+  const database = mongoClient.db(env.MONGODB_DB_NAME);
+  workspacesCollection = database.collection<WorkspaceRecord>("workspaces");
+  await workspacesCollection.createIndex({ domain: 1 }, { unique: true });
+  return workspacesCollection;
+}
+
+export async function getUsersCollection(): Promise<Collection<UserRecord>> {
+  if (usersCollection) return usersCollection;
+  await mongoClient.connect();
+  const database = mongoClient.db(env.MONGODB_DB_NAME);
+  usersCollection = database.collection<UserRecord>("users");
+  await usersCollection.createIndex({ email: 1 }, { unique: true });
+  await usersCollection.createIndex({ workspaceId: 1 }, { sparse: true });
+  return usersCollection;
+}
+
+export async function getInvitesCollection(): Promise<Collection<InviteRecord>> {
+  if (invitesCollection) return invitesCollection;
+  await mongoClient.connect();
+  const database = mongoClient.db(env.MONGODB_DB_NAME);
+  invitesCollection = database.collection<InviteRecord>("invites");
+  await invitesCollection.createIndex({ token: 1 }, { unique: true });
+  await invitesCollection.createIndex({ workspaceId: 1 });
+  return invitesCollection;
 }
 
 /** Raw accessor for the legacy linkedinContentForPerson collection (migration use only). */

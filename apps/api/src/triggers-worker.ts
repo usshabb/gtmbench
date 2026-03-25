@@ -8,8 +8,6 @@ import { detectCompanyATS } from "./firecrawl.js";
 import type { ATSJobsSignalData, JobData, LinkedinPostData } from "./types.js";
 
 const QUEUE_NAME = "trigger-jobs";
-const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
-
 // Rate limit: 60 req/min from Fiber = 1 req/sec
 // We use BullMQ's built-in rate limiter for this
 const RATE_LIMIT_MAX = 55; // slightly under 60 to be safe
@@ -553,40 +551,69 @@ async function processATSJobsJob(jobData: ATSJobsJobData): Promise<void> {
         throw err;
       }
 
-      // Collect new jobs for aggregated signal (recent by postedAt, or unknown date = treat as recent)
+      // Any job newly inserted into our DB is worth signaling — we just discovered it
       if (isNew) {
-        const isRecent = postedAt
-          ? Date.now() - new Date(postedAt).getTime() < TWENTY_FOUR_HOURS_MS
-          : true;
-
-        console.log(`[triggers-worker] [ATS] Job "${jobDoc.title}" postedAt=${postedAt} isRecent=${isRecent}`);
-
-        if (isRecent) {
-          newRecentJobs.push({
-            title: jobDoc.title,
-            jobUrl,
-            location: jobDoc.location,
-            department: jobDoc.department,
-            postedAt,
-            companyDomain: jobData.domain,
-          });
-        }
+        console.log(`[triggers-worker] [ATS] Job "${jobDoc.title}" postedAt=${postedAt} — newly discovered, adding to signal`);
+        newRecentJobs.push({
+          title: jobDoc.title,
+          jobUrl,
+          location: jobDoc.location,
+          department: jobDoc.department,
+          postedAt,
+          companyDomain: jobData.domain,
+        });
       }
     }
 
-    console.log(`[triggers-worker] [ATS] ${jobData.domain}: ${newJobsCount} new jobs, ${newRecentJobs.length} recent jobs for signal`);
+    console.log(`[triggers-worker] [ATS] ${jobData.domain}: ${newJobsCount} new jobs, ${newRecentJobs.length} newly discovered jobs for signal`);
 
-    // Create ONE aggregated signal for all new recent jobs at this company
+    // If no newly-discovered jobs, check if any signal exists for this company.
+    // If not, fall back to all known jobs so the user sees activity on first discovery.
+    let jobsForSignal = newRecentJobs;
+    if (jobsForSignal.length === 0) {
+      const existingSignal = await signalsCol.findOne({
+        userEmail: jobData.userEmail,
+        signalType: "ats_new_job",
+        companyId: companyObjectId,
+      });
+      if (!existingSignal) {
+        const allKnownJobs = await jobsCol
+          .find({ companyId: companyObjectId })
+          .sort({ fetchedAt: -1 })
+          .limit(50)
+          .toArray();
+        jobsForSignal = allKnownJobs.map((j) => ({
+          title: j.title,
+          jobUrl: j.jobUrl ?? null,
+          location: j.location ?? null,
+          department: j.department ?? null,
+          postedAt: j.postedAt ?? null,
+          companyDomain: jobData.domain,
+        }));
+        console.log(`[triggers-worker] [ATS] No signal exists yet for ${jobData.domain} — surfacing ${jobsForSignal.length} existing jobs`);
+      }
+    }
+
+    // Group jobs by their postedAt date (YYYY-MM-DD), falling back to today for undated jobs.
+    // Create one signal per date so the feed shows separate entries per posting date.
+    const byDate = new Map<string, JobData[]>();
+    for (const job of jobsForSignal) {
+      const dateKey = job.postedAt ? job.postedAt.slice(0, 10) : today;
+      const bucket = byDate.get(dateKey) ?? [];
+      bucket.push(job);
+      byDate.set(dateKey, bucket);
+    }
+
     let signalsCreated = 0;
-    if (newRecentJobs.length > 0) {
+    for (const [signalDate, jobs] of byDate) {
       const signalData: ATSJobsSignalData = {
-        newJobsCount: newRecentJobs.length,
-        jobs: newRecentJobs,
+        newJobsCount: jobs.length,
+        jobs,
         companyDomain: jobData.domain,
       };
-      console.log(`[triggers-worker] [ATS] Upserting signal for ${jobData.domain} date=${today} with ${newRecentJobs.length} jobs`);
+      console.log(`[triggers-worker] [ATS] Upserting signal for ${jobData.domain} date=${signalDate} with ${jobs.length} jobs`);
       await signalsCol.updateOne(
-        { userEmail: jobData.userEmail, signalType: "ats_new_job", companyId: companyObjectId, signalDate: today },
+        { userEmail: jobData.userEmail, signalType: "ats_new_job", companyId: companyObjectId, signalDate },
         {
           $set: {
             userEmail: jobData.userEmail,
@@ -594,17 +621,20 @@ async function processATSJobsJob(jobData: ATSJobsJobData): Promise<void> {
             signalType: "ats_new_job",
             companyId: companyObjectId,
             companyDomain: jobData.domain,
-            signalDate: today,
+            signalDate,
             data: signalData,
             createdAt: fetchedAt,
           },
         },
         { upsert: true },
       );
-      signalsCreated = 1;
-      console.log(`[triggers-worker] [ATS] Signal upserted for ${jobData.domain}`);
+      signalsCreated++;
+    }
+
+    if (signalsCreated === 0) {
+      console.log(`[triggers-worker] [ATS] No jobs found for ${jobData.domain}, skipping signal creation`);
     } else {
-      console.log(`[triggers-worker] [ATS] No recent jobs for ${jobData.domain}, skipping signal creation`);
+      console.log(`[triggers-worker] [ATS] ${signalsCreated} signals upserted for ${jobData.domain}`);
     }
 
     await triggerJobsCol.updateOne(

@@ -1,6 +1,11 @@
-import "dotenv/config";
+import dotenv from "dotenv";
+import { fileURLToPath } from "node:url";
+import { join, dirname } from "node:path";
 import { MongoClient } from "mongodb";
 import * as readline from "node:readline";
+
+// Load .env relative to this file so the script works from any CWD
+dotenv.config({ path: join(dirname(fileURLToPath(import.meta.url)), "../.env") });
 
 const MONGODB_URL = process.env.MONGODB_URL;
 const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME ?? "gtmbench";

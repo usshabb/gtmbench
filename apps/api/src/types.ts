@@ -1,5 +1,44 @@
 import type { ObjectId } from "mongodb";
 
+/* ------------------------------------------------------------------ */
+/*  Workspace & User                                                    */
+/* ------------------------------------------------------------------ */
+
+export interface WorkspaceRecord {
+  _id?: ObjectId;
+  name: string;
+  domain: string;          // primary email domain (e.g. "acme.com")
+  logoUrl?: string | null;
+  websiteUrl?: string | null;
+  description?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UserRecord {
+  _id?: ObjectId;
+  email: string;
+  fullName?: string | null;
+  profilePhotoUrl?: string | null;
+  workspaceId?: ObjectId | null;
+  role: "admin" | "member";
+  onboardingComplete: boolean;
+  shareWithWorkspace?: boolean; // default true; when false, this user's Gmail/Calendar tokens are not shared
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface InviteRecord {
+  _id?: ObjectId;
+  workspaceId: ObjectId;
+  invitedByEmail: string;
+  email?: string | null;  // null = open invite (anyone with the link)
+  token: string;          // UUID used in the invite URL
+  status: "pending" | "accepted";
+  createdAt: string;
+  expiresAt: string;
+}
+
 export interface CompanyRecord {
   _id?: ObjectId;
   userEmails: string[];
@@ -35,6 +74,7 @@ export interface PersonRecord {
   _id?: ObjectId;
   userEmails: string[];
   linkedinUrl: string;
+  workEmail?: string;       // top-level for fast querying, mirrored from enrichmentData
   companyDomain?: string;
   createdAt: string;
   enrichedAt?: string;
@@ -167,6 +207,20 @@ export interface SignalRecord {
   data: LinkedinPostData | ATSJobsSignalData;
   matchedKeyword?: string | null;
   createdAt: string;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Google / Gmail                                                       */
+/* ------------------------------------------------------------------ */
+
+export interface GoogleTokenRecord {
+  _id?: ObjectId;
+  userEmail: string;
+  accessToken: string;
+  refreshToken: string | null;
+  expiryDate: number | null;
+  scope: string | null;
+  updatedAt: string;
 }
 
 /* ------------------------------------------------------------------ */

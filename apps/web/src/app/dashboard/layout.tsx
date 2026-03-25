@@ -14,7 +14,22 @@ function getApiBaseUrl(): string {
 /*  Sidebar nav items                                                  */
 /* ------------------------------------------------------------------ */
 
+interface UserProfile {
+  email: string;
+  fullName?: string | null;
+  profilePhotoUrl?: string | null;
+}
+
 const navItems = [
+  {
+    label: "Inbox",
+    href: "/dashboard/inbox",
+    icon: (
+      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859m-19.5.338V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 00-2.15-1.588H6.911a2.25 2.25 0 00-2.15 1.588L2.35 13.177a2.25 2.25 0 00-.1.661z" />
+      </svg>
+    ),
+  },
   {
     label: "Signals",
     href: "/dashboard",
@@ -69,6 +84,15 @@ const navItems = [
       </svg>
     ),
   },
+  {
+    label: "Calendar",
+    href: "/dashboard/calendar",
+    icon: (
+      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
+      </svg>
+    ),
+  },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -97,9 +121,10 @@ function GlobalActionModal({
 
   const isCompany = actionType === "company";
   const title = isCompany ? "Add Company" : "Add Person";
+  const isEmail = !isCompany && value.includes("@") && !value.includes("linkedin.com");
   const placeholder = isCompany
     ? "Enter a domain (e.g. acme.com)"
-    : "Enter a LinkedIn URL (e.g. linkedin.com/in/johndoe)";
+    : "LinkedIn URL or work email (e.g. john@acme.com)";
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -110,10 +135,7 @@ function GlobalActionModal({
       if (isCompany) {
         const response = await fetch(`${apiBaseUrl}/companies`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${authToken}`,
-          },
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
           body: JSON.stringify({ domain: value }),
         });
         const result = (await safeJson(response)) as { company?: unknown; error?: string };
@@ -121,14 +143,23 @@ function GlobalActionModal({
         onClose();
         router.push("/dashboard/companies");
         dispatchDataChanged();
+      } else if (isEmail) {
+        // Adding by work email — derive LinkedIn from Fiber or create a stub
+        const response = await fetch(`${apiBaseUrl}/persons/by-email`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+          body: JSON.stringify({ email: value.trim() }),
+        });
+        const result = (await safeJson(response)) as { person?: unknown; error?: string };
+        if (!response.ok) throw new Error(result.error ?? "Could not add person");
+        onClose();
+        router.push("/dashboard/people");
+        dispatchDataChanged();
       } else {
         const linkedinUrl = value.startsWith("http") ? value : `https://www.linkedin.com/in/${value}`;
         const response = await fetch(`${apiBaseUrl}/persons`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${authToken}`,
-          },
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
           body: JSON.stringify({ linkedinUrl }),
         });
         const result = (await safeJson(response)) as { person?: unknown; error?: string };
@@ -159,17 +190,22 @@ function GlobalActionModal({
         </div>
         <form onSubmit={handleSubmit} className="p-5">
           <label className="block text-[13px] font-medium text-zinc-700 mb-1.5">
-            {isCompany ? "Domain" : "LinkedIn URL"}
+            {isCompany ? "Domain" : isEmail ? "Work Email" : "LinkedIn URL"}
           </label>
           <input
             className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-[13px] placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none"
-            type={isCompany ? "text" : "url"}
+            type="text"
             value={value}
             onChange={(e) => setValue(e.target.value)}
             placeholder={placeholder}
             autoFocus
             required
           />
+          {isEmail && (
+            <p className="mt-1.5 text-[12px] text-zinc-400">
+              We&apos;ll enrich their profile via Fiber and auto-create their company.
+            </p>
+          )}
           {error && (
             <p className="mt-2 text-[13px] text-red-600">{error}</p>
           )}
@@ -200,11 +236,11 @@ function GlobalActionModal({
 /* ------------------------------------------------------------------ */
 
 function Sidebar({
-  userEmail,
+  userProfile,
   onLogout,
   onGlobalAction,
 }: {
-  userEmail: string;
+  userProfile: UserProfile;
   onLogout: () => void;
   onGlobalAction: (type: GlobalActionType) => void;
 }) {
@@ -213,24 +249,25 @@ function Sidebar({
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
 
-  const userInitial = userEmail.charAt(0).toUpperCase();
+  const displayName = userProfile.fullName ?? userProfile.email;
+  const userInitial = displayName.charAt(0).toUpperCase();
 
   return (
-    <aside className="flex h-screen w-[240px] shrink-0 flex-col border-r border-zinc-200 bg-zinc-50">
+    <aside className="relative flex h-screen w-[220px] shrink-0 flex-col bg-[#f7fafc] shadow-[inset_-1px_0_0_0_#e3e8ee]">
       {/* Workspace header */}
-      <div className="flex h-[52px] items-center justify-between border-b border-zinc-200 px-4">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-zinc-900 text-xs font-bold text-white">
+      <div className="flex items-center gap-2 px-5 pt-3 pb-1">
+        <div className="flex items-center justify-center rounded-[20px] bg-white p-1.5 shadow-[0px_1px_1px_0px_rgba(0,0,0,0.12),0px_2px_5px_0px_rgba(60,66,87,0.08)] shrink-0">
+          <div className="flex h-4 w-4 items-center justify-center rounded bg-[#1a1f36] text-[10px] font-bold text-white">
             G
           </div>
-          <span className="text-[13px] font-semibold text-zinc-900">GTMbench</span>
         </div>
+        <span className="flex-1 truncate text-[15px] font-medium text-[#1a1f36]">GTMbench</span>
 
         {/* Global add button */}
         <div className="relative">
           <button
             onClick={() => setShowAddMenu((v) => !v)}
-            className="flex h-7 w-7 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-zinc-200/60 hover:text-zinc-700"
+            className="flex h-6 w-6 items-center justify-center rounded text-[#a3acb9] transition-colors hover:text-[#1a1f36]"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -240,27 +277,21 @@ function Sidebar({
           {showAddMenu && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setShowAddMenu(false)} />
-              <div className="absolute right-0 top-full z-50 mt-1 w-48 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
+              <div className="absolute right-0 top-full z-50 mt-1 w-48 rounded-lg border border-[#e3e8ee] bg-white py-1 shadow-[0px_1px_1px_0px_rgba(0,0,0,0.12),0px_2px_5px_0px_rgba(60,66,87,0.08)]">
                 <button
-                  onClick={() => {
-                    setShowAddMenu(false);
-                    onGlobalAction("company");
-                  }}
-                  className="flex w-full items-center gap-2.5 px-3 py-2 text-[13px] text-zinc-600 transition-colors hover:bg-zinc-50 hover:text-zinc-900"
+                  onClick={() => { setShowAddMenu(false); onGlobalAction("company"); }}
+                  className="flex w-full items-center gap-[14px] px-4 py-2 text-[14px] text-[#4f566b] transition-colors hover:bg-[#f7fafc] hover:text-[#1a1f36]"
                 >
-                  <svg className="h-4 w-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                   </svg>
                   Add Company
                 </button>
                 <button
-                  onClick={() => {
-                    setShowAddMenu(false);
-                    onGlobalAction("person");
-                  }}
-                  className="flex w-full items-center gap-2.5 px-3 py-2 text-[13px] text-zinc-600 transition-colors hover:bg-zinc-50 hover:text-zinc-900"
+                  onClick={() => { setShowAddMenu(false); onGlobalAction("person"); }}
+                  className="flex w-full items-center gap-[14px] px-4 py-2 text-[14px] text-[#4f566b] transition-colors hover:bg-[#f7fafc] hover:text-[#1a1f36]"
                 >
-                  <svg className="h-4 w-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
                   </svg>
                   Add Person
@@ -272,8 +303,8 @@ function Sidebar({
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-2 py-2">
-        <div className="space-y-0.5">
+      <nav className="flex-1 overflow-y-auto px-5 py-7">
+        <div className="flex flex-col gap-3">
           {navItems.map((item) => {
             const isActive = item.href === "/dashboard"
               ? pathname === "/dashboard"
@@ -282,13 +313,13 @@ function Sidebar({
               <button
                 key={item.href}
                 onClick={() => router.push(item.href)}
-                className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium transition-colors ${
+                className={`flex w-full items-center gap-[14px] text-[14px] transition-colors ${
                   isActive
-                    ? "bg-zinc-200/70 text-zinc-900"
-                    : "text-zinc-600 hover:bg-zinc-200/40 hover:text-zinc-900"
+                    ? "font-semibold text-[#5469d4]"
+                    : "font-normal text-[#1a1f36] hover:text-[#5469d4]"
                 }`}
               >
-                <span className={isActive ? "text-zinc-700" : "text-zinc-400"}>
+                <span className={`shrink-0 ${isActive ? "text-[#5469d4]" : "text-[#a3acb9]"}`}>
                   {item.icon}
                 </span>
                 {item.label}
@@ -299,18 +330,28 @@ function Sidebar({
       </nav>
 
       {/* User section */}
-      <div className="relative border-t border-zinc-200 p-2">
+      <div className="relative px-5 pb-4 pt-2 shadow-[inset_0_1px_0_0_#e3e8ee]">
         <button
           onClick={() => setShowUserMenu((v) => !v)}
-          className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 transition-colors hover:bg-zinc-200/40"
+          className="flex w-full items-center gap-[14px] transition-colors hover:opacity-80"
         >
-          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-zinc-300 text-xs font-semibold text-zinc-700">
-            {userInitial}
+          <div className="h-7 w-7 shrink-0 overflow-hidden rounded-full bg-[#e3e8ee]">
+            {userProfile.profilePhotoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={userProfile.profilePhotoUrl} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-[#4f566b]">
+                {userInitial}
+              </div>
+            )}
           </div>
           <div className="min-w-0 flex-1 text-left">
-            <p className="truncate text-[13px] font-medium text-zinc-900">{userEmail}</p>
+            <p className="truncate text-[14px] font-medium text-[#1a1f36]">{displayName}</p>
+            {userProfile.fullName && (
+              <p className="truncate text-[11px] text-[#a3acb9]">{userProfile.email}</p>
+            )}
           </div>
-          <svg className="h-4 w-4 shrink-0 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <svg className="h-4 w-4 shrink-0 text-[#a3acb9]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
           </svg>
         </button>
@@ -319,19 +360,35 @@ function Sidebar({
         {showUserMenu && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
-            <div className="absolute bottom-full left-2 right-2 z-50 mb-1 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
-              <div className="border-b border-zinc-100 px-3 py-2">
-                <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">Account</p>
-                <p className="mt-0.5 truncate text-[13px] text-zinc-700">{userEmail}</p>
+            <div className="absolute bottom-full left-4 right-4 z-50 mb-1 rounded-lg border border-[#e3e8ee] bg-white py-1 shadow-[0px_1px_1px_0px_rgba(0,0,0,0.12),0px_2px_5px_0px_rgba(60,66,87,0.08)]">
+              <div className="border-b border-[#e3e8ee] px-3 py-2">
+                <p className="text-[13px] font-medium text-[#1a1f36]">{displayName}</p>
+                <p className="mt-0.5 truncate text-[11px] text-[#a3acb9]">{userProfile.email}</p>
               </div>
               <button
-                onClick={() => {
-                  setShowUserMenu(false);
-                  onLogout();
-                }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-zinc-600 transition-colors hover:bg-zinc-50 hover:text-zinc-900"
+                onClick={() => { setShowUserMenu(false); router.push("/dashboard/settings/profile"); }}
+                className="flex w-full items-center gap-[14px] px-3 py-2 text-[14px] text-[#4f566b] transition-colors hover:bg-[#f7fafc] hover:text-[#1a1f36]"
               >
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <svg className="h-4 w-4 shrink-0 text-[#a3acb9]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                </svg>
+                Profile settings
+              </button>
+              <button
+                onClick={() => { setShowUserMenu(false); router.push("/dashboard/settings/workspace"); }}
+                className="flex w-full items-center gap-[14px] px-3 py-2 text-[14px] text-[#4f566b] transition-colors hover:bg-[#f7fafc] hover:text-[#1a1f36]"
+              >
+                <svg className="h-4 w-4 shrink-0 text-[#a3acb9]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
+                </svg>
+                Workspace settings
+              </button>
+              <div className="my-1 border-t border-[#e3e8ee]" />
+              <button
+                onClick={() => { setShowUserMenu(false); onLogout(); }}
+                className="flex w-full items-center gap-[14px] px-3 py-2 text-[14px] text-[#4f566b] transition-colors hover:bg-[#f7fafc] hover:text-[#1a1f36]"
+              >
+                <svg className="h-4 w-4 shrink-0 text-[#a3acb9]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                 </svg>
                 Sign out
@@ -355,7 +412,7 @@ export default function DashboardLayout({
 }) {
   const router = useRouter();
   const apiBaseUrl = useMemo(() => getApiBaseUrl(), []);
-  const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [authToken, setAuthToken] = useState("");
   const [globalAction, setGlobalAction] = useState<GlobalActionType>(null);
 
@@ -377,8 +434,20 @@ export default function DashboardLayout({
           router.replace("/");
           return;
         }
-        const data = (await safeJson(response)) as { email: string };
-        setUserEmail(data.email);
+        const data = (await safeJson(response)) as {
+          email: string;
+          onboardingComplete?: boolean;
+          user?: { fullName?: string | null; profilePhotoUrl?: string | null };
+        };
+        if (!data.onboardingComplete) {
+          router.replace("/onboarding");
+          return;
+        }
+        setUserProfile({
+          email: data.email,
+          fullName: data.user?.fullName ?? null,
+          profilePhotoUrl: data.user?.profilePhotoUrl ?? null,
+        });
       })
       .catch(() => {
         window.localStorage.removeItem(localStorageTokenKey);
@@ -391,7 +460,7 @@ export default function DashboardLayout({
     router.replace("/");
   }
 
-  if (!userEmail) {
+  if (!userProfile) {
     return (
       <div className="flex h-screen items-center justify-center">
         <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
@@ -401,7 +470,7 @@ export default function DashboardLayout({
 
   return (
     <div className="flex h-screen overflow-hidden bg-white">
-      <Sidebar userEmail={userEmail} onLogout={handleLogout} onGlobalAction={setGlobalAction} />
+      <Sidebar userProfile={userProfile} onLogout={handleLogout} onGlobalAction={setGlobalAction} />
       <main className="flex-1 overflow-y-auto">
         {children}
       </main>
