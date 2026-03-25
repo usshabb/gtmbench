@@ -38,6 +38,14 @@ Monorepo with two apps:
 - `PARALLEL_API_KEY` / `PARALLEL_API_BASE_URL` — Parallel API
 - `NEXT_PUBLIC_API_BASE_URL` — override API URL for frontend (defaults to /api-proxy)
 
+## Design System
+
+- Stripe-inspired color tokens: `#1a1f36` (dark navy), `#4f566b` (muted text), `#5469d4` (primary blue), `#e3e8ee` (borders), `#f7fafc` (light bg), `#697386` (secondary text), `#a3acb9` (hint text)
+- Custom CSS animations in `globals.css`: `animate-fade-in`, `animate-slide-up`, `animate-shimmer` (for skeleton loaders)
+- Styled scrollbars (thin, rounded, zinc palette)
+- Search/filter on Companies and People list pages
+- Skeleton loading states on list pages (shimmer animation)
+
 ## Notes
 
 - `@tailwindcss/oxide-linux-x64-gnu` is symlinked into `apps/web/node_modules/@tailwindcss/` because npm workspaces hoists it to root, but Turbopack's worker needs it locally

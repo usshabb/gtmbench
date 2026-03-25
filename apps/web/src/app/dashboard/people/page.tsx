@@ -38,9 +38,26 @@ function getApiBaseUrl(): string {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Skeleton Row                                                       */
+/* ------------------------------------------------------------------ */
+
+function SkeletonRow() {
+  return (
+    <li className="flex items-center gap-4 px-5 py-3.5 border-b border-zinc-100">
+      <div className="h-9 w-9 rounded-full animate-shimmer" />
+      <div className="flex-1 space-y-2">
+        <div className="h-3.5 w-32 rounded animate-shimmer" />
+        <div className="h-3 w-44 rounded animate-shimmer" />
+      </div>
+    </li>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Person Row                                                         */
 /* ------------------------------------------------------------------ */
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getFullName(data: Record<string, any> | null, linkedinUrl: string): string {
   if (data?.name) return data.name as string;
   const parts = [data?.first_name, data?.last_name].filter(Boolean);
@@ -48,8 +65,10 @@ function getFullName(data: Record<string, any> | null, linkedinUrl: string): str
   return linkedinUrl.split("/in/")[1]?.replace(/\/$/, "") ?? "Unknown";
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getLocation(data: Record<string, any>): string | undefined {
   if (data.locality) return data.locality as string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const loc = data.inferred_location as Record<string, any> | undefined;
   if (!loc) return undefined;
   const parts = [loc.city, loc.state_name, loc.country_name].filter(Boolean);
@@ -66,6 +85,7 @@ function PersonRow({
   const data = getFiberData(person);
   const fullName = getFullName(data, person.linkedinUrl);
   const photoUrl = data?.profile_pic as string | undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const currentJob = data?.current_job as Record<string, any> | undefined;
   const title = currentJob?.title as string | undefined;
   const company = currentJob?.company_name as string | undefined;
@@ -74,15 +94,13 @@ function PersonRow({
   const status = person.enrichmentStatus;
 
   return (
-    <li>
+    <li className="animate-fade-in">
     <Link
       href={`/dashboard/people/${person._id}`}
-      className="group flex cursor-pointer items-center gap-4 border-b border-zinc-100 px-5 py-3.5 transition-colors hover:bg-zinc-50"
+      className="group flex cursor-pointer items-center gap-4 border-b border-zinc-100 px-5 py-3.5 transition-all hover:bg-zinc-50/80"
     >
-      {/* Avatar */}
       <LetterAvatar name={fullName} size="sm" src={photoUrl} />
 
-      {/* Name & meta */}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="truncate text-[13px] font-medium text-zinc-900">{fullName}</span>
@@ -107,10 +125,9 @@ function PersonRow({
         </div>
       </div>
 
-      {/* Status badge — only show non-completed states */}
       {status !== "completed" && (
         <span
-          className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+          className={`shrink-0 rounded-full px-2.5 py-0.5 text-[11px] font-medium ${
             status === "failed" ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-700"
           }`}
         >
@@ -118,7 +135,6 @@ function PersonRow({
         </span>
       )}
 
-      {/* Remove button */}
       <button
         onClick={(e) => {
           e.preventDefault();
@@ -131,7 +147,6 @@ function PersonRow({
         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
       </button>
 
-      {/* Chevron */}
       <svg className="h-4 w-4 shrink-0 text-zinc-300 transition-colors group-hover:text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
     </Link>
     </li>
@@ -150,6 +165,7 @@ export default function PeoplePage() {
   const [isLoadingList, setIsLoadingList] = useState(true);
   const [persons, setPersons] = useState<PersonRecord[]>([]);
   const [message, setMessage] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     const storedToken = window.localStorage.getItem(localStorageTokenKey);
@@ -205,9 +221,27 @@ export default function PeoplePage() {
     }
   }
 
+  const filteredPersons = useMemo(() => {
+    if (!searchQuery.trim()) return persons;
+    const q = searchQuery.toLowerCase();
+    return persons.filter((p) => {
+      const data = getFiberData(p);
+      const fullName = getFullName(data, p.linkedinUrl);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const currentJob = data?.current_job as Record<string, any> | undefined;
+      const title = (currentJob?.title as string | undefined) ?? "";
+      const company = (currentJob?.company_name as string | undefined) ?? "";
+      return (
+        fullName.toLowerCase().includes(q) ||
+        p.linkedinUrl.toLowerCase().includes(q) ||
+        title.toLowerCase().includes(q) ||
+        company.toLowerCase().includes(q)
+      );
+    });
+  }, [persons, searchQuery]);
+
   return (
     <div className="flex h-full flex-col">
-      {/* Page header */}
       <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
         <div>
           <h1 className="text-lg font-semibold text-zinc-900">People</h1>
@@ -217,38 +251,77 @@ export default function PeoplePage() {
         </div>
       </div>
 
-      {/* Message */}
-      {message && (
-        <div className="border-b border-zinc-200 bg-zinc-50 px-6 py-2.5">
-          <p className="text-[13px] text-zinc-600">{message}</p>
+      {persons.length > 0 && (
+        <div className="border-b border-zinc-100 px-5 py-2.5">
+          <div className="relative">
+            <svg className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search people..."
+              className="w-full rounded-lg border border-zinc-200 bg-zinc-50 py-2 pl-9 pr-3 text-[13px] placeholder:text-zinc-400 focus:border-[#5469d4] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#5469d4]/10 transition-all"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-zinc-400 hover:text-zinc-600"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
       )}
 
-      {/* People list */}
+      {message && (
+        <div className="border-b border-zinc-200 bg-red-50 px-6 py-2.5">
+          <p className="text-[13px] text-red-600">{message}</p>
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto">
         {isLoadingList ? (
-          <div className="flex flex-col items-center justify-center py-20">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
-            <p className="mt-3 text-[13px] text-zinc-400">Loading people...</p>
-          </div>
+          <ul>
+            {Array.from({ length: 5 }).map((_, i) => (
+              <SkeletonRow key={i} />
+            ))}
+          </ul>
         ) : (
           <ul>
-            {persons.map((person) => (
+            {filteredPersons.map((person) => (
               <PersonRow
                 key={person._id ?? person.linkedinUrl}
                 person={person}
                 onRemove={handleRemovePerson}
               />
             ))}
+            {filteredPersons.length === 0 && persons.length > 0 && (
+              <li className="flex flex-col items-center justify-center py-16 text-center">
+                <p className="text-[13px] font-medium text-zinc-500">No people match &ldquo;{searchQuery}&rdquo;</p>
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="mt-2 text-[12px] text-[#5469d4] hover:underline"
+                >
+                  Clear search
+                </button>
+              </li>
+            )}
             {persons.length === 0 && (
               <li className="flex flex-col items-center justify-center py-20 text-center">
-                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-zinc-100">
-                  <svg className="h-6 w-6 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-100">
+                  <svg className="h-7 w-7 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
                   </svg>
                 </div>
-                <p className="text-[13px] font-medium text-zinc-600">No people yet</p>
-                <p className="mt-1 text-[12px] text-zinc-400">Use the + button to add a person</p>
+                <p className="text-[14px] font-medium text-zinc-700">No people yet</p>
+                <p className="mt-1 max-w-[260px] text-[13px] text-zinc-400">
+                  Use the + button in the sidebar to add your first person and start enriching.
+                </p>
               </li>
             )}
           </ul>

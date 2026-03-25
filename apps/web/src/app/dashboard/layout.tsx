@@ -144,7 +144,6 @@ function GlobalActionModal({
         router.push("/dashboard/companies");
         dispatchDataChanged();
       } else if (isEmail) {
-        // Adding by work email — derive LinkedIn from Fiber or create a stub
         const response = await fetch(`${apiBaseUrl}/persons/by-email`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
@@ -177,9 +176,9 @@ function GlobalActionModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[20vh]" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[20vh] backdrop-blur-[2px]" onClick={onClose}>
       <div
-        className="w-full max-w-md rounded-2xl bg-white shadow-xl"
+        className="w-full max-w-md rounded-2xl bg-white shadow-xl animate-slide-up"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4">
@@ -193,7 +192,7 @@ function GlobalActionModal({
             {isCompany ? "Domain" : isEmail ? "Work Email" : "LinkedIn URL"}
           </label>
           <input
-            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-[13px] placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none"
+            className="w-full rounded-xl border border-zinc-200 bg-white px-3.5 py-2.5 text-[13px] placeholder:text-zinc-400 focus:border-[#5469d4] focus:outline-none focus:ring-2 focus:ring-[#5469d4]/10 transition-all"
             type="text"
             value={value}
             onChange={(e) => setValue(e.target.value)}
@@ -220,7 +219,7 @@ function GlobalActionModal({
             <button
               type="submit"
               disabled={isLoading}
-              className="rounded-lg bg-zinc-900 px-4 py-2 text-[13px] font-medium text-white transition-opacity disabled:opacity-60"
+              className="rounded-lg bg-[#1a1f36] px-4 py-2 text-[13px] font-medium text-white transition-all hover:bg-[#2a2f46] disabled:opacity-60"
             >
               {isLoading ? "Adding..." : title}
             </button>
@@ -254,20 +253,18 @@ function Sidebar({
 
   return (
     <aside className="relative flex h-screen w-[220px] shrink-0 flex-col bg-[#f7fafc] shadow-[inset_-1px_0_0_0_#e3e8ee]">
-      {/* Workspace header */}
-      <div className="flex items-center gap-2 px-5 pt-3 pb-1">
-        <div className="flex items-center justify-center rounded-[20px] bg-white p-1.5 shadow-[0px_1px_1px_0px_rgba(0,0,0,0.12),0px_2px_5px_0px_rgba(60,66,87,0.08)] shrink-0">
-          <div className="flex h-4 w-4 items-center justify-center rounded bg-[#1a1f36] text-[10px] font-bold text-white">
+      <div className="flex items-center gap-2.5 px-5 pt-4 pb-1">
+        <div className="flex items-center justify-center rounded-xl bg-[#1a1f36] p-1.5 shadow-sm shrink-0">
+          <span className="flex h-4 w-4 items-center justify-center text-[10px] font-bold text-white">
             G
-          </div>
+          </span>
         </div>
-        <span className="flex-1 truncate text-[15px] font-medium text-[#1a1f36]">GTMbench</span>
+        <span className="flex-1 truncate text-[15px] font-semibold text-[#1a1f36] tracking-tight">GTMbench</span>
 
-        {/* Global add button */}
         <div className="relative">
           <button
             onClick={() => setShowAddMenu((v) => !v)}
-            className="flex h-6 w-6 items-center justify-center rounded text-[#a3acb9] transition-colors hover:text-[#1a1f36]"
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-[#a3acb9] transition-all hover:bg-white hover:text-[#1a1f36] hover:shadow-sm"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -277,21 +274,21 @@ function Sidebar({
           {showAddMenu && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setShowAddMenu(false)} />
-              <div className="absolute right-0 top-full z-50 mt-1 w-48 rounded-lg border border-[#e3e8ee] bg-white py-1 shadow-[0px_1px_1px_0px_rgba(0,0,0,0.12),0px_2px_5px_0px_rgba(60,66,87,0.08)]">
+              <div className="absolute right-0 top-full z-50 mt-1.5 w-48 rounded-xl border border-[#e3e8ee] bg-white py-1 shadow-lg animate-fade-in">
                 <button
                   onClick={() => { setShowAddMenu(false); onGlobalAction("company"); }}
-                  className="flex w-full items-center gap-[14px] px-4 py-2 text-[14px] text-[#4f566b] transition-colors hover:bg-[#f7fafc] hover:text-[#1a1f36]"
+                  className="flex w-full items-center gap-3 px-3.5 py-2.5 text-[13px] text-[#4f566b] transition-colors hover:bg-[#f7fafc] hover:text-[#1a1f36]"
                 >
-                  <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <svg className="h-4 w-4 shrink-0 text-[#a3acb9]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                   </svg>
                   Add Company
                 </button>
                 <button
                   onClick={() => { setShowAddMenu(false); onGlobalAction("person"); }}
-                  className="flex w-full items-center gap-[14px] px-4 py-2 text-[14px] text-[#4f566b] transition-colors hover:bg-[#f7fafc] hover:text-[#1a1f36]"
+                  className="flex w-full items-center gap-3 px-3.5 py-2.5 text-[13px] text-[#4f566b] transition-colors hover:bg-[#f7fafc] hover:text-[#1a1f36]"
                 >
-                  <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <svg className="h-4 w-4 shrink-0 text-[#a3acb9]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
                   </svg>
                   Add Person
@@ -302,9 +299,8 @@ function Sidebar({
         </div>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-5 py-7">
-        <div className="flex flex-col gap-3">
+      <nav className="flex-1 overflow-y-auto px-3 py-5">
+        <div className="flex flex-col gap-0.5">
           {navItems.map((item) => {
             const isActive = item.href === "/dashboard"
               ? pathname === "/dashboard"
@@ -313,13 +309,13 @@ function Sidebar({
               <button
                 key={item.href}
                 onClick={() => router.push(item.href)}
-                className={`flex w-full items-center gap-[14px] text-[14px] transition-colors ${
+                className={`group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13px] transition-all ${
                   isActive
-                    ? "font-semibold text-[#5469d4]"
-                    : "font-normal text-[#1a1f36] hover:text-[#5469d4]"
+                    ? "bg-white font-semibold text-[#5469d4] shadow-[0_1px_2px_rgba(0,0,0,0.06)]"
+                    : "font-medium text-[#4f566b] hover:bg-white/60 hover:text-[#1a1f36]"
                 }`}
               >
-                <span className={`shrink-0 ${isActive ? "text-[#5469d4]" : "text-[#a3acb9]"}`}>
+                <span className={`shrink-0 transition-colors ${isActive ? "text-[#5469d4]" : "text-[#a3acb9] group-hover:text-[#697386]"}`}>
                   {item.icon}
                 </span>
                 {item.label}
@@ -329,13 +325,12 @@ function Sidebar({
         </div>
       </nav>
 
-      {/* User section */}
-      <div className="relative px-5 pb-4 pt-2 shadow-[inset_0_1px_0_0_#e3e8ee]">
+      <div className="relative px-3 pb-3 pt-2 shadow-[inset_0_1px_0_0_#e3e8ee]">
         <button
           onClick={() => setShowUserMenu((v) => !v)}
-          className="flex w-full items-center gap-[14px] transition-colors hover:opacity-80"
+          className="flex w-full items-center gap-3 rounded-lg px-2.5 py-2 transition-all hover:bg-white/60"
         >
-          <div className="h-7 w-7 shrink-0 overflow-hidden rounded-full bg-[#e3e8ee]">
+          <div className="h-8 w-8 shrink-0 overflow-hidden rounded-full bg-[#e3e8ee] ring-2 ring-white">
             {userProfile.profilePhotoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={userProfile.profilePhotoUrl} alt="" className="h-full w-full object-cover" />
@@ -346,7 +341,7 @@ function Sidebar({
             )}
           </div>
           <div className="min-w-0 flex-1 text-left">
-            <p className="truncate text-[14px] font-medium text-[#1a1f36]">{displayName}</p>
+            <p className="truncate text-[13px] font-medium text-[#1a1f36]">{displayName}</p>
             {userProfile.fullName && (
               <p className="truncate text-[11px] text-[#a3acb9]">{userProfile.email}</p>
             )}
@@ -356,18 +351,17 @@ function Sidebar({
           </svg>
         </button>
 
-        {/* User dropdown */}
         {showUserMenu && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)} />
-            <div className="absolute bottom-full left-4 right-4 z-50 mb-1 rounded-lg border border-[#e3e8ee] bg-white py-1 shadow-[0px_1px_1px_0px_rgba(0,0,0,0.12),0px_2px_5px_0px_rgba(60,66,87,0.08)]">
-              <div className="border-b border-[#e3e8ee] px-3 py-2">
+            <div className="absolute bottom-full left-3 right-3 z-50 mb-1.5 rounded-xl border border-[#e3e8ee] bg-white py-1 shadow-lg animate-fade-in">
+              <div className="border-b border-[#e3e8ee] px-3.5 py-2.5">
                 <p className="text-[13px] font-medium text-[#1a1f36]">{displayName}</p>
                 <p className="mt-0.5 truncate text-[11px] text-[#a3acb9]">{userProfile.email}</p>
               </div>
               <button
                 onClick={() => { setShowUserMenu(false); router.push("/dashboard/settings/profile"); }}
-                className="flex w-full items-center gap-[14px] px-3 py-2 text-[14px] text-[#4f566b] transition-colors hover:bg-[#f7fafc] hover:text-[#1a1f36]"
+                className="flex w-full items-center gap-3 px-3.5 py-2.5 text-[13px] text-[#4f566b] transition-colors hover:bg-[#f7fafc] hover:text-[#1a1f36]"
               >
                 <svg className="h-4 w-4 shrink-0 text-[#a3acb9]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
@@ -376,7 +370,7 @@ function Sidebar({
               </button>
               <button
                 onClick={() => { setShowUserMenu(false); router.push("/dashboard/settings/workspace"); }}
-                className="flex w-full items-center gap-[14px] px-3 py-2 text-[14px] text-[#4f566b] transition-colors hover:bg-[#f7fafc] hover:text-[#1a1f36]"
+                className="flex w-full items-center gap-3 px-3.5 py-2.5 text-[13px] text-[#4f566b] transition-colors hover:bg-[#f7fafc] hover:text-[#1a1f36]"
               >
                 <svg className="h-4 w-4 shrink-0 text-[#a3acb9]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
@@ -386,9 +380,9 @@ function Sidebar({
               <div className="my-1 border-t border-[#e3e8ee]" />
               <button
                 onClick={() => { setShowUserMenu(false); onLogout(); }}
-                className="flex w-full items-center gap-[14px] px-3 py-2 text-[14px] text-[#4f566b] transition-colors hover:bg-[#f7fafc] hover:text-[#1a1f36]"
+                className="flex w-full items-center gap-3 px-3.5 py-2.5 text-[13px] text-red-500 transition-colors hover:bg-red-50"
               >
-                <svg className="h-4 w-4 shrink-0 text-[#a3acb9]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <svg className="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
                 </svg>
                 Sign out
@@ -462,8 +456,11 @@ export default function DashboardLayout({
 
   if (!userProfile) {
     return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
+      <div className="flex h-screen items-center justify-center bg-[#f7fafc]">
+        <div className="flex flex-col items-center gap-3">
+          <div className="h-8 w-8 animate-spin rounded-full border-[3px] border-[#e3e8ee] border-t-[#5469d4]" />
+          <p className="text-[13px] text-[#a3acb9]">Loading workspace...</p>
+        </div>
       </div>
     );
   }

@@ -29,24 +29,24 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-zinc-50 px-4">
-      <div className="w-full max-w-sm">
-        {/* Logo */}
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-zinc-900">
-            <span className="text-lg font-bold text-white">G</span>
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#f7fafc] px-4">
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_#e8ecf4_0%,_transparent_50%)]" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 h-[500px] w-[800px] rounded-full bg-[#5469d4]/[0.04] blur-3xl" />
+
+      <div className="relative w-full max-w-sm animate-fade-in">
+        <div className="mb-10 text-center">
+          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-[#1a1f36] shadow-lg shadow-[#1a1f36]/20">
+            <span className="text-xl font-bold text-white tracking-tight">G</span>
           </div>
-          <h1 className="text-xl font-semibold text-zinc-900">GTMbench</h1>
-          <p className="mt-1 text-[13px] text-zinc-500">Sign in to your account</p>
+          <h1 className="text-2xl font-semibold text-[#1a1f36] tracking-tight">GTMbench</h1>
+          <p className="mt-2 text-[14px] text-[#697386]">Your go-to-market command center</p>
         </div>
 
-        {/* Card */}
-        <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+        <div className="rounded-2xl border border-[#e3e8ee] bg-white p-7 shadow-[0_4px_24px_rgba(0,0,0,0.06)]">
           <button
             onClick={() => void handleSignInWithGoogle()}
-            className="flex w-full items-center justify-center gap-3 rounded-lg border border-zinc-200 bg-white px-4 py-3 text-[14px] font-medium text-zinc-700 transition-colors hover:bg-zinc-50 active:bg-zinc-100"
+            className="flex w-full items-center justify-center gap-3 rounded-xl border border-[#e3e8ee] bg-white px-4 py-3.5 text-[14px] font-medium text-[#1a1f36] transition-all hover:border-[#d9dce1] hover:bg-[#f7fafc] hover:shadow-sm active:scale-[0.99]"
           >
-            {/* Google "G" logo */}
             <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
               <path d="M17.64 9.205c0-.639-.057-1.252-.164-1.841H9v3.481h4.844a4.14 4.14 0 01-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
               <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 009 18z" fill="#34A853"/>
@@ -55,10 +55,14 @@ export default function LoginPage() {
             </svg>
             Continue with Google
           </button>
-          <p className="mt-4 text-center text-[11px] text-zinc-400">
+          <p className="mt-5 text-center text-[12px] leading-relaxed text-[#a3acb9]">
             We use Google to verify your identity and connect your Gmail and Calendar.
           </p>
         </div>
+
+        <p className="mt-6 text-center text-[11px] text-[#c2c7cf]">
+          Secure authentication powered by Google OAuth
+        </p>
       </div>
     </main>
   );
