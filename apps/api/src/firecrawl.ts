@@ -18,8 +18,9 @@ export interface ATSDetectionResponse {
 }
 
 const firecrawlATSSchema = z.object({
-  ats: z.string().describe("Name of the ATS vendor (e.g. Ashby, Greenhouse, Lever)"),
-  career_portal_url: z.string().describe("Direct public careers/jobs portal URL"),
+  ats: z.string().optional().describe("Name of the ATS vendor (e.g. Ashby, Greenhouse, Lever)"),
+  ats_name: z.string().optional().describe("Name of the ATS vendor (e.g. Ashby, Greenhouse, Lever)"),
+  career_portal_url: z.string().optional().describe("Direct public careers/jobs portal URL"),
 });
 
 const KNOWN_ATS: string[] = [
@@ -63,8 +64,9 @@ export async function detectCompanyATS(domain: string): Promise<ATSDetectionResp
     }
 
     const data = parseResult.data;
+    const rawAtsName = data.ats_name ?? data.ats;
 
-    if (!data.ats) {
+    if (!rawAtsName) {
       return {
         success: false,
         error: "Could not identify ATS vendor",
@@ -72,14 +74,23 @@ export async function detectCompanyATS(domain: string): Promise<ATSDetectionResp
       };
     }
 
-    const atsName = normalizeATSName(data.ats);
+    const atsName = normalizeATSName(rawAtsName);
     const atsSlug = atsName.toLowerCase().replace(/\s+/g, "_");
+
+    const careerPageURL = data.career_portal_url?.trim() ?? "";
+    if (!careerPageURL) {
+      return {
+        success: false,
+        error: "ATS detected but no career portal URL found",
+        rawData: { firecrawlResult: data },
+      };
+    }
 
     return {
       success: true,
       data: {
         atsName,
-        careerPageURL: data.career_portal_url || "",
+        careerPageURL,
         atsSlug,
       },
       rawData: { firecrawlResult: data },

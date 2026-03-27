@@ -63,6 +63,8 @@ interface ATSJobsJobData {
   companyId: string;
   atsUrl: string;
   domain: string;
+  jobTitles: string[] | null;
+  keyword: string | null;
 }
 
 type TriggerJobData = LinkedinPostJobData | ATSJobsJobData;
@@ -95,6 +97,7 @@ export async function enqueueAllPendingJobs(): Promise<number> {
     .filter((job) => activeTriggerIds.has(job.triggerId.toHexString()))
     .map((job) => {
       if (job.jobType === "ATSJobs") {
+        const atsTrigger = triggerConfigMap.get(job.triggerId.toHexString());
         const jobData: ATSJobsJobData = {
           type: "ATSJobs",
           triggerJobId: job._id!.toHexString(),
@@ -103,6 +106,8 @@ export async function enqueueAllPendingJobs(): Promise<number> {
           companyId: job.companyId!.toHexString(),
           atsUrl: job.atsUrl!,
           domain: job.domain!,
+          jobTitles: atsTrigger?.config?.jobTitles ?? null,
+          keyword: atsTrigger?.config?.keyword ?? null,
         };
         return {
           name: "ats-jobs",
@@ -241,8 +246,22 @@ export async function createPendingJobs(userEmail: string): Promise<number> {
         }
 
         const atsRecords = await atsCol
-          .find({ companyId: { $in: companyIds }, detectionStatus: "completed", careerPageUrl: { $ne: null } })
+          .find({ companyId: { $in: companyIds }, detectionStatus: "completed", careerPageUrl: { $nin: [null, ""] } })
           .toArray();
+
+        console.log(`[createPendingJobs] Found ${atsRecords.length} ATS records with careerPageUrl for trigger ${trigger._id}`);
+        for (const ats of atsRecords) {
+          console.log(`[createPendingJobs] ATS record: domain=${ats.domain} careerPageUrl=${ats.careerPageUrl} atsName=${ats.atsName}`);
+        }
+
+        // Log companies that were skipped due to missing careerPageUrl
+        const atsAllRecords = await atsCol.find({ companyId: { $in: companyIds }, detectionStatus: "completed" }).toArray();
+        for (const ats of atsAllRecords) {
+          if (!ats.careerPageUrl) {
+            console.warn(`[createPendingJobs] Skipping domain=${ats.domain} — careerPageUrl is missing (atsName=${ats.atsName ?? "none"})`);
+          }
+        }
+
         for (const ats of atsRecords) {
           try {
             await triggerJobsCol.insertOne({
@@ -255,9 +274,11 @@ export async function createPendingJobs(userEmail: string): Promise<number> {
               status: "pending",
               createdAt: now,
             });
+            console.log(`[createPendingJobs] Queued ATSJobs for domain=${ats.domain} atsUrl=${ats.careerPageUrl}`);
             created++;
           } catch {
             // Already exists — skip
+            console.log(`[createPendingJobs] ATSJobs already queued for domain=${ats.domain}, skipping`);
           }
         }
       }
@@ -286,6 +307,11 @@ export async function enqueuePendingJobsForUser(userEmail: string): Promise<numb
     .filter((job) => activeTriggerIds.has(job.triggerId.toHexString()))
     .map((job) => {
       if (job.jobType === "ATSJobs") {
+        console.log(`[enqueuePendingJobs] Enqueuing ATSJobs: domain=${job.domain} atsUrl=${job.atsUrl} triggerJobId=${job._id}`);
+        if (!job.atsUrl) {
+          console.warn(`[enqueuePendingJobs] ATSJobs for domain=${job.domain} has no atsUrl — will be skipped in processor`);
+        }
+        const atsTrigger = triggerConfigMap.get(job.triggerId.toHexString());
         const data: ATSJobsJobData = {
           type: "ATSJobs",
           triggerJobId: job._id!.toHexString(),
@@ -294,6 +320,8 @@ export async function enqueuePendingJobsForUser(userEmail: string): Promise<numb
           companyId: job.companyId!.toHexString(),
           atsUrl: job.atsUrl!,
           domain: job.domain!,
+          jobTitles: atsTrigger?.config?.jobTitles ?? null,
+          keyword: atsTrigger?.config?.keyword ?? null,
         };
         return { name: "ats-jobs", data, opts: { jobId: `ats-${job._id!.toHexString()}-${Date.now()}` } };
       }
@@ -351,6 +379,8 @@ export async function enqueueSpecificJob(triggerJobId: string, userEmail: string
         companyId: job.companyId!.toHexString(),
         atsUrl: job.atsUrl!,
         domain: job.domain!,
+        jobTitles: trigger?.config?.jobTitles ?? null,
+        keyword: trigger?.config?.keyword ?? null,
       } satisfies ATSJobsJobData,
       { jobId: `ats-${job._id!.toHexString()}-${Date.now()}` },
     );
@@ -490,6 +520,7 @@ async function processATSJobsJob(jobData: ATSJobsJobData): Promise<void> {
   const triggerJobsCol = await getTriggerJobsCollection();
   const jobsCol = await getJobsCollection();
   const signalsCol = await getSignalsCollection();
+  const atsCol = await getCompanyATSCollection();
   const triggerJobId = new ObjectId(jobData.triggerJobId);
 
   console.log(`[triggers-worker] [ATS] Starting job for domain=${jobData.domain} atsUrl=${jobData.atsUrl} companyId=${jobData.companyId} triggerJobId=${jobData.triggerJobId}`);
@@ -498,9 +529,63 @@ async function processATSJobsJob(jobData: ATSJobsJobData): Promise<void> {
   console.log(`[triggers-worker] [ATS] Marked triggerJob ${jobData.triggerJobId} as processing`);
 
   try {
-    console.log(`[triggers-worker] [ATS] Calling fetchATSJobs for ${jobData.atsUrl}...`);
-    const result = await fetchATSJobs(jobData.atsUrl);
+    let atsUrl = jobData.atsUrl;
+
+    if (!atsUrl) {
+      // Job was queued before careerPageUrl was stored — look it up fresh from the ATS record
+      console.warn(`[triggers-worker] [ATS] No atsUrl on job for domain=${jobData.domain}, looking up from DB...`);
+      const atsRecord = await atsCol.findOne({
+        companyId: new ObjectId(jobData.companyId),
+        detectionStatus: "completed",
+        careerPageUrl: { $nin: [null, ""] },
+      });
+      if (atsRecord?.careerPageUrl) {
+        atsUrl = atsRecord.careerPageUrl;
+        console.log(`[triggers-worker] [ATS] Resolved atsUrl from DB: ${atsUrl}`);
+        // Patch the job doc so future retries don't need the fallback
+        await triggerJobsCol.updateOne({ _id: triggerJobId }, { $set: { atsUrl } });
+      } else {
+        console.error(`[triggers-worker] [ATS] No careerPageUrl found in DB for domain=${jobData.domain}, skipping`);
+        await triggerJobsCol.updateOne(
+          { _id: triggerJobId },
+          { $set: { status: "failed", error: "No ATS career page URL available", lastProcessedAt: new Date().toISOString() } },
+        );
+        return;
+      }
+    }
+
+    console.log(`[triggers-worker] [ATS] Calling fetchATSJobs for domain=${jobData.domain} url=${atsUrl}...`);
+    const result = await fetchATSJobs(atsUrl);
     console.log(`[triggers-worker] [ATS] fetchATSJobs returned: success=${result.success} jobsCount=${result.jobs.length} error=${result.error ?? "none"}`);
+
+    // Apply job title filter (if configured)
+    if (result.success && jobData.jobTitles && jobData.jobTitles.length > 0) {
+      const lcTitles = jobData.jobTitles.map((t) => t.toLowerCase());
+      const before = result.jobs.length;
+      result.jobs = result.jobs.filter((j) => {
+        const jt = j.title.toLowerCase();
+        return lcTitles.some((pt) => jt.includes(pt) || pt.includes(jt));
+      });
+      console.log(`[triggers-worker] [ATS] Job title filter applied: ${before} → ${result.jobs.length} jobs`);
+    }
+
+    // Apply keyword filter across title + description fields (if configured)
+    if (result.success && jobData.keyword) {
+      const kw = jobData.keyword.toLowerCase();
+      const before = result.jobs.length;
+      result.jobs = result.jobs.filter((j) => {
+        const searchable = [
+          j.title,
+          j.department,
+          j.location,
+          typeof j.description === "string" ? j.description : "",
+          typeof j.content === "string" ? j.content : "",
+          typeof j.descriptionHtml === "string" ? j.descriptionHtml : "",
+        ].join(" ").toLowerCase();
+        return searchable.includes(kw);
+      });
+      console.log(`[triggers-worker] [ATS] Keyword filter "${jobData.keyword}" applied: ${before} → ${result.jobs.length} jobs`);
+    }
 
     if (!result.success) {
       console.error(`[triggers-worker] [ATS] fetchATSJobs failed for ${jobData.domain}: ${result.error}`);

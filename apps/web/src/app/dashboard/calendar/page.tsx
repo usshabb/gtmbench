@@ -209,50 +209,7 @@ function CalendarInner() {
   }, [filteredEvents]);
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
-        <div>
-          <h1 className="text-lg font-semibold text-zinc-900">Calendar</h1>
-          <p className="text-[13px] text-zinc-500">Your upcoming events from Google Calendar</p>
-        </div>
-        <div className="flex items-center gap-2">
-            {connected && (
-            <>
-              <button
-                onClick={() => void connectGoogle()}
-                className="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-1.5 text-[12px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50"
-              >
-                + Add account
-              </button>
-              <button
-                onClick={() => void fetchEvents(authToken, year, month, true)}
-                disabled={refreshing}
-                className="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-1.5 text-[12px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-50"
-              >
-                <svg
-                  className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`}
-                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-                </svg>
-                {refreshing ? "Refreshing..." : "Refresh"}
-              </button>
-            </>
-          )}
-          {!connected && (
-            <button
-              onClick={connectGoogle}
-              className="flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-zinc-700"
-            >
-              <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
-              </svg>
-              Connect Google Calendar
-            </button>
-          )}
-        </div>
-      </div>
+    <div className="flex h-full flex-col bg-white">
 
       {/* View as filter pills */}
       {connected && connectedUsers.length > 1 && (
@@ -311,60 +268,28 @@ function CalendarInner() {
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         {loading ? (
-          <div className="flex justify-center py-16">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
+          <div className="flex h-full items-center justify-center">
+            <div className="h-5 w-5 animate-spin rounded-full border-2 border-black/10 border-t-black/40" />
           </div>
         ) : !connected ? (
-          <div className="flex flex-col items-center justify-center py-24 text-center">
-            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-100">
-              <svg className="h-7 w-7 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
-              </svg>
+          <div className="flex h-full items-center justify-center">
+            <div className="flex flex-col items-center gap-3">
+              <p className="text-[14px] text-black/40">Calendar not connected</p>
+              <button onClick={connectGoogle} className="rounded-lg border border-black/[0.08] px-4 py-2 text-[13px] font-medium text-black/70 hover:bg-black/[0.03]">
+                Connect Google Calendar
+              </button>
             </div>
-            <p className="text-[14px] font-medium text-zinc-700">Connect Google Calendar</p>
-            <p className="mt-1 max-w-xs text-[13px] text-zinc-400">
-              Connect your Google account to view your upcoming meetings and events.
-            </p>
-            <button
-              onClick={connectGoogle}
-              className="mt-5 rounded-lg bg-zinc-900 px-5 py-2.5 text-[13px] font-medium text-white hover:bg-zinc-700"
-            >
-              Connect Google Calendar
-            </button>
           </div>
         ) : error ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-red-50">
-              <svg className="h-5 w-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-              </svg>
-            </div>
-            <p className="text-[13px] font-medium text-zinc-700">Could not load calendar</p>
-            <p className="mt-1 max-w-xs text-[12px] text-zinc-400">
-              This usually means Calendar access wasn&apos;t granted. Reconnect Google to add the Calendar permission.
-            </p>
-            <div className="mt-4 flex items-center gap-2">
-              <button
-                onClick={connectGoogle}
-                className="rounded-lg bg-zinc-900 px-4 py-2 text-[12px] font-medium text-white hover:bg-zinc-700"
-              >
-                Reconnect Google
-              </button>
-              <button
-                onClick={() => void fetchEvents(authToken, year, month, true)}
-                className="rounded-lg border border-zinc-200 px-4 py-2 text-[12px] font-medium text-zinc-600 hover:bg-zinc-50"
-              >
-                Try again
-              </button>
-            </div>
+          <div className="flex h-full items-center justify-center">
+            <p className="text-[13px] text-red-400">{error}</p>
           </div>
         ) : grouped.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <p className="text-[13px] font-medium text-zinc-600">No events in {monthLabel}</p>
-            <p className="mt-1 text-[12px] text-zinc-400">Your calendar is clear for this month.</p>
+          <div className="flex h-full items-center justify-center">
+            <p className="text-[14px] text-black/40">No events in {monthLabel}</p>
           </div>
         ) : (
-          <div className="mx-auto max-w-3xl px-6 py-6 space-y-6">
+          <div className="mx-auto max-w-xl px-4 py-6 space-y-6">
             {grouped.map(([dateKey, dayEvents]) => (
               <div key={dateKey}>
                 {/* Date heading */}

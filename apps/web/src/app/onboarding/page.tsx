@@ -18,6 +18,115 @@ interface WorkspaceData {
   description: string;
 }
 
+// ─── Image upload helper ───────────────────────────────────────────────────────
+async function uploadToImageKit(file: File): Promise<string> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("fileName", file.name);
+  const res = await fetch("/api/upload", { method: "POST", body: form });
+  const data = (await res.json()) as { url?: string; error?: string };
+  if (!res.ok || !data.url) throw new Error(data.error ?? "Upload failed");
+  return data.url;
+}
+
+// ─── Upload row component ──────────────────────────────────────────────────────
+function ImageUploadRow({
+  label,
+  hint,
+  previewUrl,
+  onUrl,
+}: {
+  label: string;
+  hint?: string;
+  previewUrl: string;
+  onUrl: (url: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+
+  async function handleFile(file: File) {
+    setUploading(true);
+    setUploadError("");
+    try {
+      const url = await uploadToImageKit(file);
+      onUrl(url);
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-4 rounded-xl bg-black/[0.04] px-4 py-3">
+        {/* Preview / icon */}
+        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-black/[0.04]">
+          {previewUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={previewUrl} alt={label} className="h-full w-full object-cover" />
+          ) : (
+            <svg className="h-6 w-6 text-black/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3 3h18M3 3v18M3 3l18 18" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 3h19.5M2.25 3v18M2.25 3l19.5 19.5M21.75 3v18M21.75 21H2.25" />
+              <circle cx="8.25" cy="8.25" r="1.5" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5l5.25-5.25 4.5 4.5 3-3 4.5 4.5" />
+            </svg>
+          )}
+        </div>
+
+        {/* Text */}
+        <div className="flex-1">
+          <p className="text-[16px] font-medium leading-[1.2] text-[#050505]">{label}</p>
+          {hint && <p className="text-[11px] text-black/56">{hint}</p>}
+        </div>
+
+        {/* Upload button */}
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={uploading}
+          className="shrink-0 rounded-lg bg-black/[0.12] px-3.5 py-2 text-[14px] font-semibold text-black/70 backdrop-blur-sm transition hover:bg-black/[0.18] disabled:opacity-50"
+        >
+          {uploading ? "Uploading…" : "Upload"}
+        </button>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFile(f); }}
+        />
+      </div>
+      {uploadError && <p className="text-[12px] text-red-500">{uploadError}</p>}
+    </div>
+  );
+}
+
+// ─── Field components ──────────────────────────────────────────────────────────
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-[14px] font-medium leading-[1.2] text-black/70">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+const inputCls =
+  "h-12 w-full rounded-xl border border-black/[0.04] bg-white/72 px-3 text-[16px] text-[#050505] placeholder:text-black/44 focus:border-black/20 focus:outline-none";
+
+const textareaCls =
+  "w-full rounded-xl border border-black/[0.04] bg-white/72 px-3 py-3 text-[16px] text-[#050505] placeholder:text-black/44 focus:border-black/20 focus:outline-none resize-none";
+
+// ─── Page ──────────────────────────────────────────────────────────────────────
 export default function OnboardingPage() {
   return (
     <Suspense>
@@ -29,7 +138,6 @@ export default function OnboardingPage() {
 function OnboardingInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  // Prefer URL param; fall back to localStorage (survives login redirect)
   const inviteTokenFromUrl = searchParams.get("invite");
   const inviteToken = useMemo(() => {
     if (inviteTokenFromUrl) {
@@ -44,11 +152,11 @@ function OnboardingInner() {
   const [userEmail, setUserEmail] = useState("");
   const [step, setStep] = useState<1 | 2>(1);
 
-  // Step 1 – profile
+  // Step 1
   const [fullName, setFullName] = useState("");
   const [profilePhotoUrl, setProfilePhotoUrl] = useState("");
 
-  // Step 2 – workspace
+  // Step 2
   const [workspaceMode, setWorkspaceMode] = useState<"loading" | "join" | "create" | "invite">("loading");
   const [existingWorkspace, setExistingWorkspace] = useState<{ _id: string; name: string; domain: string; logoUrl?: string | null } | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceData>({ name: "", domain: "", logoUrl: "", websiteUrl: "", description: "" });
@@ -57,15 +165,9 @@ function OnboardingInner() {
   const [error, setError] = useState("");
   const checkedRef = useRef(false);
 
-  // Guard: must be logged in and not yet onboarded
   useEffect(() => {
     const token = window.localStorage.getItem(localStorageTokenKey);
-    if (!token) {
-      // Preserve invite token in localStorage before redirecting to login
-      // (already stored by the inviteToken useMemo above if present in URL)
-      router.replace("/");
-      return;
-    }
+    if (!token) { router.replace("/"); return; }
     setAuthToken(token);
     if (checkedRef.current) return;
     checkedRef.current = true;
@@ -84,41 +186,21 @@ function OnboardingInner() {
   }, []);
 
   const lookupWorkspace = useCallback(async (token: string, email: string) => {
-    // If there's an invite token, look it up first
     if (inviteToken) {
       try {
         const res = await fetch(`${apiBaseUrl}/invite/${inviteToken}`);
         const data = (await res.json()) as { workspace?: { _id: string; name: string; domain: string; logoUrl?: string | null }; error?: string };
-        if (res.ok && data.workspace) {
-          setExistingWorkspace(data.workspace);
-          setWorkspaceMode("invite");
-          return;
-        }
+        if (res.ok && data.workspace) { setExistingWorkspace(data.workspace); setWorkspaceMode("invite"); return; }
       } catch { /* fall through */ }
     }
-
     const domain = email.split("@")[1] ?? "";
     const freeDomains = ["gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "icloud.com"];
-    if (!domain || freeDomains.includes(domain)) {
-      setWorkspace((w) => ({ ...w, domain }));
-      setWorkspaceMode("create");
-      return;
-    }
-
-    // Check if workspace already exists for this domain
+    if (!domain || freeDomains.includes(domain)) { setWorkspace((w) => ({ ...w, domain })); setWorkspaceMode("create"); return; }
     try {
-      const res = await fetch(`${apiBaseUrl}/workspace/lookup?domain=${encodeURIComponent(domain)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch(`${apiBaseUrl}/workspace/lookup?domain=${encodeURIComponent(domain)}`, { headers: { Authorization: `Bearer ${token}` } });
       const data = (await res.json()) as { workspace: { _id: string; name: string; domain: string; logoUrl?: string | null } | null };
-      if (data.workspace) {
-        setExistingWorkspace(data.workspace);
-        setWorkspaceMode("join");
-        return;
-      }
+      if (data.workspace) { setExistingWorkspace(data.workspace); setWorkspaceMode("join"); return; }
     } catch { /* fall through */ }
-
-    // No existing workspace — pre-fill domain and let user fill the rest
     setWorkspace((w) => ({ ...w, domain, websiteUrl: `https://${domain}` }));
     setWorkspaceMode("create");
   }, [apiBaseUrl, inviteToken]);
@@ -150,7 +232,6 @@ function OnboardingInner() {
         body.workspaceWebsiteUrl = workspace.websiteUrl.trim() || undefined;
         body.workspaceDescription = workspace.description.trim() || undefined;
       }
-
       const res = await fetch(`${apiBaseUrl}/onboarding/complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
@@ -170,80 +251,58 @@ function OnboardingInner() {
   const stepLabels = ["Your profile", "Your workspace"];
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-zinc-50 px-4">
-      <div className="w-full max-w-lg">
-        {/* Header */}
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-zinc-900">
-            <span className="text-lg font-bold text-white">G</span>
-          </div>
-          <h1 className="text-xl font-semibold text-zinc-900">Set up your account</h1>
-          <p className="mt-1 text-[13px] text-zinc-500">Just a few things to get you started</p>
-        </div>
+    <main className="flex min-h-screen flex-col bg-white">
+      {/* Top-left logo */}
+      <div className="p-4">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/logo.png" alt="sidr" className="h-34 w-34 object-contain" />
+      </div>
 
-        {/* Step indicator */}
-        <div className="mb-6 flex items-center justify-center gap-2">
-          {stepLabels.map((label, i) => {
-            const num = i + 1;
-            const isActive = step === num;
-            const isDone = step > num;
-            return (
-              <div key={label} className="flex items-center gap-2">
-                {i > 0 && <div className={`h-px w-8 ${isDone ? "bg-zinc-900" : "bg-zinc-200"}`} />}
-                <div className="flex items-center gap-1.5">
-                  <div className={`flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-semibold ${
-                    isDone ? "bg-zinc-900 text-white" : isActive ? "bg-zinc-900 text-white" : "bg-zinc-200 text-zinc-500"
-                  }`}>
-                    {isDone ? (
-                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                    ) : num}
-                  </div>
-                  <span className={`text-[12px] font-medium ${isActive ? "text-zinc-900" : "text-zinc-400"}`}>{label}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      {/* Centered content */}
+      <div className="flex flex-1 items-start justify-center px-4 pt-2 pb-10">
+        <div className="w-full max-w-[480px]">
+          {/* Tabs */}
+          <div className="mb-6 flex border-b border-black/[0.08]">
+            {stepLabels.map((label, i) => {
+              const num = (i + 1) as 1 | 2;
+              const isActive = step === num;
+              const isDone = step > num;
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => isDone && setStep(num)}
+                  className={`relative pb-3 pr-6 text-[14px] font-medium transition-colors ${
+                    isActive ? "text-[#050505]" : isDone ? "cursor-pointer text-black/40 hover:text-black/60" : "cursor-default text-black/30"
+                  }`}
+                >
+                  {label}
+                  {isActive && (
+                    <span className="absolute bottom-0 left-0 right-6 h-[2px] rounded-full bg-[#050505]" />
+                  )}
+                  {isDone && !isActive && (
+                    <span className="absolute bottom-0 left-0 right-6 h-[2px] rounded-full bg-black/20" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
 
         {/* Card */}
-        <div className="rounded-2xl border border-zinc-200 bg-white p-6 shadow-sm">
+        <div className="min-h-[580px] rounded-3xl bg-white p-6 shadow-[0_2px_24px_rgba(0,0,0,0.08)]">
 
           {/* Step 1: Profile */}
           {step === 1 && (
-            <form onSubmit={handleStep1Submit} className="space-y-5">
-              <div>
-                <h2 className="text-[15px] font-semibold text-zinc-900">Your profile</h2>
-                <p className="mt-0.5 text-[12px] text-zinc-400">This is how teammates will see you.</p>
-              </div>
+            <form onSubmit={handleStep1Submit} className="flex flex-col gap-4">
 
-              {/* Avatar preview */}
-              <div className="flex items-center gap-4">
-                <div className="h-16 w-16 shrink-0 overflow-hidden rounded-full bg-zinc-100">
-                  {profilePhotoUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={profilePhotoUrl} alt="Profile" className="h-full w-full object-cover" onError={() => setProfilePhotoUrl("")} />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-xl font-semibold text-zinc-400">
-                      {fullName.charAt(0).toUpperCase() || userEmail.charAt(0).toUpperCase()}
-                    </div>
-                  )}
-                </div>
-                <div className="flex-1">
-                  <label className="block text-[12px] font-medium text-zinc-600 mb-1">Profile photo URL</label>
-                  <input
-                    type="url"
-                    value={profilePhotoUrl}
-                    onChange={(e) => setProfilePhotoUrl(e.target.value)}
-                    placeholder="https://..."
-                    className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-[13px] placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none"
-                  />
-                </div>
-              </div>
+              <ImageUploadRow
+                label="Profile photo"
+                hint="Recommended 500 × 500"
+                previewUrl={profilePhotoUrl}
+                onUrl={setProfilePhotoUrl}
+              />
 
-              <div>
-                <label className="block text-[13px] font-medium text-zinc-700 mb-1.5">Full name <span className="text-red-400">*</span></label>
+              <Field label="Full name">
                 <input
                   type="text"
                   value={fullName}
@@ -251,25 +310,24 @@ function OnboardingInner() {
                   placeholder="Jane Smith"
                   required
                   autoFocus
-                  className="w-full rounded-lg border border-zinc-200 px-3 py-2.5 text-[13px] placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none"
+                  className={inputCls}
                 />
-              </div>
+              </Field>
 
-              <div>
-                <label className="block text-[13px] font-medium text-zinc-700 mb-1.5">Email</label>
+              <Field label="Email">
                 <input
                   type="email"
                   value={userEmail}
                   disabled
-                  className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-[13px] text-zinc-400"
+                  className={`${inputCls} opacity-40 cursor-not-allowed`}
                 />
-              </div>
+              </Field>
 
               {error && <p className="text-[12px] text-red-500">{error}</p>}
 
               <button
                 type="submit"
-                className="w-full rounded-lg bg-zinc-900 py-2.5 text-[13px] font-medium text-white transition-opacity hover:opacity-90"
+                className="mt-1 h-12 w-full rounded-xl bg-[#050505] text-[14px] font-semibold text-white transition-opacity hover:opacity-80"
               >
                 Continue
               </button>
@@ -278,20 +336,16 @@ function OnboardingInner() {
 
           {/* Step 2: Workspace */}
           {step === 2 && (
-            <div className="space-y-5">
-              <div>
-                <h2 className="text-[15px] font-semibold text-zinc-900">Your workspace</h2>
-                <p className="mt-0.5 text-[12px] text-zinc-400">GTMbench accounts are set up at the company level.</p>
-              </div>
+            <div className="flex flex-col gap-4">
 
               {workspaceMode === "loading" && (
-                <div className="flex justify-center py-8">
-                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
+                <div className="flex justify-center py-10">
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-black/20 border-t-black/60" />
                 </div>
               )}
 
               {workspaceMode === "invite" && existingWorkspace && (
-                <div className="space-y-4">
+                <div className="flex flex-col gap-4">
                   <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                     {existingWorkspace.logoUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -302,55 +356,50 @@ function OnboardingInner() {
                       </div>
                     )}
                     <div>
-                      <p className="text-[14px] font-semibold text-zinc-900">{existingWorkspace.name}</p>
-                      <p className="text-[12px] text-zinc-500">You&apos;ve been invited to join this workspace</p>
+                      <p className="text-[14px] font-semibold text-[#050505]">{existingWorkspace.name}</p>
+                      <p className="text-[12px] text-black/56">You&apos;ve been invited to join this workspace</p>
                     </div>
                   </div>
                   {error && <p className="text-[12px] text-red-500">{error}</p>}
                   <button
                     onClick={() => void handleComplete(undefined, true)}
                     disabled={isLoading}
-                    className="w-full rounded-lg bg-zinc-900 py-2.5 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+                    className="h-12 w-full rounded-xl bg-[#050505] text-[14px] font-semibold text-white transition-opacity hover:opacity-80 disabled:opacity-50"
                   >
-                    {isLoading ? "Joining..." : `Join ${existingWorkspace.name}`}
+                    {isLoading ? "Joining…" : `Join ${existingWorkspace.name}`}
                   </button>
                 </div>
               )}
 
               {workspaceMode === "join" && existingWorkspace && (
-                <div className="space-y-4">
-                  <div className="flex items-center gap-3 rounded-xl border border-zinc-200 p-4">
+                <div className="flex flex-col gap-4">
+                  <div className="flex items-center gap-3 rounded-xl border border-black/[0.06] p-4">
                     {existingWorkspace.logoUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={existingWorkspace.logoUrl} alt="" className="h-10 w-10 rounded-lg object-contain" />
                     ) : (
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-zinc-100 text-[13px] font-bold text-zinc-500">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-black/[0.06] text-[13px] font-bold text-black/50">
                         {existingWorkspace.name.charAt(0).toUpperCase()}
                       </div>
                     )}
                     <div>
-                      <p className="text-[14px] font-semibold text-zinc-900">{existingWorkspace.name}</p>
-                      <p className="text-[12px] text-zinc-400">{existingWorkspace.domain}</p>
+                      <p className="text-[14px] font-semibold text-[#050505]">{existingWorkspace.name}</p>
+                      <p className="text-[12px] text-black/44">{existingWorkspace.domain}</p>
                     </div>
                   </div>
-                  <p className="text-[12px] text-zinc-500">
-                    A workspace already exists for your domain. Join it or create a new one.
-                  </p>
+                  <p className="text-[13px] text-black/56">A workspace already exists for your domain. Join it or create a new one.</p>
                   {error && <p className="text-[12px] text-red-500">{error}</p>}
                   <div className="flex gap-2">
                     <button
                       onClick={() => void handleComplete(existingWorkspace._id)}
                       disabled={isLoading}
-                      className="flex-1 rounded-lg bg-zinc-900 py-2.5 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+                      className="h-12 flex-1 rounded-xl bg-[#050505] text-[14px] font-semibold text-white transition-opacity hover:opacity-80 disabled:opacity-50"
                     >
-                      {isLoading ? "Joining..." : `Join ${existingWorkspace.name}`}
+                      {isLoading ? "Joining…" : `Join ${existingWorkspace.name}`}
                     </button>
                     <button
-                      onClick={() => {
-                        setWorkspaceMode("create");
-                        setWorkspace((w) => ({ ...w, domain: existingWorkspace.domain }));
-                      }}
-                      className="rounded-lg border border-zinc-200 px-4 py-2.5 text-[13px] font-medium text-zinc-600 hover:bg-zinc-50"
+                      onClick={() => { setWorkspaceMode("create"); setWorkspace((w) => ({ ...w, domain: existingWorkspace.domain })); }}
+                      className="h-12 rounded-xl border border-black/[0.08] px-4 text-[14px] font-medium text-black/70 hover:bg-black/[0.03]"
                     >
                       Create new
                     </button>
@@ -359,103 +408,80 @@ function OnboardingInner() {
               )}
 
               {workspaceMode === "create" && (
-                <form onSubmit={(e) => { e.preventDefault(); void handleComplete(); }} className="space-y-4">
-                  {/* Logo preview + URL */}
-                  <div className="flex items-center gap-4">
-                    <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50 flex items-center justify-center">
-                      {workspace.logoUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={workspace.logoUrl} alt="" className="h-full w-full object-contain p-1" onError={() => setWorkspace((w) => ({ ...w, logoUrl: "" }))} />
-                      ) : (
-                        <span className="text-[11px] font-bold text-zinc-300">LOGO</span>
-                      )}
-                    </div>
-                    <div className="flex-1">
-                      <label className="block text-[12px] font-medium text-zinc-600 mb-1">Logo URL</label>
-                      <input
-                        type="url"
-                        value={workspace.logoUrl}
-                        onChange={(e) => setWorkspace((w) => ({ ...w, logoUrl: e.target.value }))}
-                        placeholder="https://..."
-                        className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-[13px] placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none"
-                      />
-                    </div>
-                  </div>
+                <form onSubmit={(e) => { e.preventDefault(); void handleComplete(); }} className="flex flex-col gap-4">
+                  <ImageUploadRow
+                    label="Company logo"
+                    hint="500 × 500"
+                    previewUrl={workspace.logoUrl}
+                    onUrl={(url) => setWorkspace((w) => ({ ...w, logoUrl: url }))}
+                  />
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-[13px] font-medium text-zinc-700 mb-1.5">
-                        Company name <span className="text-red-400">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={workspace.name}
-                        onChange={(e) => setWorkspace((w) => ({ ...w, name: e.target.value }))}
-                        placeholder="Acme Inc."
-                        required
-                        autoFocus
-                        className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-[13px] placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-[13px] font-medium text-zinc-700 mb-1.5">
-                        Domain <span className="text-red-400">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={workspace.domain}
-                        onChange={(e) => setWorkspace((w) => ({ ...w, domain: e.target.value }))}
-                        placeholder="acme.com"
-                        required
-                        className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-[13px] placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none"
-                      />
-                    </div>
-                  </div>
+                  <Field label="Company name">
+                    <input
+                      type="text"
+                      value={workspace.name}
+                      onChange={(e) => setWorkspace((w) => ({ ...w, name: e.target.value }))}
+                      placeholder="Acme Inc."
+                      required
+                      autoFocus
+                      className={inputCls}
+                    />
+                  </Field>
 
-                  <div>
-                    <label className="block text-[13px] font-medium text-zinc-700 mb-1.5">Website URL</label>
+                  <Field label="Mission statement">
+                    <textarea
+                      value={workspace.description}
+                      onChange={(e) => setWorkspace((w) => ({ ...w, description: e.target.value }))}
+                      placeholder="Add your one sentence mission statement."
+                      rows={3}
+                      className={textareaCls}
+                    />
+                  </Field>
+
+                  <Field label="Website">
                     <input
                       type="url"
                       value={workspace.websiteUrl}
                       onChange={(e) => setWorkspace((w) => ({ ...w, websiteUrl: e.target.value }))}
-                      placeholder="https://acme.com"
-                      className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-[13px] placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none"
+                      placeholder="www.acme.com"
+                      className={inputCls}
                     />
-                  </div>
+                  </Field>
 
-                  <div>
-                    <label className="block text-[13px] font-medium text-zinc-700 mb-1.5">Description</label>
-                    <textarea
-                      value={workspace.description}
-                      onChange={(e) => setWorkspace((w) => ({ ...w, description: e.target.value }))}
-                      placeholder="What does your company do?"
-                      rows={2}
-                      className="w-full resize-none rounded-lg border border-zinc-200 px-3 py-2 text-[13px] placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none"
+                  <Field label="Domain">
+                    <input
+                      type="text"
+                      value={workspace.domain}
+                      onChange={(e) => setWorkspace((w) => ({ ...w, domain: e.target.value }))}
+                      placeholder="acme.com"
+                      required
+                      className={inputCls}
                     />
-                  </div>
+                  </Field>
 
                   {error && <p className="text-[12px] text-red-500">{error}</p>}
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex gap-2">
                     <button
                       type="button"
                       onClick={() => setStep(1)}
-                      className="rounded-lg border border-zinc-200 px-4 py-2.5 text-[13px] font-medium text-zinc-600 hover:bg-zinc-50"
+                      className="h-12 rounded-xl border border-black/[0.08] px-4 text-[14px] font-medium text-black/70 hover:bg-black/[0.03]"
                     >
                       Back
                     </button>
                     <button
                       type="submit"
                       disabled={isLoading}
-                      className="flex-1 rounded-lg bg-zinc-900 py-2.5 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+                      className="h-12 flex-1 rounded-xl bg-[#050505] text-[14px] font-semibold text-white transition-opacity hover:opacity-80 disabled:opacity-50"
                     >
-                      {isLoading ? "Setting up..." : "Create workspace"}
+                      {isLoading ? "Setting up…" : "Create workspace"}
                     </button>
                   </div>
                 </form>
               )}
             </div>
           )}
+        </div>
         </div>
       </div>
     </main>

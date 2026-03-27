@@ -111,6 +111,7 @@ export async function getEmailsWithPerson(
 export interface InboxThread extends EmailThread {
   personEmail: string; // which tracked person this thread is associated with
   personName?: string;
+  isUnread: boolean;
 }
 
 /**
@@ -152,8 +153,9 @@ export async function getInboxThreads(
           metadataHeaders: ["Subject", "From", "To", "Date"],
         });
 
-        const msg = threadData.data.messages?.[0];
-        const headers = msg?.payload?.headers ?? [];
+        const messages = threadData.data.messages ?? [];
+        const latestMsg = messages[messages.length - 1] ?? messages[0];
+        const headers = latestMsg?.payload?.headers ?? [];
         const h = (name: string) =>
           headers.find((hdr) => hdr.name?.toLowerCase() === name.toLowerCase())?.value ?? "";
 
@@ -161,9 +163,21 @@ export async function getInboxThreads(
         const to = h("To");
 
         // Find which tracked person this thread belongs to
-        const allAddresses = `${from} ${to}`.toLowerCase();
+        const allAddresses = messages
+          .flatMap((m) => {
+            const mh = m.payload?.headers ?? [];
+            return [
+              mh.find((x) => x.name?.toLowerCase() === "from")?.value ?? "",
+              mh.find((x) => x.name?.toLowerCase() === "to")?.value ?? "",
+            ];
+          })
+          .join(" ")
+          .toLowerCase();
         const matched = capped.find((p) => allAddresses.includes(p.email.toLowerCase()));
         if (!matched) return;
+
+        // isUnread: any message in the thread has the UNREAD label
+        const isUnread = messages.some((m) => m.labelIds?.includes("UNREAD") ?? false);
 
         results.push({
           id: thread.id!,
@@ -171,9 +185,10 @@ export async function getInboxThreads(
           from,
           to,
           date: h("Date"),
-          snippet: msg?.snippet ?? "",
+          snippet: latestMsg?.snippet ?? "",
           personEmail: matched.email,
           personName: emailToName.get(matched.email.toLowerCase()),
+          isUnread,
         });
       } catch {
         // Skip threads that fail
@@ -273,4 +288,90 @@ export async function sendGmail(
   ).toString("base64url");
 
   await gmail.users.messages.send({ userId: "me", requestBody: { raw } });
+}
+
+export interface ThreadMessage {
+  id: string;
+  from: string;
+  to: string;
+  cc?: string;
+  subject: string;
+  date: string;
+  body: string;
+  isUnread: boolean;
+  messageId?: string; // Message-ID header for threading
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractTextBody(payload: any): string {
+  if (!payload) return "";
+  if (payload.mimeType === "text/plain" && payload.body?.data) {
+    return Buffer.from(payload.body.data as string, "base64url").toString("utf-8");
+  }
+  if (payload.parts) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const part of payload.parts as any[]) {
+      const text = extractTextBody(part);
+      if (text) return text;
+    }
+  }
+  return "";
+}
+
+export async function getThreadMessages(
+  accessToken: string,
+  refreshToken: string | null,
+  threadId: string,
+): Promise<ThreadMessage[]> {
+  const client = createOAuth2Client();
+  client.setCredentials({ access_token: accessToken, refresh_token: refreshToken });
+  const gmail = google.gmail({ version: "v1", auth: client });
+
+  const threadData = await gmail.users.threads.get({ userId: "me", id: threadId, format: "full" });
+  const messages = threadData.data.messages ?? [];
+
+  return messages.map((msg) => {
+    const headers = msg.payload?.headers ?? [];
+    const h = (name: string) =>
+      headers.find((hdr) => hdr.name?.toLowerCase() === name.toLowerCase())?.value ?? "";
+
+    return {
+      id: msg.id!,
+      from: h("From"),
+      to: h("To"),
+      cc: h("Cc") || undefined,
+      subject: h("Subject"),
+      date: h("Date"),
+      body: extractTextBody(msg.payload),
+      isUnread: msg.labelIds?.includes("UNREAD") ?? false,
+      messageId: h("Message-ID") || undefined,
+    };
+  });
+}
+
+export async function replyToThread(
+  accessToken: string,
+  refreshToken: string | null,
+  threadId: string,
+  to: string,
+  subject: string,
+  body: string,
+  inReplyTo?: string,
+): Promise<void> {
+  const client = createOAuth2Client();
+  client.setCredentials({ access_token: accessToken, refresh_token: refreshToken });
+  const gmail = google.gmail({ version: "v1", auth: client });
+
+  const cleanSubject = subject.startsWith("Re: ") ? subject : `Re: ${subject}`;
+  const headerLines = [
+    `To: ${to}`,
+    `Subject: ${cleanSubject}`,
+    "Content-Type: text/plain; charset=utf-8",
+    ...(inReplyTo ? [`In-Reply-To: ${inReplyTo}`, `References: ${inReplyTo}`] : []),
+    "",
+    body,
+  ];
+
+  const raw = Buffer.from(headerLines.join("\r\n")).toString("base64url");
+  await gmail.users.messages.send({ userId: "me", requestBody: { raw, threadId } });
 }

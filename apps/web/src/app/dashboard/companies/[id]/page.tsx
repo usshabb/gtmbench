@@ -588,7 +588,7 @@ export default function CompanyDetailPage() {
   const [atsData, setATSData] = useState<ATSRecord | null>(null);
   const [isDetectingATS, setIsDetectingATS] = useState(false);
   const [enabledSkills, setEnabledSkills] = useState<{ _id: string; skillType: string; enabled: boolean }[]>([]);
-  const [showSkillsMenu, setShowSkillsMenu] = useState(false);
+  const [showSkillsModal, setShowSkillsModal] = useState(false);
 
   async function handleRemove() {
     if (!authToken || !id) return;
@@ -755,168 +755,162 @@ export default function CompanyDetailPage() {
     { key: "jobs", label: "Jobs" },
   ];
 
+  const employeesStr = employees != null ? employees.toLocaleString() : null;
+  const fundingStr = totalFunding != null ? formatCurrency(totalFunding) : null;
+  const hasATS = atsData?.detectionStatus === "completed" && atsData.atsName;
+  const hasDetectATS = enabledSkills.some((s) => s.skillType === "detect_ats");
+
   return (
-    <div className="h-full overflow-y-auto">
+    <div className="h-full overflow-y-auto bg-[#f8f8f7]">
+      {/* Skills modal */}
+      {showSkillsModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 pt-[18vh] backdrop-blur-[2px]"
+          onClick={() => setShowSkillsModal(false)}
+        >
+          <div className="w-full max-w-sm rounded-3xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 pt-6 pb-4">
+              <div>
+                <h2 className="text-[16px] font-bold text-zinc-900">Run a Skill</h2>
+                <p className="mt-0.5 text-[12px] text-zinc-400">{name}</p>
+              </div>
+              <button onClick={() => setShowSkillsModal(false)} className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 hover:bg-zinc-100 transition-colors">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="px-6 pb-6 space-y-2">
+              {hasDetectATS && (
+                hasATS ? (
+                  <div className="flex items-center gap-3 rounded-xl border border-zinc-100 bg-zinc-50 px-4 py-3">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+                      <svg className="h-4 w-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                    </div>
+                    <div>
+                      <p className="text-[13px] font-medium text-zinc-700">ATS Detected</p>
+                      <p className="text-[11px] text-zinc-400">{atsData?.atsName}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => { setShowSkillsModal(false); handleDetectATS(); }}
+                    disabled={isDetectingATS}
+                    className="flex w-full items-center gap-3 rounded-xl border border-zinc-200 px-4 py-3 text-left transition-colors hover:bg-zinc-50 disabled:opacity-60"
+                  >
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-100">
+                      <svg className="h-4 w-4 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="text-[13px] font-medium text-zinc-800">{isDetectingATS ? "Detecting…" : atsData?.detectionStatus === "failed" ? "Retry Detect ATS" : "Detect ATS"}</p>
+                      <p className="text-[11px] text-zinc-400">Find this company's hiring system</p>
+                    </div>
+                  </button>
+                )
+              )}
+              {enabledSkills.length === 0 && (
+                <p className="py-4 text-center text-[13px] text-zinc-400">No skills enabled.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Top bar */}
-      <div className="sticky top-0 z-10 border-b border-zinc-200 bg-white/80 backdrop-blur-sm">
-        <div className="flex items-center gap-3 px-6 py-3">
+      <div className="sticky top-0 z-10 border-b border-zinc-200 bg-white/90 backdrop-blur-sm">
+        <div className="flex items-center gap-3 px-5 py-3">
           <button onClick={() => router.back()} className="rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600">
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
           </button>
-          <span className="flex-1 text-sm text-zinc-500">Back to Companies</span>
-          {/* Skills 3-dot menu */}
+          <span className="flex-1 text-[13px] text-zinc-400">Companies</span>
           {enabledSkills.length > 0 && (
-            <div className="relative">
-              <button
-                onClick={() => setShowSkillsMenu((v) => !v)}
-                className="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-[12px] font-medium text-zinc-500 transition-colors hover:bg-zinc-50 hover:text-zinc-700"
-                title="Run skill"
-              >
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
-                </svg>
-                Skills
-              </button>
-
-              {showSkillsMenu && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setShowSkillsMenu(false)} />
-                  <div className="absolute right-0 top-full z-50 mt-1 w-52 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
-                    {enabledSkills.some((s) => s.skillType === "detect_ats") && (
-                      atsData?.detectionStatus === "completed" && atsData.atsName ? (
-                        <div className="flex items-center gap-2.5 px-3 py-2">
-                          <svg className="h-4 w-4 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                          </svg>
-                          <span className="text-[13px] text-zinc-500">ATS: {atsData.atsName}</span>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => {
-                            setShowSkillsMenu(false);
-                            handleDetectATS();
-                          }}
-                          disabled={isDetectingATS}
-                          className="flex w-full items-center gap-2.5 px-3 py-2 text-[13px] text-zinc-600 transition-colors hover:bg-zinc-50 hover:text-zinc-900 disabled:opacity-60"
-                        >
-                          <svg className="h-4 w-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                          </svg>
-                          {isDetectingATS ? "Detecting..." : atsData?.detectionStatus === "failed" ? "Retry Detect ATS" : "Detect ATS"}
-                        </button>
-                      )
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
+            <button
+              onClick={() => setShowSkillsModal(true)}
+              className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-[12px] font-medium text-zinc-600 transition-colors hover:border-zinc-300 hover:bg-zinc-50"
+            >
+              Skills
+            </button>
           )}
-
           <button
             onClick={handleRemove}
             disabled={isRemoving}
-            className="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-1.5 text-[12px] font-medium text-zinc-500 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-60"
+            className="flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-3 py-1 text-[12px] font-medium text-zinc-500 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-60"
           >
-            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-            {isRemoving ? "Removing..." : "Remove"}
+            {isRemoving ? "Removing…" : "Remove"}
           </button>
         </div>
         {/* Tabs */}
-        <div className="flex gap-0 px-6">
+        <div className="flex gap-0 px-5">
           {tabs.map((tab) => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`relative px-4 py-2.5 text-[13px] font-medium transition-colors ${
-                activeTab === tab.key
-                  ? "text-zinc-900"
-                  : "text-zinc-400 hover:text-zinc-600"
+              className={`relative px-3 py-2.5 text-[13px] font-medium transition-colors ${
+                activeTab === tab.key ? "text-zinc-900" : "text-zinc-400 hover:text-zinc-600"
               }`}
             >
               {tab.label}
-              {activeTab === tab.key && (
-                <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-zinc-900 rounded-full" />
-              )}
+              {activeTab === tab.key && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-zinc-900 rounded-full" />}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="mx-auto max-w-4xl px-6 py-8">
-        {/* Header (always visible) */}
-        <div className="flex items-start gap-5">
+      <div className="mx-auto max-w-xl px-4 py-6">
+        {/* Header card — consistent with list card style */}
+        <div className="flex items-center gap-4 rounded-2xl border border-zinc-200 bg-white px-5 py-4 shadow-sm">
           <LetterAvatar name={name} size="lg" rounded="lg" src={logoUrl} />
           <div className="min-w-0 flex-1">
-            <h1 className="text-2xl font-semibold text-zinc-900">{name}</h1>
-            {headline && <p className="mt-1 text-sm text-zinc-500">{headline}</p>}
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              {website && (
-                <a href={`https://${website}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600 hover:bg-zinc-200">
-                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101" /><path strokeLinecap="round" strokeLinejoin="round" d="M10.172 13.828a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.102 1.101" /></svg>
-                  {website}
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-[16px] font-bold text-zinc-900">{name}</h1>
+              {company.domain && <span className="text-[12px] text-zinc-400">{company.domain}</span>}
+              {hasATS && atsData?.atsName && (
+                <a
+                  href={atsData.careerPageUrl ?? undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-md bg-[#1a1f36] px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-[#2a2f46] transition-colors"
+                >
+                  {atsData.atsName}
                 </a>
               )}
-              {linkedinSlug && (
-                <a href={`https://linkedin.com/company/${linkedinSlug}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600 hover:bg-zinc-200">LinkedIn</a>
+              {isDetectingATS && (
+                <span className="flex items-center gap-1 text-[11px] text-zinc-400">
+                  <div className="h-3 w-3 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
+                  Detecting…
+                </span>
               )}
-              {twitterHandle && (
-                <a href={`https://x.com/${twitterHandle}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-2.5 py-1 text-xs text-zinc-600 hover:bg-zinc-200">@{twitterHandle}</a>
-              )}
+            </div>
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[12px] text-zinc-400">
+              {industry && <span>{industry}</span>}
+              {industry && location && <span>·</span>}
               {location && (
-                <span className="inline-flex items-center gap-1 text-xs text-zinc-500">
+                <span className="flex items-center gap-1">
                   <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.828 0l-4.243-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
                   {location}
                 </span>
               )}
             </div>
-          </div>
-        </div>
-
-        {/* ATS Detection Section - only shown when skill is enabled */}
-        {enabledSkills.some((s) => s.skillType === "detect_ats") && atsData && (
-          <div className="mt-6 rounded-xl border border-zinc-100 bg-white px-5 py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <svg className="h-5 w-5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-                <h3 className="text-sm font-medium text-zinc-700">Applicant Tracking System</h3>
-              </div>
-              {atsData.detectionStatus === "completed" && atsData.atsName ? (
-                <div className="flex items-center gap-2">
-                  <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
-                    {atsData.atsName}
-                  </span>
-                  {atsData.careerPageUrl && (
-                    <a
-                      href={atsData.careerPageUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-blue-600 hover:text-blue-800 underline"
-                    >
-                      Visit Career Page
-                    </a>
-                  )}
-                </div>
-              ) : atsData.detectionStatus === "pending" || isDetectingATS ? (
-                <div className="flex items-center gap-2">
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
-                  <span className="text-xs text-zinc-500">Detecting...</span>
-                </div>
-              ) : atsData.detectionStatus === "failed" ? (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-red-600">Detection failed</span>
-                  <button
-                    onClick={handleDetectATS}
-                    className="rounded-lg border border-zinc-200 px-3 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-50"
-                  >
-                    Retry
-                  </button>
-                </div>
-              ) : null}
+            {/* Pills */}
+            <div className="mt-2 flex flex-wrap gap-2">
+              {employeesStr && (
+                <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-0.5 text-[11px] font-medium text-zinc-600">{employeesStr} People</span>
+              )}
+              {fundingStr && (
+                <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-0.5 text-[11px] font-medium text-zinc-600">{fundingStr} Raised</span>
+              )}
+              {website && (
+                <a href={`https://${website}`} target="_blank" rel="noopener noreferrer" className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-0.5 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100 transition-colors">{website}</a>
+              )}
+              {linkedinSlug && (
+                <a href={`https://linkedin.com/company/${linkedinSlug}`} target="_blank" rel="noopener noreferrer" className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-0.5 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100 transition-colors">LinkedIn</a>
+              )}
+              {twitterHandle && (
+                <a href={`https://x.com/${twitterHandle}`} target="_blank" rel="noopener noreferrer" className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-0.5 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100 transition-colors">@{twitterHandle}</a>
+              )}
             </div>
           </div>
-        )}
+        </div>
 
         {/* Tab Content */}
         {activeTab === "overview" ? (

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { LetterAvatar, DATA_CHANGED_EVENT, safeJson } from "../components";
+import { LetterAvatar, DATA_CHANGED_EVENT, safeJson, dispatchGlobalAction } from "../components";
 
 interface PersonRecord {
   _id?: string;
@@ -241,19 +241,11 @@ export default function PeoplePage() {
   }, [persons, searchQuery]);
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between border-b border-zinc-200 px-6 py-4">
-        <div>
-          <h1 className="text-lg font-semibold text-zinc-900">People</h1>
-          <p className="text-[13px] text-zinc-500">
-            {persons.length} {persons.length === 1 ? "person" : "people"}
-          </p>
-        </div>
-      </div>
+    <div className="flex h-full flex-col bg-white">
 
-      {persons.length > 0 && (
-        <div className="border-b border-zinc-100 px-5 py-2.5">
-          <div className="relative">
+      <div className="border-b border-zinc-100 px-5 py-2.5 flex items-center gap-2">
+        {persons.length > 0 && (
+          <div className="relative flex-1">
             <svg className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
             </svg>
@@ -275,8 +267,17 @@ export default function PeoplePage() {
               </button>
             )}
           </div>
-        </div>
-      )}
+        )}
+        <button
+          onClick={() => dispatchGlobalAction("person")}
+          className="ml-auto flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-[13px] font-medium text-zinc-700 transition-all hover:bg-zinc-50 active:scale-[0.97]"
+        >
+          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+          Add person
+        </button>
+      </div>
 
       {message && (
         <div className="border-b border-zinc-200 bg-red-50 px-6 py-2.5">
@@ -285,6 +286,7 @@ export default function PeoplePage() {
       )}
 
       <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-xl">
         {isLoadingList ? (
           <ul>
             {Array.from({ length: 5 }).map((_, i) => (
@@ -301,31 +303,18 @@ export default function PeoplePage() {
               />
             ))}
             {filteredPersons.length === 0 && persons.length > 0 && (
-              <li className="flex flex-col items-center justify-center py-16 text-center">
-                <p className="text-[13px] font-medium text-zinc-500">No people match &ldquo;{searchQuery}&rdquo;</p>
-                <button
-                  onClick={() => setSearchQuery("")}
-                  className="mt-2 text-[12px] text-[#5469d4] hover:underline"
-                >
-                  Clear search
-                </button>
+              <li className="flex items-center justify-center py-16">
+                <p className="text-[14px] text-black/40">No results for &ldquo;{searchQuery}&rdquo;</p>
               </li>
             )}
             {persons.length === 0 && (
-              <li className="flex flex-col items-center justify-center py-20 text-center">
-                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-100">
-                  <svg className="h-7 w-7 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-                  </svg>
-                </div>
-                <p className="text-[14px] font-medium text-zinc-700">No people yet</p>
-                <p className="mt-1 max-w-[260px] text-[13px] text-zinc-400">
-                  Use the + button in the sidebar to add your first person and start enriching.
-                </p>
+              <li className="flex items-center justify-center" style={{ height: "calc(100vh - 120px)" }}>
+                <p className="text-[14px] text-black/40">No people yet</p>
               </li>
             )}
           </ul>
         )}
+        </div>
       </div>
 
     </div>

@@ -84,6 +84,13 @@ export function dispatchDataChanged() {
   window.dispatchEvent(new CustomEvent(DATA_CHANGED_EVENT));
 }
 
+/* Custom event to trigger global action modal from any page */
+export const GLOBAL_ACTION_EVENT = "gtmbench:global-action";
+
+export function dispatchGlobalAction(type: "company" | "person") {
+  window.dispatchEvent(new CustomEvent(GLOBAL_ACTION_EVENT, { detail: { type } }));
+}
+
 /**
  * Safely parse a fetch Response as JSON.
  * Throws a readable error if the response is not JSON (e.g. HTML 404 page).

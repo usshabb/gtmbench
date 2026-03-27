@@ -94,7 +94,8 @@ export interface TriggerRecord {
   userEmail: string;
   triggerType: TriggerType;
   config: {
-    keyword?: string | null; // optional keyword filter
+    keyword?: string | null;    // optional keyword filter (multi-word, matches job description)
+    jobTitles?: string[] | null; // optional job title filter (ATS only)
   };
   status: "active" | "paused";
   createdAt: string;
@@ -149,6 +150,8 @@ export interface LinkedinPostForUserRecord {
   postUrl: string;
   caption: string | null;
   postedAt: string;
+  dismissed?: boolean;
+  dismissedAt?: string;
   authorName: string;
   authorLinkedinUrl: string;
   authorProfilePicture: string | null;
@@ -207,6 +210,8 @@ export interface SignalRecord {
   data: LinkedinPostData | ATSJobsSignalData;
   matchedKeyword?: string | null;
   createdAt: string;
+  dismissed?: boolean;
+  dismissedAt?: string;
 }
 
 /* ------------------------------------------------------------------ */
