@@ -18,6 +18,7 @@ interface PersonMeta {
   personId: string;
   companyDomain?: string;
   companyName?: string;
+  profilePic?: string;
 }
 
 interface InboxThread {
@@ -83,11 +84,13 @@ function ThreadRow({
   selected,
   isRead,
   onClick,
+  profilePic,
 }: {
   thread: InboxThread;
   selected: boolean;
   isRead: boolean;
   onClick: () => void;
+  profilePic?: string;
 }) {
   const { name: fromName } = parseDisplayName(thread.from);
   const displayName = thread.personName ?? fromName;
@@ -107,7 +110,7 @@ function ThreadRow({
 
       {/* Avatar */}
       <div className="shrink-0">
-        <LetterAvatar name={displayName} size="sm" />
+        <LetterAvatar name={displayName} size="sm" src={profilePic} />
       </div>
 
       {/* Content */}
@@ -314,6 +317,23 @@ function InboxInner() {
     setLoadingMessages(true);
     setReadIds((prev) => new Set([...prev, thread.id]));
 
+    // Mark as read in Gmail
+    if (thread.isUnread) {
+      void fetch(`${apiBaseUrl}/inbox/threads/${thread.id}/read`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ sourceUserEmail: thread.sourceUserEmail }),
+      }).then(() => {
+        // Update thread's isUnread flag locally so it stays read on re-render
+        setThreads((prev) =>
+          prev.map((t) => (t.id === thread.id ? { ...t, isUnread: false } : t)),
+        );
+      }).catch(() => { /* ignore */ });
+    }
+
     try {
       const qs = thread.sourceUserEmail
         ? `?sourceUserEmail=${encodeURIComponent(thread.sourceUserEmail)}`
@@ -398,6 +418,14 @@ function InboxInner() {
   // ── Derived state ─────────────────────────────────────────────────────────
 
   const myEmails = useMemo(() => connectedUsers.map((u) => u.email), [connectedUsers]);
+
+  const profilePicMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of personEmails) {
+      if (p.profilePic) map.set(p.email.toLowerCase(), p.profilePic);
+    }
+    return map;
+  }, [personEmails]);
 
   // Derive unique companies from persons
   const companies = useMemo(() => {
@@ -813,6 +841,7 @@ function InboxInner() {
                 selected={selectedThread?.id === thread.id}
                 isRead={readIds.has(thread.id)}
                 onClick={() => selectThread(thread)}
+                profilePic={profilePicMap.get(thread.personEmail.toLowerCase())}
               />
             ))
           )}

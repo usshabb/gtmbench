@@ -20,82 +20,22 @@ interface UserProfile {
   profilePhotoUrl?: string | null;
 }
 
+const MI = ({ name }: { name: string }) => (
+  <span className="material-symbols-outlined">{name}</span>
+);
+
 const navItems = [
-  {
-    label: "Home",
-    href: "/dashboard",
-    icon: (
-      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12l8.954-8.955a1.5 1.5 0 012.092 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
-      </svg>
-    ),
-  },
-  {
-    label: "Inbox",
-    href: "/dashboard/inbox",
-    icon: (
-      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 13.5h3.86a2.25 2.25 0 012.012 1.244l.256.512a2.25 2.25 0 002.013 1.244h3.218a2.25 2.25 0 002.013-1.244l.256-.512a2.25 2.25 0 012.013-1.244h3.859m-19.5.338V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18v-4.162c0-.224-.034-.447-.1-.661L19.24 5.338a2.25 2.25 0 00-2.15-1.588H6.911a2.25 2.25 0 00-2.15 1.588L2.35 13.177a2.25 2.25 0 00-.1.661z" />
-      </svg>
-    ),
-  },
-  {
-    label: "Buyer Profile",
-    href: "/dashboard/buyer-profiles",
-    icon: (
-      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15 9h3.75M15 12h3.75M15 15h3.75M4.5 19.5h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15A2.25 2.25 0 002.25 6.75v10.5A2.25 2.25 0 004.5 19.5zm6-10.125a1.875 1.875 0 11-3.75 0 1.875 1.875 0 013.75 0zm1.294 6.336a6.721 6.721 0 01-3.17.789 6.721 6.721 0 01-3.168-.789 3.376 3.376 0 016.338 0z" />
-      </svg>
-    ),
-  },
-  {
-    label: "Skills",
-    href: "/dashboard/skills",
-    icon: (
-      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
-      </svg>
-    ),
-  },
-  {
-    label: "Triggers",
-    href: "/dashboard/triggers",
-    icon: (
-      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456zM16.894 20.567L16.5 21.75l-.394-1.183a2.25 2.25 0 00-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 001.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 001.423 1.423l1.183.394-1.183.394a2.25 2.25 0 00-1.423 1.423z" />
-      </svg>
-    ),
-  },
-  {
-    label: "Calendar",
-    href: "/dashboard/calendar",
-    icon: (
-      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5" />
-      </svg>
-    ),
-  },
+  { label: "Home", href: "/dashboard", icon: <MI name="home" /> },
+  { label: "Inbox", href: "/dashboard/inbox", icon: <MI name="inbox" /> },
+  { label: "Buyer Profile", href: "/dashboard/buyer-profiles", icon: <MI name="badge" /> },
+  { label: "Skills", href: "/dashboard/skills", icon: <MI name="category_search" /> },
+  { label: "Triggers", href: "/dashboard/triggers", icon: <MI name="bolt" /> },
+  { label: "Calendar", href: "/dashboard/calendar", icon: <MI name="calendar_month" /> },
 ];
 
 const recordNavItems = [
-  {
-    label: "Companies",
-    href: "/dashboard/companies",
-    icon: (
-      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-      </svg>
-    ),
-  },
-  {
-    label: "People",
-    href: "/dashboard/people",
-    icon: (
-      <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-      </svg>
-    ),
-  },
+  { label: "Companies", href: "/dashboard/companies", icon: <MI name="corporate_fare" /> },
+  { label: "People", href: "/dashboard/people", icon: <MI name="article_person" /> },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -278,7 +218,7 @@ function Sidebar({
               <button
                 key={item.href}
                 onClick={() => router.push(item.href)}
-                className={`group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13px] transition-all active:scale-[0.97] active:opacity-70 ${
+                className={`group flex w-full items-center cursor-pointer gap-2.5 rounded-lg px-3 py-1.5 text-[13px] transition-all active:scale-[0.97] active:opacity-70 ${
                   isActive
                     ? "font-bold text-[#050505]"
                     : "font-medium text-black/50 hover:text-black/80 hover:bg-black/[0.03]"
@@ -301,7 +241,7 @@ function Sidebar({
               <button
                 key={item.href}
                 onClick={() => router.push(item.href)}
-                className={`group flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[13px] transition-all active:scale-[0.97] active:opacity-70 ${
+                className={`group flex w-full items-center cursor-pointer gap-2.5 rounded-lg px-3 py-1.5 text-[13px] transition-all active:scale-[0.97] active:opacity-70 ${
                   isActive
                     ? "font-bold text-[#050505]"
                     : "font-medium text-black/50 hover:text-black/80 hover:bg-black/[0.03]"
@@ -335,21 +275,15 @@ function Sidebar({
             <div className="absolute bottom-full left-3 right-3 z-50 mb-1.5 rounded-xl border border-black/[0.06] bg-white py-1 shadow-lg">
               <button
                 onClick={() => { setShowAddMenu(false); onGlobalAction("company"); }}
-                className="flex w-full items-center gap-3 px-3.5 py-2.5 text-[13px] text-black/60 transition-colors hover:bg-black/[0.03] hover:text-black"
+                className="flex w-full items-center px-3.5 py-2.5 text-[13px] text-black/60 transition-colors hover:bg-black/[0.03] hover:text-black"
               >
-                <svg className="h-4 w-4 shrink-0 text-black/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                </svg>
-                Add Company
+                Company
               </button>
               <button
                 onClick={() => { setShowAddMenu(false); onGlobalAction("person"); }}
-                className="flex w-full items-center gap-3 px-3.5 py-2.5 text-[13px] text-black/60 transition-colors hover:bg-black/[0.03] hover:text-black"
+                className="flex w-full items-center px-3.5 py-2.5 text-[13px] text-black/60 transition-colors hover:bg-black/[0.03] hover:text-black"
               >
-                <svg className="h-4 w-4 shrink-0 text-black/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-                </svg>
-                Add Person
+                Person
               </button>
             </div>
           </>

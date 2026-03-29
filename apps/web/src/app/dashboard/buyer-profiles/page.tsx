@@ -317,7 +317,7 @@ function ProfileCard({
   onDelete: () => void;
   onSetDefault: () => void;
 }) {
-  const [showConfirm, setShowConfirm] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
   const [showMore, setShowMore] = useState(false);
 
   const visibleTags = profile.titles.slice(0, VISIBLE_TAGS);
@@ -328,139 +328,120 @@ function ProfileCard({
   const personCount = matchedPersons.length;
 
   return (
-    <div className={`group relative flex flex-col overflow-hidden rounded-2xl border bg-white shadow-sm transition-all hover:shadow-md ${profile.isDefault ? "border-zinc-300" : "border-zinc-200"}`}>
-
-      {/* Top: person avatars area */}
-      <div className="relative flex h-32 items-end bg-cover bg-center px-4 pb-4" style={{ backgroundImage: "url('/card-header.webp')" }}>
-        <div className="absolute inset-0 rounded-t-2xl bg-black/30" />
-        {/* Overlapping person avatars */}
-        <div className="relative">
-          {matchedPersons.length > 0 ? (
-            <div className="flex items-center">
-              {shownAvatars.map((person, i) => (
-                <div
-                  key={person._id}
-                  className="relative shadow-md"
-                  style={{ marginLeft: i > 0 ? "-8px" : 0, zIndex: shownAvatars.length - i }}
-                >
-                  <PersonAvatar person={person} size={8} />
-                </div>
-              ))}
-              {overflowCount > 0 && (
-                <div
-                  className="relative flex items-center justify-center rounded-full border-2 border-white bg-white/20 text-[10px] font-semibold text-white shadow-md backdrop-blur-sm"
-                  style={{ width: 32, height: 32, marginLeft: "-8px", zIndex: 0 }}
-                >
-                  +{overflowCount}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="flex h-8 items-center">
-              <span className="text-[12px] text-white/60">No people matched yet</span>
-            </div>
-          )}
+    <div
+      className={`group relative flex flex-col rounded-2xl border bg-white px-5 py-4 shadow-sm transition-all hover:shadow-md hover:border-zinc-300 ${profile.isDefault ? "border-zinc-300" : "border-zinc-200"}`}
+      onClick={onEdit}
+    >
+      {/* Header row */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h3 className="truncate text-[15px] font-bold leading-tight text-zinc-900">{profile.name}</h3>
+            {profile.isDefault && (
+              <span className="shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500">
+                Default
+              </span>
+            )}
+          </div>
+          <p className="mt-0.5 text-[12px] text-zinc-400">
+            {profile.titles.length} {profile.titles.length === 1 ? "title" : "titles"}
+            {personCount > 0 && (
+              <> · <span className="text-zinc-500">{personCount} {personCount === 1 ? "person" : "people"}</span></>
+            )}
+          </p>
         </div>
 
-        {/* Default badge */}
-        {profile.isDefault && (
-          <span className="absolute top-3 left-3 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm border border-white/30">
-            Default
-          </span>
-        )}
-
-        {/* Hover actions */}
-        <div className="absolute top-3 right-3 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-          {!profile.isDefault && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onSetDefault(); }}
-              className="rounded-lg bg-white/20 backdrop-blur-sm px-2 py-1 text-[11px] font-medium text-white border border-white/30 transition-colors hover:bg-white/30"
-            >
-              Set default
-            </button>
-          )}
+        {/* 3-dot menu */}
+        <div className="relative z-10">
           <button
-            onClick={(e) => { e.stopPropagation(); onEdit(); }}
-            className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/20 backdrop-blur-sm border border-white/30 text-white transition-colors hover:bg-white/30"
+            onClick={(e) => { e.stopPropagation(); setShowMenu((v) => !v); }}
+            className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-400 transition-all hover:bg-zinc-100 hover:text-zinc-600"
           >
-            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
-            </svg>
+            <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" /></svg>
           </button>
-          {!showConfirm ? (
-            <button
-              onClick={(e) => { e.stopPropagation(); setShowConfirm(true); }}
-              className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/20 backdrop-blur-sm border border-white/30 text-white transition-colors hover:bg-red-400/40"
-            >
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-              </svg>
-            </button>
-          ) : (
-            <button
-              onClick={(e) => { e.stopPropagation(); onDelete(); }}
-              className="rounded-lg bg-red-500/80 backdrop-blur-sm border border-red-300/30 px-2 py-1 text-[11px] font-medium text-white transition-colors hover:bg-red-500"
-            >
-              Confirm
-            </button>
+          {showMenu && (
+            <>
+              <div className="fixed inset-0 z-20" onClick={(e) => { e.stopPropagation(); setShowMenu(false); }} />
+              <div className="absolute right-0 top-8 z-30 w-40 rounded-xl border border-zinc-200 bg-white py-1 shadow-lg">
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowMenu(false); onEdit(); }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-zinc-700 hover:bg-zinc-50 transition-colors"
+                >
+                  Edit
+                </button>
+                {!profile.isDefault && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setShowMenu(false); onSetDefault(); }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-zinc-700 hover:bg-zinc-50 transition-colors"
+                  >
+                    Set as default
+                  </button>
+                )}
+                <button
+                  onClick={(e) => { e.stopPropagation(); setShowMenu(false); onDelete(); }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            </>
           )}
         </div>
       </div>
 
-      {/* Bottom: info + tags */}
-      <div className="flex flex-1 flex-col px-4 pt-3 pb-4">
-        {/* Name + count row */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <h3 className="truncate text-[15px] font-bold leading-tight text-zinc-900">{profile.name}</h3>
-            <p className="mt-0.5 text-[12px] text-zinc-400">
-              {String(profile.titles.length).padStart(2, "0")} {profile.titles.length === 1 ? "title" : "titles"}
-              {personCount > 0 && (
-                <> · <span className="text-zinc-500">{personCount} {personCount === 1 ? "person" : "people"}</span></>
-              )}
-            </p>
-          </div>
-          <button
-            onClick={onEdit}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-zinc-500 transition-colors hover:bg-zinc-200"
-          >
-            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-            </svg>
-          </button>
-        </div>
-
-        {/* Title tags */}
-        <div className="mt-2.5 flex flex-wrap gap-1.5">
-          {visibleTags.map((title, i) => (
-            <span
-              key={i}
-              className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600"
+      {/* Matched person avatars */}
+      {matchedPersons.length > 0 && (
+        <div className="mt-3 flex items-center">
+          {shownAvatars.map((person, i) => (
+            <div
+              key={person._id}
+              className="relative"
+              style={{ marginLeft: i > 0 ? "-6px" : 0, zIndex: shownAvatars.length - i }}
             >
-              {title}
-            </span>
+              <PersonAvatar person={person} size={7} />
+            </div>
           ))}
-          {hiddenTags.length > 0 && (
-            <span
-              className="relative cursor-default rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] font-medium text-zinc-500"
-              onMouseEnter={() => setShowMore(true)}
-              onMouseLeave={() => setShowMore(false)}
+          {overflowCount > 0 && (
+            <div
+              className="relative flex items-center justify-center rounded-full border-2 border-white bg-zinc-100 text-[10px] font-semibold text-zinc-500"
+              style={{ width: 28, height: 28, marginLeft: "-6px", zIndex: 0 }}
             >
-              +{hiddenTags.length} more
-              {showMore && (
-                <div className="absolute bottom-full left-0 z-20 mb-2 w-60 rounded-xl bg-zinc-900 p-3 shadow-xl">
-                  <div className="flex flex-wrap gap-1.5">
-                    {hiddenTags.map((t, j) => (
-                      <span key={j} className="rounded-full bg-white/15 px-2.5 py-1 text-[11px] font-medium text-white">
-                        {t}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </span>
+              +{overflowCount}
+            </div>
           )}
         </div>
+      )}
+
+      {/* Title tags */}
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {visibleTags.map((title, i) => (
+          <span
+            key={i}
+            className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600"
+          >
+            {title}
+          </span>
+        ))}
+        {hiddenTags.length > 0 && (
+          <span
+            className="relative cursor-default rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] font-medium text-zinc-500"
+            onMouseEnter={() => setShowMore(true)}
+            onMouseLeave={() => setShowMore(false)}
+          >
+            +{hiddenTags.length} more
+            {showMore && (
+              <div className="absolute bottom-full left-0 z-20 mb-2 w-60 rounded-xl bg-zinc-900 p-3 shadow-xl">
+                <div className="flex flex-wrap gap-1.5">
+                  {hiddenTags.map((t, j) => (
+                    <span key={j} className="rounded-full bg-white/15 px-2.5 py-1 text-[11px] font-medium text-white">
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </span>
+        )}
       </div>
     </div>
   );

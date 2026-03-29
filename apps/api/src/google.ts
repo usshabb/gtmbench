@@ -13,7 +13,7 @@ const GOOGLE_SCOPES = [
   "openid",
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/userinfo.profile",
-  "https://www.googleapis.com/auth/gmail.readonly",
+  "https://www.googleapis.com/auth/gmail.modify",
   "https://www.googleapis.com/auth/gmail.send",
   "https://www.googleapis.com/auth/calendar.readonly",
 ];
@@ -199,6 +199,27 @@ export async function getInboxThreads(
   // Sort newest first
   results.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   return results;
+}
+
+/**
+ * Mark a Gmail thread as read by removing the UNREAD label from all messages.
+ */
+export async function markThreadAsRead(
+  accessToken: string,
+  refreshToken: string | null,
+  threadId: string,
+): Promise<void> {
+  const client = createOAuth2Client();
+  client.setCredentials({ access_token: accessToken, refresh_token: refreshToken });
+  const gmail = google.gmail({ version: "v1", auth: client });
+
+  await gmail.users.threads.modify({
+    userId: "me",
+    id: threadId,
+    requestBody: {
+      removeLabelIds: ["UNREAD"],
+    },
+  });
 }
 
 export interface CalendarEvent {

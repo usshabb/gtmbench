@@ -91,7 +91,7 @@ function getApiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api-proxy";
 }
 
-type TabType = "overview" | "buyers" | "jobs";
+type TabType = "overview" | "buyers" | "open_roles" | "skills";
 
 interface JobRecord {
   _id?: string;
@@ -111,10 +111,14 @@ function BuyersTab({
   companyId,
   apiBaseUrl,
   authToken,
+  existingPersonSlugs,
+  onPersonAdded,
 }: {
   companyId: string;
   apiBaseUrl: string;
   authToken: string;
+  existingPersonSlugs: Set<string>;
+  onPersonAdded?: () => void;
 }) {
   const [profiles, setProfiles] = useState<BuyerProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string>("");
@@ -129,6 +133,7 @@ function BuyersTab({
   const [addingSlug, setAddingSlug] = useState<string | null>(null);
   const [addedSlugs, setAddedSlugs] = useState<Set<string>>(new Set());
   const [addError, setAddError] = useState("");
+  const [showProfileDropdown, setShowProfileDropdown] = useState(false);
 
   // Load buyer profiles
   useEffect(() => {
@@ -241,7 +246,7 @@ function BuyersTab({
           "Content-Type": "application/json",
           Authorization: `Bearer ${authToken}`,
         },
-        body: JSON.stringify({ linkedinUrl }),
+        body: JSON.stringify({ linkedinUrl, buyerProfileId: selectedProfileId, companyId }),
       });
 
       if (!response.ok) {
@@ -251,6 +256,7 @@ function BuyersTab({
       }
 
       setAddedSlugs((prev) => new Set(prev).add(person.primary_slug));
+      onPersonAdded?.();
     } catch (err) {
       setAddError(err instanceof Error ? err.message : "Could not add person");
     } finally {
@@ -291,122 +297,125 @@ function BuyersTab({
   return (
     <div>
       {/* Controls */}
-      <div className="flex items-center gap-3 rounded-xl border border-zinc-100 bg-zinc-50/50 p-4">
-        <div className="min-w-0 flex-1">
-          <label className="block text-[11px] font-medium uppercase tracking-wide text-zinc-400 mb-1.5">Buyer Profile</label>
-          <select
-            value={selectedProfileId}
-            onChange={(e) => setSelectedProfileId(e.target.value)}
-            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-[13px] text-zinc-700 focus:border-zinc-400 focus:outline-none"
-          >
-            {profiles.map((p) => (
-              <option key={p._id} value={p._id}>
-                {p.name}{p.isDefault ? " (Default)" : ""}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="flex flex-col items-end gap-1 pt-5">
+      <div className="rounded-xl border border-zinc-100 bg-white">
+        <div className="flex items-center gap-3 px-4 py-3">
+          <div className="relative min-w-0 flex-1">
+            <button
+              onClick={() => setShowProfileDropdown((v) => !v)}
+              className="flex w-full items-center justify-between rounded-[12px] border border-zinc-200 bg-zinc-50 px-3 py-2 text-left text-[13px] text-zinc-700 transition-all hover:bg-zinc-100"
+            >
+              <span className="truncate">{selectedProfile?.name ?? "Select profile"}{selectedProfile?.isDefault ? " (Default)" : ""}</span>
+              <svg className={`h-3.5 w-3.5 shrink-0 text-zinc-400 transition-transform ${showProfileDropdown ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+            </button>
+            {showProfileDropdown && (
+              <>
+                <div className="fixed inset-0 z-20" onClick={() => setShowProfileDropdown(false)} />
+                <div className="absolute left-0 right-0 top-full z-30 mt-1 rounded-xl border border-zinc-200 bg-white py-1 shadow-lg">
+                  {profiles.map((p) => (
+                    <button
+                      key={p._id}
+                      onClick={() => { setSelectedProfileId(p._id); setShowProfileDropdown(false); }}
+                      className="flex w-full items-center justify-between px-3 py-2 text-left text-[13px] text-zinc-700 transition-colors hover:bg-zinc-50"
+                    >
+                      <span>{p.name}{p.isDefault ? " (Default)" : ""}</span>
+                      {p._id === selectedProfileId && (
+                        <svg className="h-4 w-4 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
           <button
             onClick={() => handleSearch()}
             disabled={isSearching || !selectedProfileId}
-            className="flex items-center gap-2 rounded-lg bg-zinc-900 px-4 py-2 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+            className="flex shrink-0 items-center gap-1.5 rounded-[12px] border border-zinc-200 bg-white px-3 py-2 text-[13px] font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:opacity-60"
           >
             {isSearching ? (
               <>
-                <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
                 Searching...
               </>
             ) : hasSearched ? (
               <>
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" />
                 </svg>
                 Refresh
               </>
             ) : (
               <>
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
                 </svg>
                 Find Buyers
               </>
             )}
           </button>
-          {fetchedAt && !isSearching && (
-            <span className="text-[11px] text-zinc-400">Last fetched {formatFetchedAt(fetchedAt)}</span>
-          )}
         </div>
+        {/* Profile titles + last fetched */}
+        {selectedProfile && selectedProfile.titles.length > 0 && (
+          <div className="flex items-center gap-2 border-t border-zinc-100 px-4 py-2.5">
+            <div className="flex flex-1 flex-wrap items-center gap-1.5">
+              {selectedProfile.titles.map((t, i) => (
+                <span key={i} className="rounded-[10px] bg-zinc-100 px-2.5 py-0.5 text-[11px] font-medium text-zinc-600">{t}</span>
+              ))}
+            </div>
+            {fetchedAt && !isSearching && (
+              <span className="shrink-0 text-[11px] text-zinc-400">{formatFetchedAt(fetchedAt)}</span>
+            )}
+          </div>
+        )}
       </div>
-
-      {/* Selected profile titles */}
-      {selectedProfile && (
-        <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          <span className="text-[11px] text-zinc-400">Searching for:</span>
-          {selectedProfile.titles.map((t, i) => (
-            <span key={i} className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600">{t}</span>
-          ))}
-        </div>
-      )}
 
       {/* Error */}
       {searchError && (
-        <div className="mt-4 rounded-lg bg-red-50 px-4 py-3">
+        <div className="mt-3 rounded-xl bg-red-50 px-4 py-3">
           <p className="text-[13px] text-red-600">{searchError}</p>
         </div>
       )}
 
       {addError && (
-        <div className="mt-2 rounded-lg bg-red-50 px-4 py-2">
+        <div className="mt-2 rounded-xl bg-red-50 px-4 py-2">
           <p className="text-[13px] text-red-600">{addError}</p>
         </div>
       )}
 
       {/* Results */}
       {hasSearched && !isSearching && (
-        <div className="mt-6">
-          <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-400">
+        <div className="mt-4">
+          <p className="mb-2 text-[12px] text-zinc-400">
             {buyers.length} {buyers.length === 1 ? "buyer" : "buyers"} found
-          </h3>
+          </p>
 
           {buyers.length === 0 ? (
             <div className="py-8 text-center">
               <p className="text-[13px] text-zinc-500">No buyers found matching this profile at this company</p>
             </div>
           ) : (
-            <div className="space-y-1">
+            <div className="rounded-xl border border-zinc-100 bg-white divide-y divide-zinc-100">
               {buyers.map((person) => {
-                const isAdded = addedSlugs.has(person.primary_slug);
+                const isAdded = addedSlugs.has(person.primary_slug) || existingPersonSlugs.has(person.primary_slug);
                 const isAdding = addingSlug === person.primary_slug;
                 return (
                   <div
                     key={person.primary_slug}
-                    className="flex items-center gap-3 rounded-lg border border-zinc-100 px-4 py-3 transition-colors hover:bg-zinc-50"
+                    className={`flex items-center gap-3 px-4 py-3 transition-colors ${isAdded ? "bg-zinc-50" : ""}`}
                   >
-                    {/* Photo */}
                     <LetterAvatar name={person.name ?? person.first_name ?? "?"} size="sm" src={person.profile_pic} />
-
-                    {/* Info */}
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[13px] font-medium text-zinc-900">{person.name}</span>
-                      </div>
+                      <span className="text-[13px] font-medium text-zinc-900">{person.name}</span>
                       <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[11px] text-zinc-500">
                         {person.current_job?.title && <span>{person.current_job.title}</span>}
                         {person.headline && !person.current_job?.title && <span>{person.headline}</span>}
-                        {person.locality && (
-                          <span className="flex items-center gap-1">
-                            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.828 0l-4.243-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                            {person.locality}
-                          </span>
-                        )}
+                        {person.locality && <span>{person.locality}</span>}
                       </div>
                     </div>
 
-                    {/* Add button */}
                     {isAdded ? (
-                      <span className="flex items-center gap-1 rounded-lg bg-emerald-50 px-3 py-1.5 text-[12px] font-medium text-emerald-700">
-                        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <span className="flex items-center gap-1 rounded-[10px] bg-zinc-100 px-2.5 py-1 text-[12px] font-medium text-zinc-500">
+                        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                         </svg>
                         Added
@@ -415,21 +424,16 @@ function BuyersTab({
                       <button
                         onClick={() => handleAddPerson(person)}
                         disabled={isAdding}
-                        className="flex items-center gap-1 rounded-lg border border-zinc-200 px-3 py-1.5 text-[12px] font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:opacity-60"
+                        className="flex shrink-0 items-center gap-1 rounded-[10px] border border-zinc-200 px-2.5 py-1 text-[12px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-60"
                       >
                         {isAdding ? (
-                          <>
-                            <div className="h-3 w-3 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
-                            Adding...
-                          </>
+                          <div className="h-3 w-3 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
                         ) : (
-                          <>
-                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-                            </svg>
-                            Add
-                          </>
+                          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                          </svg>
                         )}
+                        Add
                       </button>
                     )}
                   </div>
@@ -444,7 +448,7 @@ function BuyersTab({
               <button
                 onClick={() => handleSearch(nextCursor)}
                 disabled={isLoadingMore}
-                className="rounded-lg border border-zinc-200 px-4 py-2 text-[13px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-60"
+                className="rounded-[12px] border border-zinc-200 bg-white px-4 py-2 text-[13px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-60"
               >
                 {isLoadingMore ? "Loading..." : "Load More"}
               </button>
@@ -588,7 +592,17 @@ export default function CompanyDetailPage() {
   const [atsData, setATSData] = useState<ATSRecord | null>(null);
   const [isDetectingATS, setIsDetectingATS] = useState(false);
   const [enabledSkills, setEnabledSkills] = useState<{ _id: string; skillType: string; enabled: boolean }[]>([]);
-  const [showSkillsModal, setShowSkillsModal] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
+  const [activeMetric, setActiveMetric] = useState(0);
+
+  const existingPersonSlugs = useMemo(() => {
+    const slugs = new Set<string>();
+    persons.forEach((p) => {
+      const slug = p.linkedinUrl?.split("/in/")?.[1]?.replace(/\/$/, "");
+      if (slug) slugs.add(slug);
+    });
+    return slugs;
+  }, [persons]);
 
   async function handleRemove() {
     if (!authToken || !id) return;
@@ -656,6 +670,18 @@ export default function CompanyDetailPage() {
       })
       .finally(() => setIsLoading(false));
   }, [apiBaseUrl, authToken, id]);
+
+  function refreshPersons() {
+    if (!authToken || !id) return;
+    void fetch(`${apiBaseUrl}/companies/${id}/persons`, { headers: { Authorization: `Bearer ${authToken}` } })
+      .then(async (res) => {
+        if (res.ok) {
+          const data = (await safeJson(res)) as { persons: PersonRecord[] };
+          setPersons(data.persons ?? []);
+        }
+      })
+      .catch(() => {});
+  }
 
   async function handleDetectATS() {
     if (!authToken || !id) return;
@@ -752,7 +778,8 @@ export default function CompanyDetailPage() {
   const tabs: { key: TabType; label: string }[] = [
     { key: "overview", label: "Overview" },
     { key: "buyers", label: "Buyers" },
-    { key: "jobs", label: "Jobs" },
+    { key: "open_roles", label: "Open Roles" },
+    { key: "skills", label: "Skills" },
   ];
 
   const employeesStr = employees != null ? employees.toLocaleString() : null;
@@ -762,118 +789,14 @@ export default function CompanyDetailPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-[#f8f8f7]">
-      {/* Skills modal */}
-      {showSkillsModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 pt-[18vh] backdrop-blur-[2px]"
-          onClick={() => setShowSkillsModal(false)}
-        >
-          <div className="w-full max-w-sm rounded-3xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 pt-6 pb-4">
-              <div>
-                <h2 className="text-[16px] font-bold text-zinc-900">Run a Skill</h2>
-                <p className="mt-0.5 text-[12px] text-zinc-400">{name}</p>
-              </div>
-              <button onClick={() => setShowSkillsModal(false)} className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 hover:bg-zinc-100 transition-colors">
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
-            </div>
-            <div className="px-6 pb-6 space-y-2">
-              {hasDetectATS && (
-                hasATS ? (
-                  <div className="flex items-center gap-3 rounded-xl border border-zinc-100 bg-zinc-50 px-4 py-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
-                      <svg className="h-4 w-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
-                    </div>
-                    <div>
-                      <p className="text-[13px] font-medium text-zinc-700">ATS Detected</p>
-                      <p className="text-[11px] text-zinc-400">{atsData?.atsName}</p>
-                    </div>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => { setShowSkillsModal(false); handleDetectATS(); }}
-                    disabled={isDetectingATS}
-                    className="flex w-full items-center gap-3 rounded-xl border border-zinc-200 px-4 py-3 text-left transition-colors hover:bg-zinc-50 disabled:opacity-60"
-                  >
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-100">
-                      <svg className="h-4 w-4 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                      </svg>
-                    </div>
-                    <div>
-                      <p className="text-[13px] font-medium text-zinc-800">{isDetectingATS ? "Detecting…" : atsData?.detectionStatus === "failed" ? "Retry Detect ATS" : "Detect ATS"}</p>
-                      <p className="text-[11px] text-zinc-400">Find this company's hiring system</p>
-                    </div>
-                  </button>
-                )
-              )}
-              {enabledSkills.length === 0 && (
-                <p className="py-4 text-center text-[13px] text-zinc-400">No skills enabled.</p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Top bar */}
-      <div className="sticky top-0 z-10 border-b border-zinc-200 bg-white/90 backdrop-blur-sm">
-        <div className="flex items-center gap-3 px-5 py-3">
-          <button onClick={() => router.back()} className="rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600">
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
-          </button>
-          <span className="flex-1 text-[13px] text-zinc-400">Companies</span>
-          {enabledSkills.length > 0 && (
-            <button
-              onClick={() => setShowSkillsModal(true)}
-              className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-[12px] font-medium text-zinc-600 transition-colors hover:border-zinc-300 hover:bg-zinc-50"
-            >
-              Skills
-            </button>
-          )}
-          <button
-            onClick={handleRemove}
-            disabled={isRemoving}
-            className="flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-3 py-1 text-[12px] font-medium text-zinc-500 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:opacity-60"
-          >
-            {isRemoving ? "Removing…" : "Remove"}
-          </button>
-        </div>
-        {/* Tabs */}
-        <div className="flex gap-0 px-5">
-          {tabs.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`relative px-3 py-2.5 text-[13px] font-medium transition-colors ${
-                activeTab === tab.key ? "text-zinc-900" : "text-zinc-400 hover:text-zinc-600"
-              }`}
-            >
-              {tab.label}
-              {activeTab === tab.key && <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-zinc-900 rounded-full" />}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="mx-auto max-w-xl px-4 py-6">
-        {/* Header card — consistent with list card style */}
-        <div className="flex items-center gap-4 rounded-2xl border border-zinc-200 bg-white px-5 py-4 shadow-sm">
+      <div className="mx-auto max-w-3xl px-4 pt-6 pb-8">
+        {/* Header card with 3-dot menu */}
+        <div className="group relative flex items-center gap-4 rounded-2xl border border-zinc-200 bg-white px-5 py-4 shadow-sm">
           <LetterAvatar name={name} size="lg" rounded="lg" src={logoUrl} />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-[16px] font-bold text-zinc-900">{name}</h1>
               {company.domain && <span className="text-[12px] text-zinc-400">{company.domain}</span>}
-              {hasATS && atsData?.atsName && (
-                <a
-                  href={atsData.careerPageUrl ?? undefined}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="rounded-md bg-[#1a1f36] px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-[#2a2f46] transition-colors"
-                >
-                  {atsData.atsName}
-                </a>
-              )}
               {isDetectingATS && (
                 <span className="flex items-center gap-1 text-[11px] text-zinc-400">
                   <div className="h-3 w-3 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
@@ -910,73 +833,128 @@ export default function CompanyDetailPage() {
               )}
             </div>
           </div>
+          {/* 3-dot menu */}
+          <div className="relative self-start">
+            <button
+              onClick={() => setShowMenu((v) => !v)}
+              className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-400 transition-all hover:bg-zinc-100 hover:text-zinc-600"
+            >
+              <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" /></svg>
+            </button>
+            {showMenu && (
+              <>
+                <div className="fixed inset-0 z-20" onClick={() => setShowMenu(false)} />
+                <div className="absolute right-0 top-8 z-30 w-36 rounded-xl border border-zinc-200 bg-white py-1 shadow-lg">
+                  <button
+                    onClick={() => { setShowMenu(false); handleRemove(); }}
+                    disabled={isRemoving}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-red-600 hover:bg-red-50 transition-colors disabled:opacity-60"
+                  >
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    {isRemoving ? "Removing…" : "Delete"}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="mt-4 flex gap-2">
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`rounded-[12px] px-4 py-1.5 text-[13px] font-medium transition-colors ${
+                activeTab === tab.key
+                  ? "bg-zinc-200 text-zinc-900"
+                  : "border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
 
         {/* Tab Content */}
         {activeTab === "overview" ? (
           <div>
-            {/* Description */}
-            {description && (
-              <div className="mt-6 rounded-xl border border-zinc-100 bg-zinc-50/50 px-5 py-4">
-                <p className="text-sm leading-relaxed text-zinc-600">{description}</p>
+            {/* Overview card — description + key metrics */}
+            {(description || statItems.length > 0) && (
+              <div className="mt-6 rounded-xl border border-zinc-100 bg-white">
+                {description && (
+                  <div className={`px-5 py-4${statItems.length > 0 ? " border-b border-zinc-100" : ""}`}>
+                    <p className="text-sm leading-relaxed text-zinc-600">{description}</p>
+                  </div>
+                )}
+                {statItems.length > 0 && (
+                  <div className="px-4 py-3 flex flex-wrap gap-2">
+                    {statItems.map((stat) => (
+                      <span key={stat.label} className="rounded-[12px] border border-zinc-100 bg-zinc-50 px-3 py-1.5 text-[12px]">
+                        <span className="text-zinc-400">{stat.label}</span>
+                        <span className="ml-1.5 font-semibold capitalize text-zinc-800">{stat.value}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Key Metrics */}
-            {statItems.length > 0 && (
-              <div className="mt-6">
-                <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-400">Key Metrics</h2>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  {statItems.map((stat) => (
-                    <div key={stat.label} className="rounded-xl border border-zinc-100 bg-white px-4 py-3">
-                      <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">{stat.label}</p>
-                      <p className="mt-1 text-sm font-semibold capitalize text-zinc-800">{stat.value}</p>
+            {/* Funding — single component with timeline + investors */}
+            {((fundingRounds && fundingRounds.length > 0) || (topInvestors && topInvestors.length > 0)) && (
+              <div className="mt-6 rounded-xl border border-zinc-100 bg-white">
+                <div className="px-4 py-3 border-b border-zinc-100">
+                  <h2 className="text-[13px] font-semibold text-zinc-700">Funding</h2>
+                </div>
+                {/* Timeline */}
+                {fundingRounds && fundingRounds.length > 0 && (
+                  <div className="px-4 py-3">
+                    <div className="relative">
+                      {fundingRounds.map((round, i) => (
+                        <div key={i} className="flex items-start gap-3 pb-3 last:pb-0">
+                          {/* Timeline dot + line */}
+                          <div className="flex flex-col items-center pt-1.5">
+                            <div className="h-2 w-2 rounded-full bg-zinc-300 shrink-0" />
+                            {i < fundingRounds.length - 1 && <div className="w-px flex-1 bg-zinc-200 mt-1" style={{ minHeight: 20 }} />}
+                          </div>
+                          <div className="flex flex-1 items-center justify-between min-w-0">
+                            <div>
+                              <span className="text-[13px] font-medium text-zinc-800">{formatRoundType(round.round_type)}</span>
+                              <span className="ml-2 text-[12px] text-zinc-400">{new Date(round.round_date).toLocaleDateString("en-US", { month: "short", year: "numeric" })}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-right">
+                              {round.round_raised_usd != null && <span className="text-[13px] text-zinc-700">{formatCurrency(round.round_raised_usd)}</span>}
+                              {round.round_valuation_usd != null && <span className="text-[11px] text-zinc-400">@ {formatCurrency(round.round_valuation_usd)}</span>}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Funding Rounds */}
-            {fundingRounds && fundingRounds.length > 0 && (
-              <div className="mt-6">
-                <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-400">Funding Rounds</h2>
-                <div className="space-y-2">
-                  {fundingRounds.map((round, i) => (
-                    <div key={i} className="flex items-center justify-between rounded-lg border border-zinc-100 px-4 py-3 text-sm">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-zinc-800">{formatRoundType(round.round_type)}</span>
-                        <span className="text-zinc-400">{new Date(round.round_date).toLocaleDateString("en-US", { month: "short", year: "numeric" })}</span>
-                      </div>
-                      <div className="flex items-center gap-3 text-right">
-                        {round.round_raised_usd != null && <span className="text-zinc-700">{formatCurrency(round.round_raised_usd)}</span>}
-                        {round.round_valuation_usd != null && <span className="text-xs text-zinc-400">@ {formatCurrency(round.round_valuation_usd)}</span>}
-                      </div>
+                  </div>
+                )}
+                {/* Key Investors */}
+                {topInvestors && topInvestors.length > 0 && (
+                  <div className="px-4 py-3 border-t border-zinc-100">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-400 mb-2">Key Investors</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {topInvestors.map((inv) => (
+                        <span key={inv.investor_name} className="rounded-md bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-600">{inv.investor_name}</span>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Top Investors */}
-            {topInvestors && topInvestors.length > 0 && (
-              <div className="mt-6">
-                <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-400">Key Investors</h2>
-                <div className="flex flex-wrap gap-1.5">
-                  {topInvestors.map((inv) => (
-                    <span key={inv.investor_name} className="rounded-md bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-600">{inv.investor_name}</span>
-                  ))}
-                </div>
+                  </div>
+                )}
               </div>
             )}
 
             {/* Acquisitions */}
             {acquisitions && acquisitions.length > 0 && (
-              <div className="mt-6">
-                <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-400">Acquisitions</h2>
-                <div className="space-y-2">
+              <div className="mt-6 rounded-xl border border-zinc-100 bg-white">
+                <div className="px-4 py-3 border-b border-zinc-100">
+                  <h2 className="text-[13px] font-semibold text-zinc-700">Acquisitions</h2>
+                </div>
+                <div className="divide-y divide-zinc-100">
                   {acquisitions.map((acq, i) => (
-                    <div key={i} className="flex items-center justify-between rounded-lg border border-zinc-100 px-4 py-3 text-sm">
+                    <div key={i} className="flex items-center justify-between px-4 py-3 text-sm">
                       <span className="font-medium text-zinc-800">{acq.acquiree_name}</span>
                       <div className="flex items-center gap-2">
                         {acq.price_usd != null && <span className="text-zinc-700">{formatCurrency(acq.price_usd)}</span>}
@@ -990,7 +968,7 @@ export default function CompanyDetailPage() {
 
             {/* People at this company */}
             {persons.length > 0 && (
-              <div className="mt-8">
+              <div className="mt-6">
                 <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-400">
                   Enriched People at {name} ({persons.length})
                 </h2>
@@ -1011,7 +989,6 @@ export default function CompanyDetailPage() {
                           <span className="text-sm font-medium text-zinc-900">{pName}</span>
                           {title && <span className="ml-2 text-xs text-zinc-500">{title}</span>}
                         </div>
-                        <svg className="h-4 w-4 shrink-0 text-zinc-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
                       </Link>
                     );
                   })}
@@ -1021,15 +998,63 @@ export default function CompanyDetailPage() {
           </div>
         ) : activeTab === "buyers" ? (
           <div className="mt-6">
-            <BuyersTab companyId={id} apiBaseUrl={apiBaseUrl} authToken={authToken} />
+            <BuyersTab companyId={id} apiBaseUrl={apiBaseUrl} authToken={authToken} existingPersonSlugs={existingPersonSlugs} onPersonAdded={refreshPersons} />
           </div>
-        ) : (
+        ) : activeTab === "open_roles" ? (
           <div className="mt-6">
             <JobsTab companyId={id} apiBaseUrl={apiBaseUrl} authToken={authToken} />
           </div>
+        ) : (
+          /* Skills tab — horizontal row of skills */
+          <div className="mt-6">
+            <div className="space-y-3">
+              {hasDetectATS && (
+                hasATS ? (
+                  <div className="flex items-center gap-3 rounded-xl border border-zinc-100 bg-white px-4 py-3">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
+                      <svg className="h-4 w-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-[13px] font-medium text-zinc-700">ATS Detected</p>
+                      <p className="text-[11px] text-zinc-400">{atsData?.atsName}</p>
+                    </div>
+                    {atsData?.careerPageUrl && (
+                      <a
+                        href={atsData.careerPageUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-lg border border-zinc-200 px-3 py-1.5 text-[12px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50"
+                      >
+                        Career Page
+                      </a>
+                    )}
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleDetectATS}
+                    disabled={isDetectingATS}
+                    className="flex w-full items-center gap-3 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-left transition-colors hover:bg-zinc-50 disabled:opacity-60"
+                  >
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-100">
+                      <svg className="h-4 w-4 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <p className="text-[13px] font-medium text-zinc-800">{isDetectingATS ? "Detecting…" : atsData?.detectionStatus === "failed" ? "Retry Detect ATS" : "Detect ATS"}</p>
+                      <p className="text-[11px] text-zinc-400">Find this company&apos;s hiring system</p>
+                    </div>
+                  </button>
+                )
+              )}
+              {enabledSkills.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <p className="text-[13px] text-zinc-400">No skills enabled. Enable skills in the Skills page.</p>
+                </div>
+              )}
+            </div>
+          </div>
         )}
-
-        <div className="h-8" />
       </div>
     </div>
   );

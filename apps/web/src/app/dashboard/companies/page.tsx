@@ -152,6 +152,7 @@ function CompanyCard({
   isDetectingATS: string | null;
 }) {
   const [showSkillsModal, setShowSkillsModal] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
 
   const data = getFiberData(company);
   const name = (data?.preferred_name ?? company.domain) as string;
@@ -161,6 +162,8 @@ function CompanyCard({
   const employees = data?.employee_count_consensus?.gte as number | undefined;
   const totalFunding = data?.total_funding_consensus as number | undefined;
   const hasATS = atsInfo?.detectionStatus === "completed" && atsInfo?.atsName;
+  const skillCount = hasATS ? 1 : 0;
+  const websiteUrl = company.domain.startsWith("http") ? company.domain : `https://${company.domain}`;
 
   const employeesStr = employees != null ? formatNumber(employees) : null;
   const fundingStr = totalFunding != null ? formatCurrency(totalFunding) : null;
@@ -178,29 +181,15 @@ function CompanyCard({
         {/* Info */}
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[14px] font-semibold text-zinc-900">{name}</span>
-            <span className="text-[12px] text-zinc-400">{company.domain}</span>
-            {hasATS && atsInfo?.atsName && (
-              <a
-                href={atsInfo.careerPageUrl ?? undefined}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="relative z-10 rounded-md bg-[#1a1f36] px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-[#2a2f46] transition-colors"
-              >
-                {atsInfo.atsName}
-              </a>
-            )}
-          </div>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[12px] text-zinc-400">
-            {industry && <span>{industry}</span>}
-            {industry && location && <span>·</span>}
-            {location && (
-              <span className="flex items-center gap-1">
-                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.828 0l-4.243-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                {location}
-              </span>
-            )}
+            <a
+              href={websiteUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="relative z-10 text-[14px] font-semibold text-zinc-900 hover:underline"
+            >
+              {name}
+            </a>
           </div>
         </div>
 
@@ -221,22 +210,33 @@ function CompanyCard({
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowSkillsModal(true); }}
               className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-[12px] font-medium text-zinc-600 transition-colors hover:border-zinc-300 hover:bg-zinc-100"
             >
-              Skills
+              {skillCount > 0 ? `${skillCount} Skill` : "Skills"}
             </button>
           )}
-          {/* Remove on hover */}
-          <button
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (company._id) onRemove(company._id); }}
-            className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-300 opacity-0 transition-all hover:bg-red-50 hover:text-red-500 group-hover:opacity-100"
-          >
-            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-          </button>
+          {/* More menu */}
+          <div className="relative">
+            <button
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu((v) => !v); }}
+              className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-400 transition-all hover:bg-zinc-100 hover:text-zinc-600"
+            >
+              <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" /></svg>
+            </button>
+            {showMenu && (
+              <>
+                <div className="fixed inset-0 z-20" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(false); }} />
+                <div className="absolute right-0 top-8 z-30 w-36 rounded-xl border border-zinc-200 bg-white py-1 shadow-lg">
+                  <button
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(false); if (company._id) onRemove(company._id); }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-red-600 hover:bg-red-50 transition-colors"
+                  >
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    Delete
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
-
-        {/* Chevron */}
-        <svg className="h-4 w-4 shrink-0 text-zinc-300 transition-colors group-hover:text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-        </svg>
       </div>
 
       {showSkillsModal && company._id && (
@@ -389,44 +389,45 @@ export default function CompaniesPage() {
 
   return (
     <div className="flex h-full flex-col bg-[#f8f8f7]">
-      {/* Search + Add bar */}
-      <div className="border-b border-zinc-200 bg-[#f8f8f7] px-5 py-2.5 flex items-center gap-2">
-        <div className="relative flex-1">
-          <svg className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-          </svg>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search companies…"
-            className="w-full rounded-xl border border-zinc-200 bg-white py-2 pl-9 pr-3 text-[13px] placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none transition-all"
-          />
-          {searchQuery && (
-            <button onClick={() => setSearchQuery("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-zinc-400 hover:text-zinc-600">
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-            </button>
-          )}
-        </div>
-        <button
-          onClick={() => dispatchGlobalAction("company")}
-          className="flex shrink-0 items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-[13px] font-medium text-zinc-700 transition-all hover:bg-zinc-50"
-        >
-          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-          Add company
-        </button>
-      </div>
-
       {message && (
-        <div className="border-b border-zinc-200 bg-red-50 px-6 py-2.5">
+        <div className="bg-red-50 px-6 py-2.5">
           <p className="text-[13px] text-red-600">{message}</p>
         </div>
       )}
 
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-xl px-4 py-5">
+        <div className="mx-auto w-full max-w-3xl px-4 pt-6 pb-5">
+          {/* Search bar */}
+          <div className="relative mb-4">
+            <svg className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+            </svg>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search companies…"
+              className="w-full rounded-2xl border border-zinc-200 bg-zinc-100 py-3 pl-11 pr-10 text-[14px] placeholder:text-zinc-400 focus:border-zinc-300 focus:bg-white focus:outline-none transition-all"
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery("")} className="absolute right-3.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-zinc-400 hover:text-zinc-600">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            )}
+          </div>
+
+          {/* Add button row */}
+          <div className="mb-4 flex items-center justify-end">
+            <button
+              onClick={() => dispatchGlobalAction("company")}
+              className="flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-[13px] font-medium text-zinc-700 transition-all hover:bg-zinc-50"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+              Add
+            </button>
+          </div>
         {isLoadingList ? (
           <div className="space-y-3">
             {Array.from({ length: 5 }).map((_, i) => <SkeletonCard key={i} />)}

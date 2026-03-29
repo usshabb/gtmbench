@@ -76,6 +76,8 @@ export interface PersonRecord {
   linkedinUrl: string;
   workEmail?: string;       // top-level for fast querying, mirrored from enrichmentData
   companyDomain?: string;
+  companyId?: ObjectId;
+  buyerProfileId?: ObjectId;
   createdAt: string;
   enrichedAt?: string;
   enrichmentStatus: "pending" | "completed" | "failed";
