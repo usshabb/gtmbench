@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { LetterAvatar, DATA_CHANGED_EVENT, safeJson, dispatchGlobalAction } from "../components";
+import { LetterAvatar, DATA_CHANGED_EVENT, safeJson, dispatchGlobalAction, apiFetch } from "../components";
 
 interface CompanyRecord {
   _id?: string;
@@ -299,7 +299,7 @@ export default function CompaniesPage() {
 
   useEffect(() => {
     if (!authToken) return;
-    void fetch(`${apiBaseUrl}/skills`, { headers: { Authorization: `Bearer ${authToken}` } })
+    void apiFetch(`${apiBaseUrl}/skills`, { headers: { Authorization: `Bearer ${authToken}` } })
       .then(async (res) => {
         const data = (await safeJson(res)) as { skills?: SkillRecord[] };
         setEnabledSkills((data.skills ?? []).filter((s) => s.enabled));
@@ -310,7 +310,7 @@ export default function CompaniesPage() {
   const fetchCompanies = useCallback(() => {
     if (!authToken) return;
     setIsLoadingList(true);
-    void fetch(`${apiBaseUrl}/companies`, { headers: { Authorization: `Bearer ${authToken}` } })
+    void apiFetch(`${apiBaseUrl}/companies`, { headers: { Authorization: `Bearer ${authToken}` } })
       .then(async (response) => {
         const result = (await safeJson(response)) as { companies?: CompanyRecord[]; error?: string };
         if (!response.ok) throw new Error(result.error ?? "Could not load companies");
@@ -318,7 +318,7 @@ export default function CompaniesPage() {
         setCompanies(loadedCompanies);
         loadedCompanies.forEach((company) => {
           if (company._id) {
-            void fetch(`${apiBaseUrl}/companies/${company._id}/ats`, { headers: { Authorization: `Bearer ${authToken}` } })
+            void apiFetch(`${apiBaseUrl}/companies/${company._id}/ats`, { headers: { Authorization: `Bearer ${authToken}` } })
               .then(async (res) => {
                 const data = (await safeJson(res)) as { ats?: { detectionStatus?: string; atsName?: string | null; careerPageUrl?: string | null } | null };
                 if (data.ats && company._id) setATSData((prev) => ({ ...prev, [company._id!]: data.ats! }));
@@ -343,7 +343,7 @@ export default function CompaniesPage() {
 
   async function handleRemoveCompany(id: string) {
     try {
-      const res = await fetch(`${apiBaseUrl}/companies/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${authToken}` } });
+      const res = await apiFetch(`${apiBaseUrl}/companies/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${authToken}` } });
       if (!res.ok) {
         const data = (await safeJson(res)) as { error?: string };
         throw new Error(data.error ?? "Could not remove company");
@@ -358,7 +358,7 @@ export default function CompaniesPage() {
     setIsDetectingATS(id);
     setATSData((prev) => ({ ...prev, [id]: { detectionStatus: "pending" } }));
     try {
-      const res = await fetch(`${apiBaseUrl}/companies/${id}/detect-ats`, {
+      const res = await apiFetch(`${apiBaseUrl}/companies/${id}/detect-ats`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
       });

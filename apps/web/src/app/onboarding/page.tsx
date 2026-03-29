@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { apiFetch } from "../dashboard/components";
 
 const localStorageTokenKey = "gtmbench-token";
 const localStorageInviteKey = "gtmbench-invite-token";
@@ -172,7 +173,7 @@ function OnboardingInner() {
     if (checkedRef.current) return;
     checkedRef.current = true;
 
-    void fetch(`${apiBaseUrl}/me`, { headers: { Authorization: `Bearer ${token}` } })
+    void apiFetch(`${apiBaseUrl}/me`, { headers: { Authorization: `Bearer ${token}` } })
       .then(async (res) => {
         if (!res.ok) { router.replace("/"); return; }
         const data = (await res.json()) as { email: string; onboardingComplete?: boolean; user?: { fullName?: string; profilePhotoUrl?: string } };
@@ -188,7 +189,7 @@ function OnboardingInner() {
   const lookupWorkspace = useCallback(async (token: string, email: string) => {
     if (inviteToken) {
       try {
-        const res = await fetch(`${apiBaseUrl}/invite/${inviteToken}`);
+        const res = await apiFetch(`${apiBaseUrl}/invite/${inviteToken}`);
         const data = (await res.json()) as { workspace?: { _id: string; name: string; domain: string; logoUrl?: string | null }; error?: string };
         if (res.ok && data.workspace) { setExistingWorkspace(data.workspace); setWorkspaceMode("invite"); return; }
       } catch { /* fall through */ }
@@ -197,7 +198,7 @@ function OnboardingInner() {
     const freeDomains = ["gmail.com", "yahoo.com", "hotmail.com", "outlook.com", "icloud.com"];
     if (!domain || freeDomains.includes(domain)) { setWorkspace((w) => ({ ...w, domain })); setWorkspaceMode("create"); return; }
     try {
-      const res = await fetch(`${apiBaseUrl}/workspace/lookup?domain=${encodeURIComponent(domain)}`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await apiFetch(`${apiBaseUrl}/workspace/lookup?domain=${encodeURIComponent(domain)}`, { headers: { Authorization: `Bearer ${token}` } });
       const data = (await res.json()) as { workspace: { _id: string; name: string; domain: string; logoUrl?: string | null } | null };
       if (data.workspace) { setExistingWorkspace(data.workspace); setWorkspaceMode("join"); return; }
     } catch { /* fall through */ }
@@ -232,7 +233,7 @@ function OnboardingInner() {
         body.workspaceWebsiteUrl = workspace.websiteUrl.trim() || undefined;
         body.workspaceDescription = workspace.description.trim() || undefined;
       }
-      const res = await fetch(`${apiBaseUrl}/onboarding/complete`, {
+      const res = await apiFetch(`${apiBaseUrl}/onboarding/complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
         body: JSON.stringify(body),

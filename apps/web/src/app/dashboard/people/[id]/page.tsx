@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { LetterAvatar, safeJson } from "../../components";
+import { LetterAvatar, safeJson, apiFetch } from "../../components";
 
 interface PersonRecord {
   _id?: string;
@@ -116,7 +116,7 @@ function PersonDetailInner() {
     if (!authToken || !id) return;
     setIsRemoving(true);
     try {
-      const res = await fetch(`${apiBaseUrl}/persons/${id}`, {
+      const res = await apiFetch(`${apiBaseUrl}/persons/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${authToken}` },
       });
@@ -140,7 +140,7 @@ function PersonDetailInner() {
   useEffect(() => {
     if (!authToken || gmailChecked.current) return;
     gmailChecked.current = true;
-    void fetch(`${apiBaseUrl}/gmail/status`, { headers: { Authorization: `Bearer ${authToken}` } })
+    void apiFetch(`${apiBaseUrl}/gmail/status`, { headers: { Authorization: `Bearer ${authToken}` } })
       .then(async (res) => {
         const data = (await safeJson(res)) as { connected: boolean };
         setGmailConnected(data.connected);
@@ -168,7 +168,7 @@ function PersonDetailInner() {
   useEffect(() => {
     if (!authToken || !id) return;
 
-    fetch(`${apiBaseUrl}/persons/${id}`, { headers: { Authorization: `Bearer ${authToken}` } })
+    apiFetch(`${apiBaseUrl}/persons/${id}`, { headers: { Authorization: `Bearer ${authToken}` } })
       .then(async (res) => {
         if (!res.ok) throw new Error("Person not found");
         const data = (await safeJson(res)) as { person: PersonRecord };
@@ -176,7 +176,7 @@ function PersonDetailInner() {
 
         if (data.person.companyDomain) {
           try {
-            const companyRes = await fetch(`${apiBaseUrl}/companies/by-domain/${data.person.companyDomain}`, {
+            const companyRes = await apiFetch(`${apiBaseUrl}/companies/by-domain/${data.person.companyDomain}`, {
               headers: { Authorization: `Bearer ${authToken}` },
             });
             if (companyRes.ok) {
@@ -195,7 +195,7 @@ function PersonDetailInner() {
   }, [apiBaseUrl, authToken, id]);
 
   async function connectGmail() {
-    const res = await fetch(
+    const res = await apiFetch(
       `${apiBaseUrl}/auth/google/url?returnPath=/dashboard/people/${id}`,
       { headers: { Authorization: `Bearer ${authToken}` } },
     );
@@ -207,7 +207,7 @@ function PersonDetailInner() {
     if (!authToken || !personEmail) return;
     setEmailsLoading(true);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `${apiBaseUrl}/persons/${id}/emails?personEmail=${encodeURIComponent(personEmail)}`,
         { headers: { Authorization: `Bearer ${authToken}` } },
       );
@@ -225,7 +225,7 @@ function PersonDetailInner() {
     setSending(true);
     setSendError("");
     try {
-      const res = await fetch(`${apiBaseUrl}/persons/${id}/emails`, {
+      const res = await apiFetch(`${apiBaseUrl}/persons/${id}/emails`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
         body: JSON.stringify({ to: composeTo, subject: composeSubject, body: composeBody }),
@@ -250,7 +250,7 @@ function PersonDetailInner() {
     setEnriching(true);
     setEnrichError("");
     try {
-      const res = await fetch(`${apiBaseUrl}/persons/${id}/find-email`, {
+      const res = await apiFetch(`${apiBaseUrl}/persons/${id}/find-email`, {
         method: "POST",
         headers: { Authorization: `Bearer ${authToken}` },
       });
@@ -279,7 +279,7 @@ function PersonDetailInner() {
     setEnriching(true);
     setEnrichError("");
     try {
-      const res = await fetch(`${apiBaseUrl}/persons/${id}/set-email`, {
+      const res = await apiFetch(`${apiBaseUrl}/persons/${id}/set-email`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
         body: JSON.stringify({ email }),

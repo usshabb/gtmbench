@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { LetterAvatar, DATA_CHANGED_EVENT, safeJson, dispatchGlobalAction } from "../components";
+import { LetterAvatar, DATA_CHANGED_EVENT, safeJson, dispatchGlobalAction, apiFetch } from "../components";
 
 interface PersonRecord {
   _id?: string;
@@ -183,7 +183,7 @@ export default function PeoplePage() {
   const fetchPersons = useCallback(() => {
     if (!authToken) return;
     setIsLoadingList(true);
-    void fetch(`${apiBaseUrl}/persons`, {
+    void apiFetch(`${apiBaseUrl}/persons`, {
       headers: { Authorization: `Bearer ${authToken}` },
     })
       .then(async (response) => {
@@ -207,7 +207,7 @@ export default function PeoplePage() {
 
   async function handleRemovePerson(id: string) {
     try {
-      const res = await fetch(`${apiBaseUrl}/persons/${id}`, {
+      const res = await apiFetch(`${apiBaseUrl}/persons/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${authToken}` },
       });

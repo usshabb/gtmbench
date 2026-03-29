@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { apiFetch } from "../../components";
 
 const localStorageTokenKey = "gtmbench-token";
 
@@ -62,9 +63,9 @@ export default function WorkspaceSettingsPage() {
     checkedRef.current = true;
 
     void Promise.all([
-      fetch(`${apiBaseUrl}/workspace`, { headers: { Authorization: `Bearer ${token}` } }),
-      fetch(`${apiBaseUrl}/workspace/members`, { headers: { Authorization: `Bearer ${token}` } }),
-      fetch(`${apiBaseUrl}/workspace/invites`, { headers: { Authorization: `Bearer ${token}` } }),
+      apiFetch(`${apiBaseUrl}/workspace`, { headers: { Authorization: `Bearer ${token}` } }),
+      apiFetch(`${apiBaseUrl}/workspace/members`, { headers: { Authorization: `Bearer ${token}` } }),
+      apiFetch(`${apiBaseUrl}/workspace/invites`, { headers: { Authorization: `Bearer ${token}` } }),
     ]).then(async ([wsRes, membersRes, invitesRes]) => {
       const wsData = (await wsRes.json()) as { workspace: WorkspaceData | null };
       const membersData = (await membersRes.json()) as { members: Member[] };
@@ -89,7 +90,7 @@ export default function WorkspaceSettingsPage() {
     setError("");
     setSaved(false);
     try {
-      const res = await fetch(`${apiBaseUrl}/workspace`, {
+      const res = await apiFetch(`${apiBaseUrl}/workspace`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
         body: JSON.stringify({
@@ -114,7 +115,7 @@ export default function WorkspaceSettingsPage() {
   const createInvite = useCallback(async () => {
     setInviteCreating(true);
     try {
-      const res = await fetch(`${apiBaseUrl}/workspace/invite`, {
+      const res = await apiFetch(`${apiBaseUrl}/workspace/invite`, {
         method: "POST",
         headers: { Authorization: `Bearer ${authToken}` },
       });
@@ -132,7 +133,7 @@ export default function WorkspaceSettingsPage() {
   }, [apiBaseUrl, authToken]);
 
   async function revokeInvite(token: string) {
-    await fetch(`${apiBaseUrl}/workspace/invites/${token}`, {
+    await apiFetch(`${apiBaseUrl}/workspace/invites/${token}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${authToken}` },
     });

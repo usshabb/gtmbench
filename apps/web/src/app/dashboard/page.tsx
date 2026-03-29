@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { LetterAvatar, safeJson } from "./components";
+import { LetterAvatar, safeJson, apiFetch } from "./components";
 
 const localStorageTokenKey = "gtmbench-token";
 const INITIAL_DAYS = 10;
@@ -634,7 +634,7 @@ function EmailComposeModal({
     setFindingEmail(true);
     setFindError("");
     try {
-      const res = await fetch(`${apiBaseUrl}/persons/${modal.personId}/find-email`, {
+      const res = await apiFetch(`${apiBaseUrl}/persons/${modal.personId}/find-email`, {
         method: "POST",
         headers: { Authorization: `Bearer ${authToken}` },
       });
@@ -852,7 +852,7 @@ export default function SignalsPage() {
     if (t) {
       fetchInitial(t);
       // Fetch user name for greeting
-      fetch(`${apiBaseUrl}/me`, { headers: { Authorization: `Bearer ${t}` } })
+      apiFetch(`${apiBaseUrl}/me`, { headers: { Authorization: `Bearer ${t}` } })
         .then((r) => safeJson<{ email: string; user?: { fullName?: string | null } }>(r))
         .then((d) => {
           const name = d.user?.fullName ?? d.email ?? "";
@@ -860,7 +860,7 @@ export default function SignalsPage() {
         })
         .catch(() => {});
       // Fetch persons for email lookup
-      fetch(`${apiBaseUrl}/persons`, { headers: { Authorization: `Bearer ${t}` } })
+      apiFetch(`${apiBaseUrl}/persons`, { headers: { Authorization: `Bearer ${t}` } })
         .then((r) => safeJson<{ persons: PersonInfo[] }>(r))
         .then((d) => setPersons(d.persons ?? []))
         .catch(() => {});
@@ -892,10 +892,10 @@ export default function SignalsPage() {
 
     try {
       const [recentRes, olderCountRes] = await Promise.all([
-        fetch(`${apiBaseUrl}/signals?since=${encodeURIComponent(cutoff)}&limit=200`, {
+        apiFetch(`${apiBaseUrl}/signals?since=${encodeURIComponent(cutoff)}&limit=200`, {
           headers: { Authorization: `Bearer ${authToken}` },
         }),
-        fetch(`${apiBaseUrl}/signals?before=${encodeURIComponent(cutoff)}&limit=1`, {
+        apiFetch(`${apiBaseUrl}/signals?before=${encodeURIComponent(cutoff)}&limit=1`, {
           headers: { Authorization: `Bearer ${authToken}` },
         }),
       ]);
@@ -919,7 +919,7 @@ export default function SignalsPage() {
     if (loadingMore || !token) return;
     setLoadingMore(true);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `${apiBaseUrl}/signals?before=${encodeURIComponent(cutoffRef.current)}&limit=${OLDER_PAGE_SIZE}&offset=${olderOffsetRef.current}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -939,7 +939,7 @@ export default function SignalsPage() {
 
   async function dismissSignal(id: string) {
     const signal = signals.find((s) => s._id === id);
-    await fetch(`${apiBaseUrl}/signals/${id}`, {
+    await apiFetch(`${apiBaseUrl}/signals/${id}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -951,7 +951,7 @@ export default function SignalsPage() {
   async function restoreSignal(id: string) {
     const signal = dismissedSignals.find((s) => s._id === id);
     if (!signal) return;
-    await fetch(`${apiBaseUrl}/signals/${id}/restore`, {
+    await apiFetch(`${apiBaseUrl}/signals/${id}/restore`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -1019,7 +1019,7 @@ export default function SignalsPage() {
     }
 
     try {
-      const res = await fetch(`${apiBaseUrl}/persons/${resolvedPersonId}/emails`, {
+      const res = await apiFetch(`${apiBaseUrl}/persons/${resolvedPersonId}/emails`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

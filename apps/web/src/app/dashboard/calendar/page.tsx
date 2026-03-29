@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { LetterAvatar, safeJson } from "../components";
+import { LetterAvatar, safeJson, apiFetch } from "../components";
 
 const localStorageTokenKey = "gtmbench-token";
 
@@ -205,14 +205,14 @@ function CalendarInner() {
     try {
       const timeMin = new Date(y, m, 1).toISOString();
       const timeMax = new Date(y, m + 1, 0, 23, 59, 59).toISOString();
-      const res = await fetch(
+      const res = await apiFetch(
         `${apiBaseUrl}/calendar/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`,
         { headers: { Authorization: `Bearer ${token}` } },
       );
       if (!res.ok) {
         const data = (await safeJson(res)) as { error?: string };
         if (data.error === "needs_calendar_permission") {
-          const urlRes = await fetch(
+          const urlRes = await apiFetch(
             `${apiBaseUrl}/auth/google/url?returnPath=/dashboard/calendar`,
             { headers: { Authorization: `Bearer ${token}` } },
           );
@@ -240,7 +240,7 @@ function CalendarInner() {
     if (checkedRef.current) return;
     checkedRef.current = true;
 
-    void fetch(`${apiBaseUrl}/gmail/status`, { headers: { Authorization: `Bearer ${token}` } })
+    void apiFetch(`${apiBaseUrl}/gmail/status`, { headers: { Authorization: `Bearer ${token}` } })
       .then(async (res) => {
         const data = (await safeJson(res)) as { connected: boolean };
         setConnected(data.connected);
@@ -268,7 +268,7 @@ function CalendarInner() {
   }, [year, month]);
 
   async function connectGoogle() {
-    const res = await fetch(
+    const res = await apiFetch(
       `${apiBaseUrl}/auth/google/url?returnPath=/dashboard/calendar`,
       { headers: { Authorization: `Bearer ${authToken}` } },
     );

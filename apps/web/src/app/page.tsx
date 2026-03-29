@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { apiFetch } from "./dashboard/components";
 
 const localStorageTokenKey = "gtmbench-token";
 
@@ -28,7 +29,7 @@ export default function LoginPage() {
       const params = new URLSearchParams();
       if (pendingInvite) params.set("inviteToken", pendingInvite);
 
-      const res = await fetch(`${apiBaseUrl}/auth/google/signin-url?${params.toString()}`);
+      const res = await apiFetch(`${apiBaseUrl}/auth/google/signin-url?${params.toString()}`);
       if (!res.ok) throw new Error(`Server error: ${res.status}`);
       const data = (await res.json()) as { url: string };
       if (data.url) {

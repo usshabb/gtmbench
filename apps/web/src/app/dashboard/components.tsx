@@ -105,3 +105,14 @@ export async function safeJson<T = unknown>(res: Response): Promise<T> {
   }
   return res.json() as Promise<T>;
 }
+
+/**
+ * Wrapper around fetch that automatically attaches the x-api-key header.
+ */
+const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
+
+export function apiFetch(url: string, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers);
+  if (API_KEY) headers.set("x-api-key", API_KEY);
+  return fetch(url, { ...init, headers });
+}

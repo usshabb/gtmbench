@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { dispatchDataChanged, safeJson, GLOBAL_ACTION_EVENT } from "./components";
+import { dispatchDataChanged, safeJson, GLOBAL_ACTION_EVENT, apiFetch } from "./components";
 
 const localStorageTokenKey = "gtmbench-token";
 
@@ -76,7 +76,7 @@ function GlobalActionModal({
 
     try {
       if (isCompany) {
-        const response = await fetch(`${apiBaseUrl}/companies`, {
+        const response = await apiFetch(`${apiBaseUrl}/companies`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
           body: JSON.stringify({ domain: value }),
@@ -87,7 +87,7 @@ function GlobalActionModal({
         router.push("/dashboard/companies");
         dispatchDataChanged();
       } else if (isEmail) {
-        const response = await fetch(`${apiBaseUrl}/persons/by-email`, {
+        const response = await apiFetch(`${apiBaseUrl}/persons/by-email`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
           body: JSON.stringify({ email: value.trim() }),
@@ -99,7 +99,7 @@ function GlobalActionModal({
         dispatchDataChanged();
       } else {
         const linkedinUrl = value.startsWith("http") ? value : `https://www.linkedin.com/in/${value}`;
-        const response = await fetch(`${apiBaseUrl}/persons`, {
+        const response = await apiFetch(`${apiBaseUrl}/persons`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
           body: JSON.stringify({ linkedinUrl }),
@@ -393,7 +393,7 @@ export default function DashboardLayout({
 
     setAuthToken(storedToken);
 
-    void fetch(`${apiBaseUrl}/me`, {
+    void apiFetch(`${apiBaseUrl}/me`, {
       headers: { Authorization: `Bearer ${storedToken}` },
     })
       .then(async (response) => {

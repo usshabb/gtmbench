@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LetterAvatar, safeJson } from "../components";
+import { LetterAvatar, safeJson, apiFetch } from "../components";
 
 const localStorageTokenKey = "gtmbench-token";
 
@@ -262,7 +262,7 @@ function InboxInner() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`${apiBaseUrl}/inbox/emails`, {
+      const res = await apiFetch(`${apiBaseUrl}/inbox/emails`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) {
@@ -291,7 +291,7 @@ function InboxInner() {
     if (checkedRef.current) return;
     checkedRef.current = true;
 
-    void fetch(`${apiBaseUrl}/gmail/status`, { headers: { Authorization: `Bearer ${token}` } })
+    void apiFetch(`${apiBaseUrl}/gmail/status`, { headers: { Authorization: `Bearer ${token}` } })
       .then(async (res) => {
         const data = (await safeJson(res)) as { connected: boolean };
         setGmailConnected(data.connected);
@@ -319,7 +319,7 @@ function InboxInner() {
 
     // Mark as read in Gmail
     if (thread.isUnread) {
-      void fetch(`${apiBaseUrl}/inbox/threads/${thread.id}/read`, {
+      void apiFetch(`${apiBaseUrl}/inbox/threads/${thread.id}/read`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${authToken}`,
@@ -338,7 +338,7 @@ function InboxInner() {
       const qs = thread.sourceUserEmail
         ? `?sourceUserEmail=${encodeURIComponent(thread.sourceUserEmail)}`
         : "";
-      const res = await fetch(`${apiBaseUrl}/inbox/threads/${thread.id}${qs}`, {
+      const res = await apiFetch(`${apiBaseUrl}/inbox/threads/${thread.id}${qs}`, {
         headers: { Authorization: `Bearer ${authToken}` },
       });
       const data = (await safeJson(res)) as { messages?: ThreadMessage[] };
@@ -390,7 +390,7 @@ function InboxInner() {
     setSendingReply(true);
     try {
       const lastMsg = messages[messages.length - 1];
-      await fetch(`${apiBaseUrl}/inbox/threads/${selectedThread.id}/reply`, {
+      await apiFetch(`${apiBaseUrl}/inbox/threads/${selectedThread.id}/reply`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${authToken}`,
@@ -512,7 +512,7 @@ function InboxInner() {
   // ── Connect Gmail ─────────────────────────────────────────────────────────
 
   async function connectGmail() {
-    const res = await fetch(`${apiBaseUrl}/auth/google/url?returnPath=/dashboard/inbox`, {
+    const res = await apiFetch(`${apiBaseUrl}/auth/google/url?returnPath=/dashboard/inbox`, {
       headers: { Authorization: `Bearer ${authToken}` },
     });
     const data = (await safeJson(res)) as { url: string };

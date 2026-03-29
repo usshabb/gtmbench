@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { apiFetch } from "../../components";
 
 const localStorageTokenKey = "gtmbench-token";
 
@@ -31,7 +32,7 @@ export default function ProfileSettingsPage() {
     if (checkedRef.current) return;
     checkedRef.current = true;
 
-    void fetch(`${apiBaseUrl}/me`, { headers: { Authorization: `Bearer ${token}` } })
+    void apiFetch(`${apiBaseUrl}/me`, { headers: { Authorization: `Bearer ${token}` } })
       .then(async (res) => {
         if (!res.ok) { router.replace("/"); return; }
         const data = (await res.json()) as {
@@ -54,7 +55,7 @@ export default function ProfileSettingsPage() {
     setError("");
     setSaved(false);
     try {
-      const res = await fetch(`${apiBaseUrl}/me`, {
+      const res = await apiFetch(`${apiBaseUrl}/me`, {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
         body: JSON.stringify({ fullName: fullName.trim(), profilePhotoUrl: profilePhotoUrl.trim() || null, shareWithWorkspace }),

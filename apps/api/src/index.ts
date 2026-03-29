@@ -281,6 +281,14 @@ app.get("/invite/:token", async (request, response) => {
 });
 
 /* ------------------------------------------------------------------ */
+/*  Health endpoint (no auth required)                                   */
+/* ------------------------------------------------------------------ */
+
+app.get("/health", (_request, response) => {
+  response.json({ status: "ok", timestamp: new Date().toISOString() });
+});
+
+/* ------------------------------------------------------------------ */
 /*  Cron endpoint (Vercel Cron Jobs) — before auth middleware            */
 /* ------------------------------------------------------------------ */
 
@@ -316,6 +324,16 @@ app.get("/cron/run-triggers", async (request, response) => {
 
 app.use((request, response, next) => {
   console.log("[auth-middleware] %s %s", request.method, request.path);
+
+  // Validate API key if configured
+  if (env.API_KEY) {
+    const clientKey = request.header("x-api-key");
+    if (clientKey !== env.API_KEY) {
+      response.status(403).json({ error: "Invalid API key" });
+      return;
+    }
+  }
+
   console.log("[auth-middleware] Authorization header:", request.header("authorization")?.substring(0, 30) + "...");
 
   const token = getBearerToken(request.header("authorization"));

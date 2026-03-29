@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { DATA_CHANGED_EVENT, safeJson } from "../components";
+import { DATA_CHANGED_EVENT, safeJson, apiFetch } from "../components";
 
 interface SkillRecord {
   _id: string;
@@ -110,7 +110,7 @@ export default function SkillsPage() {
   const fetchSkills = useCallback(() => {
     if (!authToken) return;
     setIsLoading(true);
-    void fetch(`${apiBaseUrl}/skills`, { headers: { Authorization: `Bearer ${authToken}` } })
+    void apiFetch(`${apiBaseUrl}/skills`, { headers: { Authorization: `Bearer ${authToken}` } })
       .then(async (res) => {
         const data = (await safeJson(res)) as { skills?: SkillRecord[] };
         setSkills(data.skills ?? []);
@@ -132,7 +132,7 @@ export default function SkillsPage() {
     try {
       const existing = skills.find((s) => s.skillType === skillType);
       if (existing) {
-        const res = await fetch(`${apiBaseUrl}/skills/${existing._id}`, {
+        const res = await apiFetch(`${apiBaseUrl}/skills/${existing._id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
           body: JSON.stringify({ enabled: !existing.enabled }),
@@ -141,7 +141,7 @@ export default function SkillsPage() {
         const data = (await safeJson(res)) as { skill: SkillRecord };
         setSkills((prev) => prev.map((s) => (s._id === data.skill._id ? data.skill : s)));
       } else {
-        const res = await fetch(`${apiBaseUrl}/skills`, {
+        const res = await apiFetch(`${apiBaseUrl}/skills`, {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
           body: JSON.stringify({ skillType }),

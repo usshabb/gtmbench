@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { safeJson } from "../components";
+import { safeJson, apiFetch } from "../components";
 
 const localStorageTokenKey = "gtmbench-token";
 
@@ -284,7 +284,7 @@ export default function TriggersPage() {
   async function fetchTriggers(authToken: string) {
     setLoading(true);
     try {
-      const res = await fetch(`${apiBaseUrl}/triggers`, { headers: { Authorization: `Bearer ${authToken}` } });
+      const res = await apiFetch(`${apiBaseUrl}/triggers`, { headers: { Authorization: `Bearer ${authToken}` } });
       const data = (await safeJson(res)) as { triggers: Trigger[] };
       setTriggers(data.triggers ?? []);
     } catch { /* ignore */ } finally { setLoading(false); }
@@ -293,8 +293,8 @@ export default function TriggersPage() {
   async function fetchJobs(authToken: string) {
     setJobsLoading(true);
     try {
-      await fetch(`${apiBaseUrl}/trigger-jobs/create`, { method: "POST", headers: { Authorization: `Bearer ${authToken}` } });
-      const res = await fetch(`${apiBaseUrl}/trigger-jobs`, { headers: { Authorization: `Bearer ${authToken}` } });
+      await apiFetch(`${apiBaseUrl}/trigger-jobs/create`, { method: "POST", headers: { Authorization: `Bearer ${authToken}` } });
+      const res = await apiFetch(`${apiBaseUrl}/trigger-jobs`, { headers: { Authorization: `Bearer ${authToken}` } });
       const data = (await safeJson(res)) as { jobs: TriggerJob[] };
       setJobs(data.jobs ?? []);
     } catch { /* ignore */ } finally { setJobsLoading(false); }
@@ -307,7 +307,7 @@ export default function TriggersPage() {
   async function enableTrigger(type: string, opts: { keyword?: string | null; jobTitles?: string[] | null } = {}) {
     setEnabling(true);
     try {
-      const res = await fetch(`${apiBaseUrl}/triggers`, {
+      const res = await apiFetch(`${apiBaseUrl}/triggers`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ triggerType: type, keyword: opts.keyword || null, jobTitles: opts.jobTitles?.length ? opts.jobTitles : null }),
@@ -317,7 +317,7 @@ export default function TriggersPage() {
   }
 
   async function updateTrigger(trigger: Trigger, fields: { keyword?: string | null; jobTitles?: string[] | null; status?: "active" | "paused" }) {
-    await fetch(`${apiBaseUrl}/triggers/${trigger._id}`, {
+    await apiFetch(`${apiBaseUrl}/triggers/${trigger._id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify(fields),
@@ -326,7 +326,7 @@ export default function TriggersPage() {
   }
 
   async function disableTrigger(triggerId: string) {
-    await fetch(`${apiBaseUrl}/triggers/${triggerId}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+    await apiFetch(`${apiBaseUrl}/triggers/${triggerId}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
     await fetchTriggers(token);
   }
 
@@ -334,7 +334,7 @@ export default function TriggersPage() {
     setRunningJobs((prev) => new Set([...prev, jobId]));
     setJobs((prev) => prev.map((j) => j._id === jobId ? { ...j, status: "processing" as const } : j));
     try {
-      const res = await fetch(`${apiBaseUrl}/trigger-jobs/${jobId}/run`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+      const res = await apiFetch(`${apiBaseUrl}/trigger-jobs/${jobId}/run`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
       const data = (await safeJson(res)) as { job?: TriggerJob };
       setJobs((prev) => prev.map((j) => j._id === jobId ? { ...j, status: data.job?.status ?? "completed" } : j));
     } catch {

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
-import { LetterAvatar, safeJson } from "../../components";
+import { LetterAvatar, safeJson, apiFetch } from "../../components";
 
 interface CompanyRecord {
   _id?: string;
@@ -137,7 +137,7 @@ function BuyersTab({
 
   // Load buyer profiles
   useEffect(() => {
-    void fetch(`${apiBaseUrl}/buyer-profiles`, {
+    void apiFetch(`${apiBaseUrl}/buyer-profiles`, {
       headers: { Authorization: `Bearer ${authToken}` },
     })
       .then(async (res) => {
@@ -161,7 +161,7 @@ function BuyersTab({
     setNextCursor(null);
     setSearchError("");
 
-    void fetch(`${apiBaseUrl}/companies/${companyId}/buyers?buyerProfileId=${selectedProfileId}`, {
+    void apiFetch(`${apiBaseUrl}/companies/${companyId}/buyers?buyerProfileId=${selectedProfileId}`, {
       headers: { Authorization: `Bearer ${authToken}` },
     })
       .then(async (res) => {
@@ -191,7 +191,7 @@ function BuyersTab({
     setSearchError("");
 
     try {
-      const response = await fetch(`${apiBaseUrl}/companies/${companyId}/find-buyers`, {
+      const response = await apiFetch(`${apiBaseUrl}/companies/${companyId}/find-buyers`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -240,7 +240,7 @@ function BuyersTab({
     const linkedinUrl = `https://www.linkedin.com/in/${person.primary_slug}`;
 
     try {
-      const response = await fetch(`${apiBaseUrl}/persons`, {
+      const response = await apiFetch(`${apiBaseUrl}/persons`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -478,7 +478,7 @@ function JobsTab({
   const [error, setError] = useState("");
 
   useEffect(() => {
-    void fetch(`${apiBaseUrl}/companies/${companyId}/jobs`, {
+    void apiFetch(`${apiBaseUrl}/companies/${companyId}/jobs`, {
       headers: { Authorization: `Bearer ${authToken}` },
     })
       .then(async (res) => {
@@ -608,7 +608,7 @@ export default function CompanyDetailPage() {
     if (!authToken || !id) return;
     setIsRemoving(true);
     try {
-      const res = await fetch(`${apiBaseUrl}/companies/${id}`, {
+      const res = await apiFetch(`${apiBaseUrl}/companies/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${authToken}` },
       });
@@ -632,7 +632,7 @@ export default function CompanyDetailPage() {
   // Fetch enabled skills
   useEffect(() => {
     if (!authToken) return;
-    void fetch(`${apiBaseUrl}/skills`, {
+    void apiFetch(`${apiBaseUrl}/skills`, {
       headers: { Authorization: `Bearer ${authToken}` },
     })
       .then(async (res) => {
@@ -646,9 +646,9 @@ export default function CompanyDetailPage() {
     if (!authToken || !id) return;
 
     Promise.all([
-      fetch(`${apiBaseUrl}/companies/${id}`, { headers: { Authorization: `Bearer ${authToken}` } }),
-      fetch(`${apiBaseUrl}/companies/${id}/persons`, { headers: { Authorization: `Bearer ${authToken}` } }),
-      fetch(`${apiBaseUrl}/companies/${id}/ats`, { headers: { Authorization: `Bearer ${authToken}` } }),
+      apiFetch(`${apiBaseUrl}/companies/${id}`, { headers: { Authorization: `Bearer ${authToken}` } }),
+      apiFetch(`${apiBaseUrl}/companies/${id}/persons`, { headers: { Authorization: `Bearer ${authToken}` } }),
+      apiFetch(`${apiBaseUrl}/companies/${id}/ats`, { headers: { Authorization: `Bearer ${authToken}` } }),
     ])
       .then(async ([companyRes, personsRes, atsRes]) => {
         if (!companyRes.ok) throw new Error("Company not found");
@@ -673,7 +673,7 @@ export default function CompanyDetailPage() {
 
   function refreshPersons() {
     if (!authToken || !id) return;
-    void fetch(`${apiBaseUrl}/companies/${id}/persons`, { headers: { Authorization: `Bearer ${authToken}` } })
+    void apiFetch(`${apiBaseUrl}/companies/${id}/persons`, { headers: { Authorization: `Bearer ${authToken}` } })
       .then(async (res) => {
         if (res.ok) {
           const data = (await safeJson(res)) as { persons: PersonRecord[] };
@@ -687,7 +687,7 @@ export default function CompanyDetailPage() {
     if (!authToken || !id) return;
     setIsDetectingATS(true);
     try {
-      const res = await fetch(`${apiBaseUrl}/companies/${id}/detect-ats`, {
+      const res = await apiFetch(`${apiBaseUrl}/companies/${id}/detect-ats`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

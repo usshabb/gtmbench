@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { safeJson } from "../components";
+import { safeJson, apiFetch } from "../components";
 
 interface BuyerProfile {
   _id: string;
@@ -498,8 +498,8 @@ export default function BuyerProfilesPage() {
     if (!authToken) return;
     setIsLoading(true);
     void Promise.all([
-      fetch(`${apiBaseUrl}/buyer-profiles`, { headers: { Authorization: `Bearer ${authToken}` } }),
-      fetch(`${apiBaseUrl}/persons`, { headers: { Authorization: `Bearer ${authToken}` } }),
+      apiFetch(`${apiBaseUrl}/buyer-profiles`, { headers: { Authorization: `Bearer ${authToken}` } }),
+      apiFetch(`${apiBaseUrl}/persons`, { headers: { Authorization: `Bearer ${authToken}` } }),
     ])
       .then(async ([profilesRes, personsRes]) => {
         const profilesResult = (await safeJson(profilesRes)) as { profiles?: BuyerProfile[]; error?: string };
@@ -522,7 +522,7 @@ export default function BuyerProfilesPage() {
 
   async function handleSetDefault(id: string) {
     try {
-      const response = await fetch(`${apiBaseUrl}/buyer-profiles/${id}/set-default`, {
+      const response = await apiFetch(`${apiBaseUrl}/buyer-profiles/${id}/set-default`, {
         method: "PUT",
         headers: { Authorization: `Bearer ${authToken}` },
       });
@@ -541,7 +541,7 @@ export default function BuyerProfilesPage() {
 
   async function handleDelete(id: string) {
     try {
-      const response = await fetch(`${apiBaseUrl}/buyer-profiles/${id}`, {
+      const response = await apiFetch(`${apiBaseUrl}/buyer-profiles/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${authToken}` },
       });
