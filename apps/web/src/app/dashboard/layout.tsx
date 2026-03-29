@@ -30,7 +30,7 @@ const navItems = [
   { label: "Buyer Profile", href: "/dashboard/buyer-profiles", icon: <MI name="badge" /> },
   { label: "Skills", href: "/dashboard/skills", icon: <MI name="category_search" /> },
   { label: "Triggers", href: "/dashboard/triggers", icon: <MI name="bolt" /> },
-  { label: "Calendar", href: "/dashboard/calendar", icon: <MI name="calendar_month" /> },
+  { label: "Meetings", href: "/dashboard/calendar", icon: <MI name="calendar_month" /> },
 ];
 
 const recordNavItems = [

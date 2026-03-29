@@ -185,6 +185,63 @@ export async function enrichPersonByEmailWithFiber(email: string): Promise<Fiber
   }
 }
 
+/**
+ * Find a person's contact details using Fiber contact-details/sync API.
+ * Returns the first work email found, or personal email as fallback.
+ */
+export async function findEmailWithContactDetails(
+  linkedinUrl: string,
+): Promise<{ email: string | null; phones: string[] }> {
+  const requestBody = {
+    apiKey: env.FIBER_API_KEY,
+    linkedinUrl,
+    enrichmentType: {
+      getWorkEmails: true,
+      getPersonalEmails: false,
+      getPhoneNumbers: false,
+    },
+    exhaustive: false,
+  };
+
+  const url = `${env.FIBER_API_BASE_URL}/v1/contact-details/sync`;
+  console.log("[fiber] contact-details/sync POST %s for %s", url, linkedinUrl);
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody),
+    });
+
+    const responseBody = (await response.json()) as Record<string, unknown>;
+    console.log("[fiber] contact-details/sync response status: %d", response.status);
+    console.log("[fiber] contact-details/sync response body:", JSON.stringify(responseBody));
+
+    if (!response.ok) {
+      console.warn("[fiber] contact-details/sync failed:", JSON.stringify(responseBody));
+      return { email: null, phones: [] };
+    }
+
+    // Response shape: { output: { profile: { emails: [{ email, type, status }], phoneNumbers: [...] } } }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = responseBody as any;
+    const emailEntries = (data?.output?.profile?.emails ?? []) as { email: string; type: string; status?: string }[];
+
+    // Prefer work emails with valid status, then any work email, then personal
+    const workEmail = emailEntries.find((e) => e.type === "work" && e.status === "valid")?.email
+      ?? emailEntries.find((e) => e.type === "work")?.email
+      ?? emailEntries.find((e) => e.type === "personal")?.email
+      ?? null;
+
+    console.log("[fiber] contact-details/sync found email: %s (from %d entries)", workEmail ?? "none", emailEntries.length);
+
+    return { email: workEmail, phones: [] };
+  } catch (error) {
+    console.error("[fiber] findEmailWithContactDetails error:", error instanceof Error ? error.message : error);
+    return { email: null, phones: [] };
+  }
+}
+
 export async function enrichPersonWithFiber(linkedinUrl: string): Promise<FiberEnrichmentResult> {
   // Extract slug from URL like https://www.linkedin.com/in/arthurleopold
   const slug = linkedinUrl.split("/in/")[1]?.replace(/\/+$/, "") ?? "";

@@ -1,7 +1,10 @@
-import Firecrawl from "@mendable/firecrawl-js";
+import FirecrawlModule from "@mendable/firecrawl-js";
 import { z } from "zod";
 import { env } from "./env.js";
 
+// Handle both ESM default and CJS module.exports
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const Firecrawl = (FirecrawlModule as any).default ?? FirecrawlModule;
 const firecrawl = new Firecrawl({ apiKey: env.FIRECRAWL_API_KEY });
 
 export interface ATSDetectionResult {

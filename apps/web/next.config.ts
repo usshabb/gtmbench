@@ -8,6 +8,11 @@ const nextConfig: NextConfig = {
   allowedDevOrigins: replitDevDomain
     ? [`https://${replitDevDomain}`, replitDevDomain]
     : [],
+  images: {
+    remotePatterns: [
+      { protocol: "https", hostname: "**" },
+    ],
+  },
   async rewrites() {
     return [
       {

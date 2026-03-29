@@ -570,26 +570,51 @@ export default function BuyerProfilesPage() {
       {error && <p className="px-6 pt-4 text-[13px] text-red-400">{error}</p>}
 
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[800px] px-4 py-6">
-        {isLoading ? (
-          <div className="flex h-full items-center justify-center">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-black/10 border-t-black/40" />
+        <div className="mx-auto w-full max-w-3xl px-4 py-6">
+          {/* Header */}
+          <p className="text-[15px] text-zinc-500 leading-relaxed">
+            Define who you are selling to. Buyer profiles match tracked people by job title so you can focus on the right contacts.
+          </p>
+
+          {/* Create button */}
+          <div className="mt-4 flex items-center justify-end">
+            <button
+              onClick={openCreate}
+              className="flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-[13px] font-medium text-zinc-700 transition-all hover:bg-zinc-50"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+              </svg>
+              Create profile
+            </button>
           </div>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {profiles.map((profile) => (
-              <ProfileCard
-                key={profile._id}
-                profile={profile}
-                matchedPersons={matchPersonsToProfile(persons, profile)}
-                onEdit={() => openEdit(profile)}
-                onDelete={() => handleDelete(profile._id)}
-                onSetDefault={() => handleSetDefault(profile._id)}
-              />
-            ))}
-            <AddProfileCard onClick={openCreate} />
+
+          {/* Profiles grid */}
+          <div className="mt-5">
+            {isLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-black/10 border-t-black/40" />
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {profiles.map((profile) => (
+                  <ProfileCard
+                    key={profile._id}
+                    profile={profile}
+                    matchedPersons={matchPersonsToProfile(persons, profile)}
+                    onEdit={() => openEdit(profile)}
+                    onDelete={() => handleDelete(profile._id)}
+                    onSetDefault={() => handleSetDefault(profile._id)}
+                  />
+                ))}
+              </div>
+            )}
+            {!isLoading && profiles.length === 0 && (
+              <div className="flex items-center justify-center py-16">
+                <p className="text-[14px] text-zinc-400">No buyer profiles yet</p>
+              </div>
+            )}
           </div>
-        )}
         </div>
       </div>
 

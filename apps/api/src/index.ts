@@ -6,7 +6,7 @@ import { z } from "zod";
 import { getBuyerProfilesCollection, getBuyerSearchResultsCollection, getCompanyATSCollection, getCompaniesCollection, getGoogleTokensCollection, getInvitesCollection, getJobsCollection, getLegacyLinkedinContentForPersonCollection, getLinkedinPostsForUserCollection, getPersonsCollection, getSignalsCollection, getSkillsCollection, getTriggerJobsCollection, getTriggersCollection, getUsersCollection, getWorkspacesCollection } from "./db.js";
 import { env } from "./env.js";
 import { getEmailFromToken, signToken } from "./auth.js";
-import { enrichDomainWithFiber, enrichPersonByEmailWithFiber, enrichPersonWithFiber, findPersonEmailWithFiber, searchBuyersWithFiber } from "./fiber.js";
+import { enrichDomainWithFiber, enrichPersonByEmailWithFiber, enrichPersonWithFiber, findEmailWithContactDetails, findPersonEmailWithFiber, searchBuyersWithFiber } from "./fiber.js";
 import { startTriggersWorker, scheduleTriggersCron, triggerTriggersProcessing, createPendingJobs, enqueuePendingJobsForUser, enqueueSpecificJob } from "./triggers-worker.js";
 import { detectCompanyATS } from "./firecrawl.js";
 import { exchangeCodeForTokens, getCalendarEvents, getEmailsWithPerson, getGoogleAuthUrl, getInboxThreads, getThreadMessages, getUserInfoFromGoogle, markThreadAsRead, replyToThread, sendGmail } from "./google.js";
@@ -278,6 +278,40 @@ app.get("/invite/:token", async (request, response) => {
   const workspacesCol = await getWorkspacesCollection();
   const workspace = await workspacesCol.findOne({ _id: invite.workspaceId });
   response.json({ invite, workspace });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Cron endpoint (Vercel Cron Jobs) — before auth middleware            */
+/* ------------------------------------------------------------------ */
+
+app.get("/cron/run-triggers", async (request, response) => {
+  const secret = request.header("authorization")?.replace("Bearer ", "");
+  if (!env.CRON_SECRET || secret !== env.CRON_SECRET) {
+    response.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  console.log("[cron] /cron/run-triggers invoked");
+  try {
+    // 1. Create any new pending jobs for active triggers
+    const usersCol = await getUsersCollection();
+    const allUsers = await usersCol.find({}).toArray();
+    for (const user of allUsers) {
+      try {
+        await createPendingJobs(user.email);
+      } catch (err) {
+        console.error(`[cron] createPendingJobs failed for ${user.email}:`, err);
+      }
+    }
+
+    // 2. Enqueue all pending jobs for processing
+    const enqueued = await triggerTriggersProcessing();
+    console.log("[cron] Enqueued %d jobs", enqueued);
+    response.json({ ok: true, enqueued });
+  } catch (err) {
+    console.error("[cron] run-triggers error:", err);
+    response.status(500).json({ error: "Cron job failed" });
+  }
 });
 
 app.use((request, response, next) => {
@@ -2413,18 +2447,34 @@ app.get("/calendar/events", async (request, response) => {
 
   // Build email → person map for attendee matching (workspace-wide)
   const allPersons = await personsCol.find({ userEmails: { $in: memberEmails }, enrichmentStatus: "completed" }).toArray();
-  const emailToPersonMap = new Map<string, { personId: string; name: string }>();
+  type PersonMeta = { personId: string; name: string; title?: string; companyName?: string; companyDomain?: string; profilePic?: string };
+  const emailToPersonMap = new Map<string, PersonMeta>();
   for (const person of allPersons) {
-    const email: string | undefined =
-      person.workEmail ??
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (person.enrichmentData as any)?.output?.data?.[0]?.work_email;
-    if (!email) continue;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = (person.enrichmentData as any)?.output?.data?.[0];
     const nameParts = [data?.first_name, data?.last_name].filter(Boolean);
-    const name = data?.name ?? (nameParts.length > 0 ? nameParts.join(" ") : email);
-    emailToPersonMap.set(email.toLowerCase(), { personId: person._id!.toHexString(), name });
+    const name = data?.name ?? (nameParts.length > 0 ? nameParts.join(" ") : "Unknown");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const currentJob = data?.current_job as Record<string, any> | undefined;
+    const title: string | undefined = currentJob?.title ?? undefined;
+    const companyName: string | undefined = currentJob?.company_name ?? data?.company ?? undefined;
+    const companyDomain: string | undefined = person.companyDomain ?? data?.company_domain ?? undefined;
+    const profilePic: string | undefined = data?.profile_pic ?? undefined;
+    const meta: PersonMeta = { personId: person._id!.toHexString(), name, title, companyName, companyDomain, profilePic };
+
+    // Register all known emails for this person
+    const emails = new Set<string>();
+    if (person.workEmail) emails.add(person.workEmail.toLowerCase());
+    if (data?.work_email) emails.add((data.work_email as string).toLowerCase());
+    if (Array.isArray(data?.emails)) {
+      for (const e of data.emails) {
+        if (typeof e === "string") emails.add(e.toLowerCase());
+      }
+    }
+    if (data?.personal_email) emails.add((data.personal_email as string).toLowerCase());
+    for (const e of emails) {
+      if (!emailToPersonMap.has(e)) emailToPersonMap.set(e, meta);
+    }
   }
 
   try {
@@ -2596,6 +2646,67 @@ app.post("/persons/:id/re-enrich", async (request, response) => {
   response.json({ person: updatedPerson, enriched: enrichment.success });
 });
 
+// Find email for a person using Fiber (people-search + contact-enrich batch/poll)
+app.post("/persons/:id/find-email", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const personsCol = await getPersonsCollection();
+
+  let person;
+  try {
+    person = await personsCol.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+  } catch {
+    response.status(400).json({ error: "Invalid person ID" });
+    return;
+  }
+  if (!person) {
+    response.status(404).json({ error: "Person not found" });
+    return;
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const personData = (person.enrichmentData as any)?.output?.data?.[0];
+  const firstName = personData?.first_name as string | undefined;
+  const lastName = personData?.last_name as string | undefined;
+  const { companyDomain } = extractPersonFields(person.enrichmentData ?? {});
+
+  let foundEmail: string | null = null;
+
+  // Strategy 1: contact-details/sync by LinkedIn URL (primary)
+  if (person.linkedinUrl) {
+    const result = await findEmailWithContactDetails(person.linkedinUrl);
+    foundEmail = result.email;
+  }
+
+  // Strategy 2: people-search by name + company domain (fallback)
+  if (!foundEmail && firstName && lastName && companyDomain) {
+    foundEmail = await findPersonEmailWithFiber(firstName, lastName, companyDomain);
+  }
+
+  if (!foundEmail) {
+    response.json({ person, email: null, message: "Could not find email" });
+    return;
+  }
+
+  // Store the found email in enrichmentData
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const existing = (person.enrichmentData ?? { output: { data: [{}] } }) as any;
+  const updatedEnrichmentData = {
+    ...existing,
+    output: {
+      ...(existing.output ?? {}),
+      data: [{ ...(existing.output?.data?.[0] ?? {}), work_email: foundEmail }],
+    },
+  };
+
+  await personsCol.updateOne(
+    { _id: new ObjectId(request.params.id) },
+    { $set: { enrichmentData: updatedEnrichmentData, workEmail: foundEmail } },
+  );
+
+  const updatedPerson = await personsCol.findOne({ _id: new ObjectId(request.params.id) });
+  response.json({ person: updatedPerson, email: foundEmail });
+});
+
 // Save a manually-provided email for a person (no Fiber call needed)
 app.post("/persons/:id/set-email", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
@@ -2679,17 +2790,25 @@ app.post("/persons/:id/emails", async (request, response) => {
 });
 
 /* ------------------------------------------------------------------ */
-/*  Start server + workers                                               */
+/*  Export for serverless (Vercel)                                       */
 /* ------------------------------------------------------------------ */
 
-app.listen(env.PORT, () => {
-  console.log(`API listening on http://localhost:${env.PORT}`);
+export default app;
 
-  // Start BullMQ worker and cron scheduler
-  try {
-    startTriggersWorker();
-    scheduleTriggersCron();
-  } catch (err) {
-    console.warn("[triggers] Could not start worker/cron (Redis may not be available):", err);
-  }
-});
+/* ------------------------------------------------------------------ */
+/*  Start server + workers (non-serverless)                              */
+/* ------------------------------------------------------------------ */
+
+if (!process.env.VERCEL) {
+  app.listen(env.PORT, () => {
+    console.log(`API listening on http://localhost:${env.PORT}`);
+
+    // Start BullMQ worker and cron scheduler
+    try {
+      startTriggersWorker();
+      scheduleTriggersCron();
+    } catch (err) {
+      console.warn("[triggers] Could not start worker/cron (Redis may not be available):", err);
+    }
+  });
+}

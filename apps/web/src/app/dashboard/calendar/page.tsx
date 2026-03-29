@@ -2,12 +2,22 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { safeJson } from "../components";
+import { LetterAvatar, safeJson } from "../components";
 
 const localStorageTokenKey = "gtmbench-token";
 
 function getApiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:4000";
+  return process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api-proxy";
+}
+
+interface MatchedPerson {
+  personId: string;
+  name: string;
+  email: string;
+  title?: string;
+  companyName?: string;
+  companyDomain?: string;
+  profilePic?: string;
 }
 
 interface CalendarEvent {
@@ -24,10 +34,10 @@ interface CalendarEvent {
   organizer?: { email: string; name?: string; self?: boolean };
   sourceUserEmail?: string;
   sourceUserName?: string;
+  matchedPersons?: MatchedPerson[];
 }
 
-function formatTime(iso: string, allDay: boolean): string {
-  if (allDay) return "All day";
+function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
@@ -50,21 +60,104 @@ function isSameDay(dateKey: string): boolean {
 
 function eventDuration(event: CalendarEvent): string {
   if (event.allDay) return "All day";
-  const startMs = new Date(event.start).getTime();
-  const endMs = new Date(event.end).getTime();
-  const mins = Math.round((endMs - startMs) / 60000);
+  const mins = Math.round((new Date(event.end).getTime() - new Date(event.start).getTime()) / 60000);
   if (mins < 60) return `${mins}m`;
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
-function responseColor(status?: string): string {
-  if (status === "accepted") return "text-emerald-600";
-  if (status === "declined") return "text-red-500";
-  if (status === "tentative") return "text-amber-500";
-  return "text-zinc-400";
+/* ------------------------------------------------------------------ */
+/*  Meeting Card                                                        */
+/* ------------------------------------------------------------------ */
+
+function MeetingCard({ event, multiUser }: { event: CalendarEvent; multiUser: boolean }) {
+  const matched = event.matchedPersons ?? [];
+
+  return (
+    <div className="rounded-2xl border border-zinc-200 bg-white px-5 py-4 shadow-sm transition-all hover:shadow-md hover:border-zinc-300">
+      {/* Top row: title + actions */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className="text-[14px] font-semibold text-zinc-900 truncate">{event.summary}</p>
+            {event.sourceUserName && multiUser && (
+              <span className="shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500">
+                via {event.sourceUserName}
+              </span>
+            )}
+          </div>
+          <div className="mt-0.5 flex items-center gap-2 flex-wrap text-[12px] text-zinc-400">
+            <span>
+              {event.allDay
+                ? "All day"
+                : `${formatTime(event.start)} – ${formatTime(event.end)}`}
+            </span>
+            {!event.allDay && <span>· {eventDuration(event)}</span>}
+            {event.location && (
+              <span className="truncate max-w-[200px]">· {event.location}</span>
+            )}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {event.meetLink && (
+            <a
+              href={event.meetLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 rounded-lg bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-600 hover:bg-blue-100 transition-colors"
+            >
+              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M17 10.5V7a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h12a1 1 0 001-1v-3.5l4 4v-11l-4 4z" />
+              </svg>
+              Join
+            </a>
+          )}
+          {event.htmlLink && (
+            <a
+              href={event.htmlLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11px] text-zinc-400 hover:text-zinc-600 transition-colors"
+            >
+              Open
+            </a>
+          )}
+        </div>
+      </div>
+
+      {/* Matched persons with company info */}
+      {matched.length > 0 && (
+        <div className="mt-3 flex flex-col gap-2">
+          {matched.map((person) => (
+            <div key={person.personId} className="flex items-center gap-3">
+              <LetterAvatar name={person.name} size="sm" src={person.profilePic} />
+              <div className="min-w-0">
+                <p className="text-[13px] font-medium text-zinc-800 truncate">{person.name}</p>
+                <div className="flex items-center gap-1.5 text-[11px] text-zinc-400">
+                  {person.title && <span className="truncate">{person.title}</span>}
+                  {person.title && person.companyName && <span>·</span>}
+                  {person.companyName && <span className="truncate">{person.companyName}</span>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Other attendees count */}
+      {event.attendees.length > matched.length && (
+        <p className="mt-2 text-[11px] text-zinc-400">
+          +{event.attendees.length - matched.length} other attendee{event.attendees.length - matched.length !== 1 ? "s" : ""}
+        </p>
+      )}
+    </div>
+  );
 }
+
+/* ------------------------------------------------------------------ */
+/*  Page                                                                */
+/* ------------------------------------------------------------------ */
 
 export default function CalendarPage() {
   return (
@@ -83,15 +176,14 @@ function CalendarInner() {
   const [connected, setConnected] = useState(false);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [connectedUsers, setConnectedUsers] = useState<{ email: string; name: string }[]>([]);
-  const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const checkedRef = useRef(false);
 
-  // Month navigation — default to current month
+  // Month navigation
   const [year, setYear] = useState(() => new Date().getFullYear());
-  const [month, setMonth] = useState(() => new Date().getMonth()); // 0-indexed
+  const [month, setMonth] = useState(() => new Date().getMonth());
 
   const monthLabel = useMemo(
     () => new Date(year, month, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" }),
@@ -120,7 +212,6 @@ function CalendarInner() {
       if (!res.ok) {
         const data = (await safeJson(res)) as { error?: string };
         if (data.error === "needs_calendar_permission") {
-          // Silently re-trigger Google OAuth to get calendar scope
           const urlRes = await fetch(
             `${apiBaseUrl}/auth/google/url?returnPath=/dashboard/calendar`,
             { headers: { Authorization: `Bearer ${token}` } },
@@ -134,19 +225,18 @@ function CalendarInner() {
       setEvents(data.events ?? []);
       setConnectedUsers(data.connectedUsers ?? []);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load calendar");
+      setError(err instanceof Error ? err.message : "Failed to load meetings");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, [apiBaseUrl]);
 
-  // Init: get token + check connection
+  // Init
   useEffect(() => {
     const token = window.localStorage.getItem(localStorageTokenKey);
     if (!token) { router.replace("/"); return; }
     setAuthToken(token);
-
     if (checkedRef.current) return;
     checkedRef.current = true;
 
@@ -169,7 +259,7 @@ function CalendarInner() {
     }
   }, [searchParams, authToken, fetchEvents, year, month]);
 
-  // Refetch when month changes (only if already connected)
+  // Refetch when month changes
   const mountedRef = useRef(false);
   useEffect(() => {
     if (!mountedRef.current) { mountedRef.current = true; return; }
@@ -186,219 +276,144 @@ function CalendarInner() {
     if (data.url) window.location.href = data.url;
   }
 
-  const filteredEvents = useMemo(() => {
-    if (selectedUser) return events.filter((e) => e.sourceUserEmail === selectedUser);
-    // Deduplicate by event id when showing all accounts
+  // Only show meetings with at least one tracked person
+  const meetings = useMemo(() => {
+    // Deduplicate by event id
     const seen = new Set<string>();
     return events.filter((e) => {
       if (seen.has(e.id)) return false;
       seen.add(e.id);
-      return true;
+      return (e.matchedPersons?.length ?? 0) > 0;
     });
-  }, [events, selectedUser]);
+  }, [events]);
 
-  // Group events by date
+  // Group by date
   const grouped = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
-    for (const e of filteredEvents) {
+    for (const e of meetings) {
       const key = eventDateKey(e);
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(e);
     }
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [filteredEvents]);
+  }, [meetings]);
+
+  const multiUser = connectedUsers.length > 1;
 
   return (
-    <div className="flex h-full flex-col bg-white">
-
-      {/* View as filter pills */}
-      {connected && connectedUsers.length > 1 && (
-        <div className="flex items-center gap-2 overflow-x-auto border-b border-zinc-100 px-6 py-2 scrollbar-none">
-          <span className="shrink-0 text-[11px] font-medium text-zinc-400">View as</span>
-          <button
-            onClick={() => setSelectedUser(null)}
-            className={`shrink-0 rounded-full px-3 py-1 text-[12px] font-medium transition-colors ${
-              !selectedUser
-                ? "bg-zinc-900 text-white"
-                : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
-            }`}
-          >
-            All
-          </button>
-          {connectedUsers.map((u) => (
-            <button
-              key={u.email}
-              onClick={() => setSelectedUser(selectedUser === u.email ? null : u.email)}
-              className={`shrink-0 rounded-full px-3 py-1 text-[12px] font-medium transition-colors ${
-                selectedUser === u.email
-                  ? "bg-zinc-900 text-white"
-                  : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
-              }`}
-            >
-              {u.name}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* Month navigation */}
-      {connected && (
-        <div className="flex items-center gap-3 border-b border-zinc-100 px-6 py-3">
-          <button
-            onClick={prevMonth}
-            className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
-          >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-          <span className="min-w-[160px] text-center text-[13px] font-semibold text-zinc-800">{monthLabel}</span>
-          <button
-            onClick={nextMonth}
-            className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
-          >
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-            </svg>
-          </button>
-          <span className="ml-auto text-[12px] text-zinc-400">{filteredEvents.length} event{filteredEvents.length !== 1 ? "s" : ""}</span>
-        </div>
-      )}
-
-      {/* Content */}
+    <div className="flex h-full flex-col bg-[#f8f8f7]">
       <div className="flex-1 overflow-y-auto">
-        {loading ? (
-          <div className="flex h-full items-center justify-center">
-            <div className="h-5 w-5 animate-spin rounded-full border-2 border-black/10 border-t-black/40" />
-          </div>
-        ) : !connected ? (
-          <div className="flex h-full items-center justify-center">
-            <div className="flex flex-col items-center gap-3">
-              <p className="text-[14px] text-black/40">Calendar not connected</p>
-              <button onClick={connectGoogle} className="rounded-lg border border-black/[0.08] px-4 py-2 text-[13px] font-medium text-black/70 hover:bg-black/[0.03]">
-                Connect Google Calendar
+        <div className="mx-auto w-full max-w-3xl px-4 py-6">
+          {/* Header */}
+          <p className="text-[15px] text-zinc-500 leading-relaxed">
+            Meetings with your tracked people and companies. Only calendar events with at least one tracked person are shown.
+          </p>
+
+          {/* Controls: month nav + refresh */}
+          {connected && (
+            <div className="mt-4 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={prevMonth}
+                  className="rounded-lg border border-zinc-200 bg-white p-1.5 text-zinc-400 hover:bg-zinc-50 hover:text-zinc-700 transition-colors"
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                  </svg>
+                </button>
+                <span className="min-w-[160px] text-center text-[13px] font-semibold text-zinc-800">{monthLabel}</span>
+                <button
+                  onClick={nextMonth}
+                  className="rounded-lg border border-zinc-200 bg-white p-1.5 text-zinc-400 hover:bg-zinc-50 hover:text-zinc-700 transition-colors"
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
+                </button>
+                <span className="ml-2 text-[12px] text-zinc-400">
+                  {meetings.length} meeting{meetings.length !== 1 ? "s" : ""}
+                </span>
+              </div>
+
+              <button
+                onClick={() => { if (authToken) void fetchEvents(authToken, year, month, true); }}
+                disabled={refreshing}
+                className="flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-[13px] font-medium text-zinc-700 transition-all hover:bg-zinc-50 disabled:opacity-50"
+              >
+                {refreshing ? (
+                  <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
+                ) : (
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+                  </svg>
+                )}
+                Refresh
               </button>
             </div>
-          </div>
-        ) : error ? (
-          <div className="flex h-full items-center justify-center">
-            <p className="text-[13px] text-red-400">{error}</p>
-          </div>
-        ) : grouped.length === 0 ? (
-          <div className="flex h-full items-center justify-center">
-            <p className="text-[14px] text-black/40">No events in {monthLabel}</p>
-          </div>
-        ) : (
-          <div className="mx-auto max-w-xl px-4 py-6 space-y-6">
-            {grouped.map(([dateKey, dayEvents]) => (
-              <div key={dateKey}>
-                {/* Date heading */}
-                <div className={`mb-3 flex items-center gap-3`}>
-                  <div className={`flex h-9 w-9 shrink-0 flex-col items-center justify-center rounded-xl text-center ${isSameDay(dateKey) ? "bg-zinc-900 text-white" : "bg-zinc-100 text-zinc-700"}`}>
-                    <span className="text-[10px] font-semibold uppercase leading-none tracking-wide">
-                      {new Date(dateKey + "T12:00:00Z").toLocaleDateString("en-US", { month: "short" })}
-                    </span>
-                    <span className="text-[15px] font-bold leading-tight">
-                      {new Date(dateKey + "T12:00:00Z").getDate()}
-                    </span>
-                  </div>
-                  <div>
-                    <p className={`text-[13px] font-semibold ${isSameDay(dateKey) ? "text-zinc-900" : "text-zinc-700"}`}>
-                      {formatDateHeading(dateKey)}
-                    </p>
-                    <p className="text-[11px] text-zinc-400">{dayEvents.length} event{dayEvents.length !== 1 ? "s" : ""}</p>
-                  </div>
-                </div>
+          )}
 
-                {/* Events for this day */}
-                <div className="ml-12 space-y-2">
-                  {dayEvents.map((event) => (
-                    <div
-                      key={event.id}
-                      className="rounded-xl border border-zinc-100 bg-white px-4 py-3 shadow-sm"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <p className="text-[13px] font-semibold text-zinc-900 truncate">{event.summary}</p>
-                            {event.sourceUserName && connectedUsers.length > 1 && (
-                              <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-600">
-                                {event.sourceUserName}
-                              </span>
-                            )}
-                          </div>
-                          <div className="mt-0.5 flex items-center gap-2 flex-wrap">
-                            <span className="text-[12px] text-zinc-500">
-                              {event.allDay
-                                ? "All day"
-                                : `${formatTime(event.start, false)} – ${formatTime(event.end, false)}`}
-                            </span>
-                            {!event.allDay && (
-                              <span className="text-[11px] text-zinc-400">· {eventDuration(event)}</span>
-                            )}
-                            {event.location && (
-                              <span className="flex items-center gap-1 text-[11px] text-zinc-400">
-                                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
-                                </svg>
-                                {event.location}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="flex shrink-0 items-center gap-2">
-                          {event.meetLink && (
-                            <a
-                              href={event.meetLink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-1 rounded-lg bg-blue-50 px-2.5 py-1 text-[11px] font-medium text-blue-600 hover:bg-blue-100"
-                            >
-                              <svg className="h-3 w-3" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M17 10.5V7a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h12a1 1 0 001-1v-3.5l4 4v-11l-4 4z" />
-                              </svg>
-                              Join
-                            </a>
-                          )}
-                          {event.htmlLink && (
-                            <a
-                              href={event.htmlLink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-[11px] text-zinc-400 hover:text-zinc-600"
-                            >
-                              Open
-                            </a>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Attendees */}
-                      {event.attendees.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {event.attendees.slice(0, 6).map((a) => (
-                            <span
-                              key={a.email}
-                              className={`inline-flex items-center rounded-full bg-zinc-50 border border-zinc-200 px-2 py-0.5 text-[11px] ${a.self ? "font-semibold text-zinc-700" : "text-zinc-500"}`}
-                              title={`${a.name ?? a.email} — ${a.responseStatus ?? "unknown"}`}
-                            >
-                              <span className={`mr-1 h-1.5 w-1.5 rounded-full ${responseColor(a.responseStatus)} bg-current`} />
-                              {a.name ?? a.email.split("@")[0]}
-                            </span>
-                          ))}
-                          {event.attendees.length > 6 && (
-                            <span className="text-[11px] text-zinc-400">+{event.attendees.length - 6} more</span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ))}
+          {/* Content */}
+          <div className="mt-5">
+            {loading ? (
+              <div className="flex items-center justify-center py-16">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-black/10 border-t-black/40" />
+              </div>
+            ) : !connected ? (
+              <div className="flex items-center justify-center py-16">
+                <div className="flex flex-col items-center gap-3">
+                  <p className="text-[14px] text-zinc-400">Google Calendar not connected</p>
+                  <button
+                    onClick={connectGoogle}
+                    className="rounded-xl border border-zinc-200 bg-white px-4 py-2 text-[13px] font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
+                  >
+                    Connect Google Calendar
+                  </button>
                 </div>
               </div>
-            ))}
+            ) : error ? (
+              <div className="flex items-center justify-center py-16">
+                <p className="text-[13px] text-red-400">{error}</p>
+              </div>
+            ) : grouped.length === 0 ? (
+              <div className="flex items-center justify-center py-16">
+                <p className="text-[14px] text-zinc-400">No meetings with tracked people in {monthLabel}</p>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {grouped.map(([dateKey, dayEvents]) => (
+                  <div key={dateKey}>
+                    {/* Date heading */}
+                    <div className="mb-3 flex items-center gap-3">
+                      <div className={`flex h-9 w-9 shrink-0 flex-col items-center justify-center rounded-xl text-center ${isSameDay(dateKey) ? "bg-zinc-900 text-white" : "bg-white border border-zinc-200 text-zinc-700"}`}>
+                        <span className="text-[10px] font-semibold uppercase leading-none tracking-wide">
+                          {new Date(dateKey + "T12:00:00Z").toLocaleDateString("en-US", { month: "short" })}
+                        </span>
+                        <span className="text-[15px] font-bold leading-tight">
+                          {new Date(dateKey + "T12:00:00Z").getDate()}
+                        </span>
+                      </div>
+                      <div>
+                        <p className={`text-[13px] font-semibold ${isSameDay(dateKey) ? "text-zinc-900" : "text-zinc-700"}`}>
+                          {formatDateHeading(dateKey)}
+                        </p>
+                        <p className="text-[11px] text-zinc-400">
+                          {dayEvents.length} meeting{dayEvents.length !== 1 ? "s" : ""}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Events */}
+                    <div className="ml-12 space-y-3">
+                      {dayEvents.map((event) => (
+                        <MeetingCard key={event.id} event={event} multiUser={multiUser} />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

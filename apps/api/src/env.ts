@@ -17,6 +17,7 @@ const envSchema = z.object({
   GOOGLE_CLIENT_ID: z.string().default(""),
   GOOGLE_CLIENT_SECRET: z.string().default(""),
   GOOGLE_REDIRECT_URI: z.string().default("http://localhost:4000/auth/google/callback"),
+  CRON_SECRET: z.string().default(""),
 });
 
 export const env = envSchema.parse(process.env);

@@ -245,24 +245,29 @@ function PersonDetailInner() {
     }
   }
 
-  async function handleReEnrich() {
+  async function handleFindEmail() {
     if (!authToken) return;
     setEnriching(true);
     setEnrichError("");
     try {
-      const res = await fetch(`${apiBaseUrl}/persons/${id}/re-enrich`, {
+      const res = await fetch(`${apiBaseUrl}/persons/${id}/find-email`, {
         method: "POST",
         headers: { Authorization: `Bearer ${authToken}` },
       });
       if (!res.ok) {
         const data = (await safeJson(res)) as { error?: string };
-        throw new Error(data.error ?? "Enrichment failed");
+        throw new Error(data.error ?? "Could not find email");
       }
-      const data = (await safeJson(res)) as { person: PersonRecord };
-      setPerson(data.person);
-      emailsAutoLoaded.current = false;
+      const data = (await safeJson(res)) as { person: PersonRecord; email: string | null; message?: string };
+      if (data.person) setPerson(data.person);
+      if (!data.email) {
+        setEnrichError("No email found. Try adding it manually.");
+      } else {
+        setComposeTo(data.email);
+        emailsAutoLoaded.current = false;
+      }
     } catch (err) {
-      setEnrichError(err instanceof Error ? err.message : "Enrichment failed");
+      setEnrichError(err instanceof Error ? err.message : "Could not find email");
     } finally {
       setEnriching(false);
     }
@@ -397,8 +402,16 @@ function PersonDetailInner() {
               {linkedinSlug && (
                 <a href={person.linkedinUrl} target="_blank" rel="noopener noreferrer" className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-0.5 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100 transition-colors">LinkedIn</a>
               )}
-              {personEmail && (
+              {personEmail ? (
                 <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-0.5 text-[11px] font-medium text-zinc-600">{personEmail}</span>
+              ) : (
+                <button
+                  onClick={() => void handleFindEmail()}
+                  disabled={enriching}
+                  className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-0.5 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100 transition-colors disabled:opacity-50"
+                >
+                  {enriching ? "Finding..." : "Find Email"}
+                </button>
               )}
               {data?.open_to_work && (
                 <span className="rounded-full bg-emerald-50 px-3 py-0.5 text-[11px] font-medium text-emerald-700">Open to work</span>
@@ -570,9 +583,9 @@ function PersonDetailInner() {
               <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-100">
                 <h2 className="text-[13px] font-semibold text-zinc-700">Email</h2>
                 <div className="flex items-center gap-2">
-                  {gmailConnected && personEmail && (
+                  {gmailConnected && (
                     <button
-                      onClick={() => { setShowCompose(true); setComposeTo(personEmail); }}
+                      onClick={() => { setShowCompose(true); if (personEmail) setComposeTo(personEmail); }}
                       className="flex items-center gap-1.5 rounded-[10px] border border-zinc-200 px-2.5 py-1 text-[12px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50"
                     >
                       <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
@@ -606,16 +619,16 @@ function PersonDetailInner() {
               {gmailConnected && !personEmail && (
                 <div className="px-5 py-5">
                   <p className="mb-1 text-[13px] font-medium text-zinc-700">No email address found.</p>
-                  <p className="mb-4 text-[12px] text-zinc-400">Enrich via Fiber to fetch their work email, or add it manually.</p>
+                  <p className="mb-4 text-[12px] text-zinc-400">Find their email via Fiber, or add it manually.</p>
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => void handleReEnrich()}
+                      onClick={() => void handleFindEmail()}
                       disabled={enriching}
-                      className="flex items-center gap-1.5 rounded-[12px] border border-zinc-200 px-3 py-1.5 text-[13px] font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
+                      className="flex items-center gap-1.5 rounded-[12px] bg-zinc-900 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
                     >
                       {enriching && !showManualEmail ? (
-                        <><div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />Enriching...</>
-                      ) : "Enrich with Fiber"}
+                        <><div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />Finding email...</>
+                      ) : "Find Email"}
                     </button>
                     <button
                       onClick={() => { setShowManualEmail((v) => !v); setEnrichError(""); }}
@@ -696,12 +709,30 @@ function PersonDetailInner() {
               <div className="px-5 py-4 space-y-3">
                 <div>
                   <label className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">To</label>
-                  <input
-                    type="email"
-                    value={composeTo}
-                    onChange={(e) => setComposeTo(e.target.value)}
-                    className="mt-1 w-full rounded-[12px] border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px] text-zinc-800 outline-none focus:border-zinc-300 focus:bg-white"
-                  />
+                  <div className="mt-1 flex items-center gap-2">
+                    <input
+                      type="email"
+                      value={composeTo}
+                      onChange={(e) => setComposeTo(e.target.value)}
+                      placeholder={!composeTo ? "No email found" : ""}
+                      className="flex-1 rounded-[12px] border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px] text-zinc-800 outline-none focus:border-zinc-300 focus:bg-white"
+                    />
+                    {!composeTo && (
+                      <button
+                        onClick={async () => {
+                          await handleFindEmail();
+                          // After finding, personEmail will update via setPerson — set composeTo
+                        }}
+                        disabled={enriching}
+                        className="shrink-0 flex items-center gap-1.5 rounded-[12px] bg-zinc-900 px-3 py-2 text-[12px] font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
+                      >
+                        {enriching ? (
+                          <><div className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />Finding...</>
+                        ) : "Find Email"}
+                      </button>
+                    )}
+                  </div>
+                  {enrichError && !composeTo && <p className="mt-1 text-[11px] text-red-500">{enrichError}</p>}
                 </div>
                 <div>
                   <label className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">Subject</label>

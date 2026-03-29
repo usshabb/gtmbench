@@ -614,6 +614,8 @@ function EmailComposeModal({
   onClose,
   sending,
   error,
+  apiBaseUrl,
+  authToken,
 }: {
   modal: EmailModal;
   onChange: (m: EmailModal) => void;
@@ -621,7 +623,34 @@ function EmailComposeModal({
   onClose: () => void;
   sending: boolean;
   error: string;
+  apiBaseUrl: string;
+  authToken: string;
 }) {
+  const [findingEmail, setFindingEmail] = useState(false);
+  const [findError, setFindError] = useState("");
+
+  async function handleFindEmail() {
+    if (!modal.personId || !authToken) return;
+    setFindingEmail(true);
+    setFindError("");
+    try {
+      const res = await fetch(`${apiBaseUrl}/persons/${modal.personId}/find-email`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      const data = (await res.json()) as { email?: string | null; error?: string };
+      if (!res.ok) throw new Error(data.error ?? "Failed");
+      if (data.email) {
+        onChange({ ...modal, to: data.email });
+      } else {
+        setFindError("No email found");
+      }
+    } catch (err) {
+      setFindError(err instanceof Error ? err.message : "Failed to find email");
+    } finally {
+      setFindingEmail(false);
+    }
+  }
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[14vh]"
@@ -656,7 +685,23 @@ function EmailComposeModal({
               placeholder="recipient@company.com"
               autoFocus={!modal.to}
             />
+            {!modal.to && modal.personId && (
+              <button
+                onClick={handleFindEmail}
+                disabled={findingEmail}
+                className="shrink-0 flex items-center gap-1.5 rounded-lg bg-[#5469d4] px-3 py-1.5 text-[12px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {findingEmail ? (
+                  <><div className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" />Finding...</>
+                ) : "Find Email"}
+              </button>
+            )}
           </div>
+          {findError && !modal.to && (
+            <div className="px-5 -mt-1 pb-1">
+              <p className="text-[11px] text-red-500">{findError}</p>
+            </div>
+          )}
 
           {/* Subject */}
           <div className="flex items-center gap-3 px-5 py-3">
@@ -1192,6 +1237,8 @@ export default function SignalsPage() {
           onClose={() => setEmailModal(null)}
           sending={emailSending}
           error={emailError}
+          apiBaseUrl={apiBaseUrl}
+          authToken={token}
         />
       )}
     </div>
