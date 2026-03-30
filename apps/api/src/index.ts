@@ -15,9 +15,15 @@ const app = express();
 
 app.use(
   cors({
-    origin: env.ALLOWED_ORIGIN === "*"
-      ? true
-      : env.ALLOWED_ORIGIN.split(",").map((o) => o.trim()),
+    origin: [
+      "http://localhost:3000",
+      "https://dev.sidr.ai",
+      "https://sidr.ai",
+      "https://gtmbench-web.vercel.app",
+      "https://sidr-dev.vercel.app",
+      "https://sidr-sigma.vercel.app",
+    ],
+    credentials: true,
   }),
 );
 app.use(express.json());
