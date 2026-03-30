@@ -2822,6 +2822,7 @@ export default app;
 if (!process.env.VERCEL) {
   app.listen(env.PORT, () => {
     console.log(`API listening on http://localhost:${env.PORT}`);
+    console.log("dev deployment trigger");
 
     // Start BullMQ worker and cron scheduler
     try {
