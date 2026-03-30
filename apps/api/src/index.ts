@@ -15,7 +15,9 @@ const app = express();
 
 app.use(
   cors({
-    origin: env.ALLOWED_ORIGIN === "*" ? true : env.ALLOWED_ORIGIN,
+    origin: env.ALLOWED_ORIGIN === "*"
+      ? true
+      : env.ALLOWED_ORIGIN.split(",").map((o) => o.trim()),
   }),
 );
 app.use(express.json());
@@ -221,7 +223,7 @@ app.get("/auth/google/callback", async (request, response) => {
         onboardingComplete: String(user?.onboardingComplete ?? false),
         ...(inviteToken ? { invite: inviteToken } : {}),
       });
-      response.redirect(`${env.ALLOWED_ORIGIN}/auth/callback?${params.toString()}`);
+      response.redirect(`${env.APP_URL}/auth/callback?${params.toString()}`);
     } else {
       // "connect" mode — add another Google account to the workspace
       if (!userEmail) {
@@ -251,14 +253,14 @@ app.get("/auth/google/callback", async (request, response) => {
 
       // If the connected email is a different workspace member, upsert their token only
       // (no new user record needed — they must sign in themselves)
-      response.redirect(`${env.ALLOWED_ORIGIN}${returnPath}?gmail=connected`);
+      response.redirect(`${env.APP_URL}${returnPath}?gmail=connected`);
     }
   } catch (err) {
     console.error("[google-callback] Failed:", err);
     if (mode === "signin") {
-      response.redirect(`${env.ALLOWED_ORIGIN}/auth/callback?error=google_auth_failed`);
+      response.redirect(`${env.APP_URL}/auth/callback?error=google_auth_failed`);
     } else {
-      response.redirect(`${env.ALLOWED_ORIGIN}${returnPath}?gmail=error`);
+      response.redirect(`${env.APP_URL}${returnPath}?gmail=error`);
     }
   }
 });
