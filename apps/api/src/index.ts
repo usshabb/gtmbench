@@ -13,11 +13,17 @@ import { exchangeCodeForTokens, getCalendarEvents, getEmailsWithPerson, getGoogl
 
 const app = express();
 
+const allowedOrigins = [
+  "http://localhost:3000",
+  "https://localhost:3000",
+  "https://dev.sidr.ai",
+  "https://sidr.ai",
+];
+
 app.use(
   cors({
-    origin: env.ALLOWED_ORIGIN === "*"
-      ? true
-      : env.ALLOWED_ORIGIN.split(",").map((o) => o.trim()),
+    origin: allowedOrigins,
+    credentials: true,
   }),
 );
 app.use(express.json());
