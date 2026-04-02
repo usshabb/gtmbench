@@ -335,6 +335,12 @@ app.get("/cron/run-triggers", async (request, response) => {
 });
 
 app.use((request, response, next) => {
+  // Skip auth for preflight requests — CORS middleware already handled them
+  if (request.method === "OPTIONS") {
+    next();
+    return;
+  }
+
   console.log("[auth-middleware] %s %s", request.method, request.path);
 
   // Validate API key if configured
