@@ -13,19 +13,23 @@ import { exchangeCodeForTokens, getCalendarEvents, getEmailsWithPerson, getGoogl
 
 const app = express();
 
-const allowedOrigins = [
-  "http://localhost:3000",
-  "https://localhost:3000",
-  "https://dev.sidr.ai",
-  "https://sidr.ai",
-];
+const corsOptions: cors.CorsOptions = {
+  origin: [
+    "http://localhost:3000",
+    "https://localhost:3000",
+    "https://dev.sidr.ai",
+    "https://sidr.ai",
+    "https://gtmbench-web.vercel.app",
+    "https://sidr-dev.vercel.app",
+    "https://sidr-sigma.vercel.app",
+  ],
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+};
 
-app.use(
-  cors({
-    origin: allowedOrigins,
-    credentials: true,
-  }),
-);
+app.use(cors(corsOptions));
+app.options("*", cors(corsOptions));
 app.use(express.json());
 
 const createCompanySchema = z.object({
