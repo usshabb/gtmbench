@@ -1,5 +1,37 @@
 {
   "version": 2,
+  "headers": [
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "header", "key": "origin", "value": "https://dev.sidr.ai" }],
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "https://dev.sidr.ai" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,PUT,PATCH,DELETE,OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type,Authorization,x-api-key" },
+        { "key": "Access-Control-Allow-Credentials", "value": "true" }
+      ]
+    },
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "header", "key": "origin", "value": "https://sidr.ai" }],
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "https://sidr.ai" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,PUT,PATCH,DELETE,OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type,Authorization,x-api-key" },
+        { "key": "Access-Control-Allow-Credentials", "value": "true" }
+      ]
+    },
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "header", "key": "origin", "value": "http://localhost:3000" }],
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "http://localhost:3000" },
+        { "key": "Access-Control-Allow-Methods", "value": "GET,POST,PUT,PATCH,DELETE,OPTIONS" },
+        { "key": "Access-Control-Allow-Headers", "value": "Content-Type,Authorization,x-api-key" },
+        { "key": "Access-Control-Allow-Credentials", "value": "true" }
+      ]
+    }
+  ],
   "rewrites": [
     { "source": "/(.*)", "destination": "/api" }
   ],
