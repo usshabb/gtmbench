@@ -13,13 +13,23 @@ import { exchangeCodeForTokens, getCalendarEvents, getEmailsWithPerson, getGoogl
 
 const app = express();
 
-app.use(
-  cors({
-    origin: env.ALLOWED_ORIGIN === "*"
-      ? true
-      : env.ALLOWED_ORIGIN.split(",").map((o) => o.trim()),
-  }),
-);
+const corsOptions: cors.CorsOptions = {
+  origin: [
+    "http://localhost:3000",
+    "https://localhost:3000",
+    "https://dev.sidr.ai",
+    "https://sidr.ai",
+    "https://gtmbench-web.vercel.app",
+    "https://sidr-dev.vercel.app",
+    "https://sidr-sigma.vercel.app",
+  ],
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-api-key"],
+};
+
+app.use(cors(corsOptions));
+app.options("/{*path}", cors(corsOptions));
 app.use(express.json());
 
 const createCompanySchema = z.object({
@@ -325,6 +335,12 @@ app.get("/cron/run-triggers", async (request, response) => {
 });
 
 app.use((request, response, next) => {
+  // Skip auth for preflight requests — CORS middleware already handled them
+  if (request.method === "OPTIONS") {
+    next();
+    return;
+  }
+
   console.log("[auth-middleware] %s %s", request.method, request.path);
 
   // Validate API key if configured
@@ -2822,6 +2838,7 @@ export default app;
 if (!process.env.VERCEL) {
   app.listen(env.PORT, () => {
     console.log(`API listening on http://localhost:${env.PORT}`);
+    console.log("dev deployment trigger");
 
     // Start BullMQ worker and cron scheduler
     try {

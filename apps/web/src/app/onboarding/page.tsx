@@ -256,35 +256,55 @@ function OnboardingInner() {
       {/* Top-left logo */}
       <div className="p-4">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo.png" alt="sidr" className="h-34 w-34 object-contain" />
+        <img src="/logo.png" alt="sidr" className="h-16 w-16 object-contain" />
       </div>
 
       {/* Centered content */}
       <div className="flex flex-1 items-start justify-center px-4 pt-2 pb-10">
         <div className="w-full max-w-[480px]">
-          {/* Tabs */}
-          <div className="mb-6 flex border-b border-black/[0.08]">
+          {/* Step indicator */}
+          <div className="mb-8 flex items-center gap-0">
             {stepLabels.map((label, i) => {
               const num = (i + 1) as 1 | 2;
               const isActive = step === num;
               const isDone = step > num;
+              const isLast = i === stepLabels.length - 1;
               return (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={() => isDone && setStep(num)}
-                  className={`relative pb-3 pr-6 text-[14px] font-medium transition-colors ${
-                    isActive ? "text-[#050505]" : isDone ? "cursor-pointer text-black/40 hover:text-black/60" : "cursor-default text-black/30"
-                  }`}
-                >
-                  {label}
-                  {isActive && (
-                    <span className="absolute bottom-0 left-0 right-6 h-[2px] rounded-full bg-[#050505]" />
+                <div key={label} className="flex flex-1 items-center">
+                  <button
+                    type="button"
+                    onClick={() => isDone && setStep(num)}
+                    className={`flex flex-col items-center gap-2 ${isDone ? "cursor-pointer" : "cursor-default"}`}
+                  >
+                    <div
+                      className={`flex h-8 w-8 items-center justify-center rounded-full text-[13px] font-semibold transition-all ${
+                        isDone
+                          ? "bg-[#050505] text-white"
+                          : isActive
+                          ? "border-2 border-[#050505] bg-white text-[#050505]"
+                          : "border-2 border-black/20 bg-white text-black/30"
+                      }`}
+                    >
+                      {isDone ? (
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                        </svg>
+                      ) : (
+                        num
+                      )}
+                    </div>
+                    <span
+                      className={`text-[12px] font-medium whitespace-nowrap ${
+                        isActive ? "text-[#050505]" : isDone ? "text-black/50" : "text-black/30"
+                      }`}
+                    >
+                      {label}
+                    </span>
+                  </button>
+                  {!isLast && (
+                    <div className={`mx-2 mb-5 h-[2px] flex-1 rounded-full transition-all ${isDone ? "bg-[#050505]" : "bg-black/10"}`} />
                   )}
-                  {isDone && !isActive && (
-                    <span className="absolute bottom-0 left-0 right-6 h-[2px] rounded-full bg-black/20" />
-                  )}
-                </button>
+                </div>
               );
             })}
           </div>
