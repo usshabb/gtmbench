@@ -138,7 +138,7 @@ function ProfileFormModal({
         ? `${apiBaseUrl}/buyer-profiles/${profile._id}`
         : `${apiBaseUrl}/buyer-profiles`;
 
-      const response = await fetch(url, {
+      const response = await apiFetch(url, {
         method: isEditing ? "PUT" : "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
         body: JSON.stringify({ name: name.trim(), titles: allTitles }),
