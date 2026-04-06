@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { LetterAvatar, DATA_CHANGED_EVENT, safeJson, dispatchGlobalAction, dispatchDataChanged, apiFetch } from "../components";
@@ -9,11 +9,18 @@ interface CompanyRecord {
   _id?: string;
   userEmails: string[];
   domain: string;
+  buyerProfileId?: string | null;
   createdAt: string;
   enrichedAt?: string;
   enrichmentStatus: "pending" | "completed" | "failed";
   enrichmentData?: Record<string, unknown>;
   enrichmentError?: string;
+}
+
+interface BuyerProfile {
+  _id: string;
+  name: string;
+  isDefault?: boolean;
 }
 
 interface SkillRecord {
@@ -78,7 +85,7 @@ function SkillsModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 p-4 pt-[18vh] backdrop-blur-[2px]"
+      className="fixed inset-0 z-[500] flex items-start justify-center bg-black/30 p-4 pt-[18vh] backdrop-blur-[2px]"
       onClick={onClose}
     >
       <div className="w-full max-w-sm rounded-lg bg-white shadow-lg" onClick={(e) => e.stopPropagation()}>
@@ -133,6 +140,108 @@ function SkillsModal({
 }
 
 /* ------------------------------------------------------------------ */
+/*  Change Buyer Profile Modal                                          */
+/* ------------------------------------------------------------------ */
+
+function ChangeBuyerProfileModal({
+  entityName,
+  currentProfileId,
+  allProfiles,
+  isCompany,
+  onClose,
+  onConfirm,
+}: {
+  entityName: string;
+  currentProfileId: string | null;
+  allProfiles: BuyerProfile[];
+  isCompany: boolean;
+  onClose: () => void;
+  onConfirm: (profileId: string | null) => Promise<void>;
+}) {
+  const [selected, setSelected] = useState<string | null>(currentProfileId);
+  const [saving, setSaving] = useState(false);
+
+  async function handleConfirm() {
+    setSaving(true);
+    try {
+      await onConfirm(selected);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[500] flex items-start justify-center bg-black/30 p-4 pt-[18vh] backdrop-blur-[2px]" onClick={onClose}>
+      <div className="w-full max-w-sm rounded-lg bg-white shadow-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 pt-5 pb-3">
+          <div>
+            <h2 className="text-[15px] font-semibold text-[#1b1b1f]">Change Buyer Profile</h2>
+            <p className="mt-0.5 text-[12px] text-[#8b8d94] truncate max-w-[220px]">{entityName}</p>
+          </div>
+          <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-md text-[#8b8d94] hover:bg-[#ededf0] transition-colors">
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        <div className="px-5 pb-2 space-y-1.5">
+          {allProfiles.map((p) => (
+            <label
+              key={p._id}
+              className={`flex items-center gap-3 rounded-md border px-3 py-2.5 cursor-pointer transition-colors ${
+                selected === p._id ? "border-[#1b1b1f] bg-[#f9f9fb]" : "border-[#e6e6e9] hover:bg-[#f5f5f7]"
+              }`}
+            >
+              <input
+                type="radio"
+                name="buyerProfile"
+                checked={selected === p._id}
+                onChange={() => setSelected(p._id)}
+                className="h-3.5 w-3.5 accent-[#1b1b1f]"
+              />
+              <span className="text-[13px] font-medium text-[#1b1b1f]">{p.name}</span>
+              {p.isDefault && <span className="ml-auto text-[11px] text-[#8b8d94]">Default</span>}
+            </label>
+          ))}
+          <label
+            className={`flex items-center gap-3 rounded-md border px-3 py-2.5 cursor-pointer transition-colors ${
+              selected === null ? "border-[#1b1b1f] bg-[#f9f9fb]" : "border-[#e6e6e9] hover:bg-[#f5f5f7]"
+            }`}
+          >
+            <input
+              type="radio"
+              name="buyerProfile"
+              checked={selected === null}
+              onChange={() => setSelected(null)}
+              className="h-3.5 w-3.5 accent-[#1b1b1f]"
+            />
+            <span className="text-[13px] text-[#6b6f76]">None</span>
+          </label>
+        </div>
+
+        {isCompany && (
+          <p className="mx-5 mt-2 rounded-md bg-amber-50 px-3 py-2 text-[12px] text-amber-700">
+            This will update the buyer profile for all people linked to this company.
+          </p>
+        )}
+
+        <div className="flex items-center justify-end gap-2 px-5 py-4">
+          <button onClick={onClose} className="rounded-md border border-[#e6e6e9] px-3 py-1.5 text-[13px] font-medium text-[#6b6f76] hover:bg-[#f5f5f7] transition-colors">
+            Cancel
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={saving || selected === currentProfileId}
+            className="rounded-md bg-[#1b1b1f] px-3 py-1.5 text-[13px] font-medium text-white hover:bg-[#2c2c33] disabled:opacity-50 transition-colors"
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Company Card                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -143,6 +252,11 @@ function CompanyCard({
   atsInfo,
   enabledSkills,
   isDetectingATS,
+  buyerProfile,
+  allBuyerProfiles,
+  onBuyerProfileUpdated,
+  apiBaseUrl,
+  authToken,
 }: {
   company: CompanyRecord;
   onRemove: (id: string) => void;
@@ -150,9 +264,17 @@ function CompanyCard({
   atsInfo?: { detectionStatus?: string; atsName?: string | null; careerPageUrl?: string | null };
   enabledSkills: SkillRecord[];
   isDetectingATS: string | null;
+  buyerProfile?: BuyerProfile;
+  allBuyerProfiles: BuyerProfile[];
+  onBuyerProfileUpdated: (companyId: string, buyerProfileId: string | null) => void;
+  apiBaseUrl: string;
+  authToken: string;
 }) {
   const [showSkillsModal, setShowSkillsModal] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const [showBuyerProfileModal, setShowBuyerProfileModal] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
+  const menuBtnRef = useRef<HTMLButtonElement>(null);
 
   const data = getFiberData(company);
   const name = (data?.preferred_name ?? company.domain) as string;
@@ -194,7 +316,12 @@ function CompanyCard({
         </div>
 
         {/* Pills */}
-        <div className="relative z-10 hidden items-center gap-2 sm:flex">
+        <div className="relative z-[100] hidden items-center gap-2 sm:flex">
+          {buyerProfile && (
+            <span className="rounded-full border border-[#e6e6e9] bg-[#f5f5f7] px-2.5 py-0.5 text-[12px] font-medium text-[#6b6f76]">
+              {buyerProfile.name}
+            </span>
+          )}
           {employeesStr && (
             <span className="rounded-md border border-[#e6e6e9] bg-[#f5f5f7] px-2.5 py-0.5 text-[12px] font-medium text-[#6b6f76]">
               {employeesStr} People
@@ -214,17 +341,36 @@ function CompanyCard({
             </button>
           )}
           {/* More menu */}
-          <div className="relative">
+          <div>
             <button
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu((v) => !v); }}
+              ref={menuBtnRef}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                if (!showMenu && menuBtnRef.current) {
+                  const rect = menuBtnRef.current.getBoundingClientRect();
+                  setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                }
+                setShowMenu((v) => !v);
+              }}
               className="flex h-7 w-7 items-center justify-center rounded-md text-[#8b8d94] transition-all hover:bg-[#ededf0] hover:text-[#6b6f76]"
             >
               <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" /></svg>
             </button>
-            {showMenu && (
+            {showMenu && menuPos && (
               <>
-                <div className="fixed inset-0 z-20" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(false); }} />
-                <div className="absolute right-0 top-8 z-30 w-36 rounded-md border border-[#e6e6e9] bg-white py-1 shadow-sm">
+                <div className="fixed inset-0 z-[150]" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(false); }} />
+                <div
+                  className="fixed z-[200] w-44 rounded-md border border-[#e6e6e9] bg-white py-1 shadow-sm"
+                  style={{ top: menuPos.top, right: menuPos.right }}
+                >
+                  <button
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(false); setShowBuyerProfileModal(true); }}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-[#1b1b1f] hover:bg-[#f5f5f7] transition-colors"
+                  >
+                    <svg className="h-3.5 w-3.5 text-[#6b6f76]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                    Buyer Profile
+                  </button>
                   <button
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(false); if (company._id) onRemove(company._id); }}
                     className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-red-600 hover:bg-red-50 transition-colors"
@@ -248,6 +394,26 @@ function CompanyCard({
           onClose={() => setShowSkillsModal(false)}
           onDetectATS={onDetectATS}
           isDetectingATS={isDetectingATS}
+        />
+      )}
+      {showBuyerProfileModal && company._id && (
+        <ChangeBuyerProfileModal
+          entityName={name}
+          currentProfileId={company.buyerProfileId ?? null}
+          allProfiles={allBuyerProfiles}
+          isCompany={true}
+          onClose={() => setShowBuyerProfileModal(false)}
+          onConfirm={async (profileId) => {
+            const res = await apiFetch(`${apiBaseUrl}/companies/${company._id}/buyer-profile`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+              body: JSON.stringify({ buyerProfileId: profileId }),
+            });
+            if (res.ok) {
+              onBuyerProfileUpdated(company._id!, profileId);
+              setShowBuyerProfileModal(false);
+            }
+          }}
         />
       )}
     </>
@@ -290,6 +456,7 @@ export default function CompaniesPage() {
   const [enabledSkills, setEnabledSkills] = useState<SkillRecord[]>([]);
   const [isDetectingATS, setIsDetectingATS] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [buyerProfiles, setBuyerProfiles] = useState<BuyerProfile[]>([]);
 
   useEffect(() => {
     const storedToken = window.localStorage.getItem(localStorageTokenKey);
@@ -303,6 +470,12 @@ export default function CompaniesPage() {
       .then(async (res) => {
         const data = (await safeJson(res)) as { skills?: SkillRecord[] };
         setEnabledSkills((data.skills ?? []).filter((s) => s.enabled));
+      })
+      .catch(() => {});
+    void apiFetch(`${apiBaseUrl}/buyer-profiles`, { headers: { Authorization: `Bearer ${authToken}` } })
+      .then(async (res) => {
+        const data = (await safeJson(res)) as { profiles?: BuyerProfile[] };
+        setBuyerProfiles(data.profiles ?? []);
       })
       .catch(() => {});
   }, [apiBaseUrl, authToken]);
@@ -353,6 +526,10 @@ export default function CompaniesPage() {
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Could not remove company");
     }
+  }
+
+  function handleBuyerProfileUpdated(companyId: string, buyerProfileId: string | null) {
+    setCompanies((prev) => prev.map((c) => c._id === companyId ? { ...c, buyerProfileId } : c));
   }
 
   async function handleDetectATS(id: string) {
@@ -442,6 +619,11 @@ export default function CompaniesPage() {
                 atsInfo={company._id ? atsData[company._id] : undefined}
                 enabledSkills={enabledSkills}
                 isDetectingATS={isDetectingATS}
+                buyerProfile={company.buyerProfileId ? buyerProfiles.find((p) => p._id === company.buyerProfileId) : undefined}
+                allBuyerProfiles={buyerProfiles}
+                onBuyerProfileUpdated={handleBuyerProfileUpdated}
+                apiBaseUrl={apiBaseUrl}
+                authToken={authToken}
               />
             ))}
             {filteredCompanies.length === 0 && companies.length > 0 && (

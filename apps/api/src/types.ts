@@ -45,6 +45,7 @@ export interface CompanyRecord {
   _id?: ObjectId;
   userEmails: string[];
   domain: string;
+  buyerProfileId?: ObjectId | null;
   createdAt: string;
   enrichedAt?: string;
   enrichmentStatus: "pending" | "completed" | "failed";
