@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { LetterAvatar, safeJson, apiFetch } from "../../components";
+import { LetterAvatar, safeJson, dispatchDataChanged, apiFetch } from "../../components";
 
 interface PersonRecord {
   _id?: string;
@@ -124,6 +124,7 @@ function PersonDetailInner() {
         const data = (await safeJson(res)) as { error?: string };
         throw new Error(data.error ?? "Could not remove person");
       }
+      dispatchDataChanged();
       router.replace("/dashboard/people");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not remove person");
@@ -378,10 +379,10 @@ function PersonDetailInner() {
   ];
 
   return (
-    <div className="h-full overflow-y-auto bg-[#f8f8f7]">
+    <div className="h-full overflow-y-auto bg-white">
       <div className="mx-auto max-w-3xl px-4 pt-6 pb-8">
         {/* Header card */}
-        <div className="relative flex items-center gap-4 rounded-2xl border border-zinc-200 bg-white px-5 py-4 shadow-sm">
+        <div className="relative flex items-center gap-4 rounded-xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
           <LetterAvatar name={fullName} size="lg" src={photoUrl} />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -432,7 +433,7 @@ function PersonDetailInner() {
             {showMenu && (
               <>
                 <div className="fixed inset-0 z-20" onClick={() => setShowMenu(false)} />
-                <div className="absolute right-0 top-8 z-30 w-36 rounded-xl border border-zinc-200 bg-white py-1 shadow-lg">
+                <div className="absolute right-0 top-8 z-30 w-36 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
                   <button
                     onClick={() => { setShowMenu(false); handleRemove(); }}
                     disabled={isRemoving}
@@ -453,7 +454,7 @@ function PersonDetailInner() {
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`rounded-[12px] px-4 py-1.5 text-[13px] font-medium transition-colors ${
+              className={`rounded-lg px-4 py-1.5 text-[13px] font-medium transition-colors ${
                 activeTab === tab.key
                   ? "bg-zinc-200 text-zinc-900"
                   : "border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
@@ -471,7 +472,7 @@ function PersonDetailInner() {
             {companyLead && (
               <Link
                 href={`/dashboard/companies/${companyLead._id}`}
-                className="mt-6 flex items-center gap-4 rounded-xl border border-zinc-100 bg-white px-5 py-4 transition-colors hover:border-zinc-200"
+                className="mt-6 flex items-center gap-4 rounded-xl border border-zinc-200 bg-white px-5 py-4 transition-colors hover:border-zinc-200"
               >
                 <LetterAvatar name={companyName as string ?? "?"} size="md" rounded="lg" src={companyLogo} />
                 <div className="min-w-0 flex-1">
@@ -484,16 +485,16 @@ function PersonDetailInner() {
 
             {/* Bio + Details card */}
             {(bio || infoItems.length > 0) && (
-              <div className="mt-6 rounded-xl border border-zinc-100 bg-white">
+              <div className="mt-6 rounded-xl border border-zinc-200 bg-white">
                 {bio && (
-                  <div className={`px-5 py-4${infoItems.length > 0 ? " border-b border-zinc-100" : ""}`}>
+                  <div className={`px-5 py-4${infoItems.length > 0 ? " border-b border-zinc-200" : ""}`}>
                     <p className="text-sm leading-relaxed text-zinc-600">{bio}</p>
                   </div>
                 )}
                 {infoItems.length > 0 && (
                   <div className="px-4 py-3 flex flex-wrap gap-2">
                     {infoItems.map((item) => (
-                      <span key={item.label} className="rounded-[12px] border border-zinc-100 bg-zinc-50 px-3 py-1.5 text-[12px]">
+                      <span key={item.label} className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[12px]">
                         <span className="text-zinc-400">{item.label}</span>
                         <span className="ml-1.5 font-semibold text-zinc-800">{item.value}</span>
                       </span>
@@ -505,8 +506,8 @@ function PersonDetailInner() {
 
             {/* Skills */}
             {skills && skills.length > 0 && (
-              <div className="mt-6 rounded-xl border border-zinc-100 bg-white">
-                <div className="px-4 py-3 border-b border-zinc-100">
+              <div className="mt-6 rounded-xl border border-zinc-200 bg-white">
+                <div className="px-4 py-3 border-b border-zinc-200">
                   <h2 className="text-[13px] font-semibold text-zinc-700">Skills</h2>
                 </div>
                 <div className="px-4 py-3 flex flex-wrap gap-1.5">
@@ -521,8 +522,8 @@ function PersonDetailInner() {
           <div>
             {/* Experience */}
             {experiences && experiences.length > 0 && (
-              <div className="mt-6 rounded-xl border border-zinc-100 bg-white">
-                <div className="px-4 py-3 border-b border-zinc-100">
+              <div className="mt-6 rounded-xl border border-zinc-200 bg-white">
+                <div className="px-4 py-3 border-b border-zinc-200">
                   <h2 className="text-[13px] font-semibold text-zinc-700">Experience</h2>
                 </div>
                 <div className="px-4 py-3">
@@ -552,8 +553,8 @@ function PersonDetailInner() {
 
             {/* Education */}
             {education && education.length > 0 && (
-              <div className="mt-6 rounded-xl border border-zinc-100 bg-white">
-                <div className="px-4 py-3 border-b border-zinc-100">
+              <div className="mt-6 rounded-xl border border-zinc-200 bg-white">
+                <div className="px-4 py-3 border-b border-zinc-200">
                   <h2 className="text-[13px] font-semibold text-zinc-700">Education</h2>
                 </div>
                 <div className="divide-y divide-zinc-100">
@@ -579,8 +580,8 @@ function PersonDetailInner() {
           /* Email tab */
           <div className="mt-6">
             {/* Email actions */}
-            <div className="rounded-xl border border-zinc-100 bg-white">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-100">
+            <div className="rounded-xl border border-zinc-200 bg-white">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200">
                 <h2 className="text-[13px] font-semibold text-zinc-700">Email</h2>
                 <div className="flex items-center gap-2">
                   {gmailConnected && (
@@ -608,7 +609,7 @@ function PersonDetailInner() {
                   <p className="text-[13px] text-zinc-500 mb-3">Connect Gmail to see email history and send emails.</p>
                   <button
                     onClick={connectGmail}
-                    className="inline-flex items-center gap-1.5 rounded-[12px] border border-zinc-200 px-3 py-1.5 text-[13px] font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-1.5 text-[13px] font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
                   >
                     <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4-8 5-8-5V6l8 5 8-5v2z"/></svg>
                     Connect Gmail
@@ -624,7 +625,7 @@ function PersonDetailInner() {
                     <button
                       onClick={() => void handleFindEmail()}
                       disabled={enriching}
-                      className="flex items-center gap-1.5 rounded-[12px] bg-zinc-900 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
+                      className="flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
                     >
                       {enriching && !showManualEmail ? (
                         <><div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />Finding email...</>
@@ -644,13 +645,13 @@ function PersonDetailInner() {
                         value={manualEmailInput}
                         onChange={(e) => setManualEmailInput(e.target.value)}
                         placeholder="e.g. name@company.com"
-                        className="flex-1 rounded-[12px] border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px] text-zinc-800 outline-none focus:border-zinc-300 focus:bg-white"
+                        className="flex-1 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px] text-zinc-800 outline-none focus:border-zinc-300 focus:bg-white"
                         onKeyDown={(e) => { if (e.key === "Enter") void handleSetManualEmail(); }}
                       />
                       <button
                         onClick={() => void handleSetManualEmail()}
                         disabled={enriching || !manualEmailInput.trim()}
-                        className="rounded-[12px] border border-zinc-200 px-3 py-2 text-[12px] font-medium text-zinc-600 hover:bg-zinc-50 disabled:opacity-50"
+                        className="rounded-lg border border-zinc-200 px-3 py-2 text-[12px] font-medium text-zinc-600 hover:bg-zinc-50 disabled:opacity-50"
                       >
                         {enriching && showManualEmail ? "Saving..." : "Save"}
                       </button>
@@ -699,8 +700,8 @@ function PersonDetailInner() {
         {/* Compose modal */}
         {showCompose && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-            <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl">
-              <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4">
+            <div className="w-full max-w-lg rounded-xl bg-white shadow-2xl">
+              <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
                 <h3 className="text-[14px] font-semibold text-zinc-900">New Email</h3>
                 <button onClick={() => { setShowCompose(false); setSendError(""); setSendSuccess(false); }} className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100">
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -715,7 +716,7 @@ function PersonDetailInner() {
                       value={composeTo}
                       onChange={(e) => setComposeTo(e.target.value)}
                       placeholder={!composeTo ? "No email found" : ""}
-                      className="flex-1 rounded-[12px] border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px] text-zinc-800 outline-none focus:border-zinc-300 focus:bg-white"
+                      className="flex-1 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px] text-zinc-800 outline-none focus:border-zinc-300 focus:bg-white"
                     />
                     {!composeTo && (
                       <button
@@ -724,7 +725,7 @@ function PersonDetailInner() {
                           // After finding, personEmail will update via setPerson — set composeTo
                         }}
                         disabled={enriching}
-                        className="shrink-0 flex items-center gap-1.5 rounded-[12px] bg-zinc-900 px-3 py-2 text-[12px] font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
+                        className="shrink-0 flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-2 text-[12px] font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
                       >
                         {enriching ? (
                           <><div className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />Finding...</>
@@ -740,7 +741,7 @@ function PersonDetailInner() {
                     type="text"
                     value={composeSubject}
                     onChange={(e) => setComposeSubject(e.target.value)}
-                    className="mt-1 w-full rounded-[12px] border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px] text-zinc-800 outline-none focus:border-zinc-300 focus:bg-white"
+                    className="mt-1 w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px] text-zinc-800 outline-none focus:border-zinc-300 focus:bg-white"
                   />
                 </div>
                 <div>
@@ -749,23 +750,23 @@ function PersonDetailInner() {
                     rows={6}
                     value={composeBody}
                     onChange={(e) => setComposeBody(e.target.value)}
-                    className="mt-1 w-full rounded-[12px] border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px] text-zinc-800 outline-none focus:border-zinc-300 focus:bg-white resize-none"
+                    className="mt-1 w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px] text-zinc-800 outline-none focus:border-zinc-300 focus:bg-white resize-none"
                   />
                 </div>
                 {sendError && <p className="text-[12px] text-red-500">{sendError}</p>}
                 {sendSuccess && <p className="text-[12px] text-emerald-600">Email sent!</p>}
               </div>
-              <div className="flex justify-end gap-2 border-t border-zinc-100 px-5 py-4">
+              <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-4">
                 <button
                   onClick={() => { setShowCompose(false); setSendError(""); }}
-                  className="rounded-[12px] px-4 py-2 text-[13px] text-zinc-500 hover:bg-zinc-50"
+                  className="rounded-lg px-4 py-2 text-[13px] text-zinc-500 hover:bg-zinc-50"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleSendEmail}
                   disabled={sending || !composeTo || !composeSubject || !composeBody}
-                  className="rounded-[12px] bg-zinc-900 px-4 py-2 text-[13px] font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
+                  className="rounded-lg bg-zinc-900 px-4 py-2 text-[13px] font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
                 >
                   {sending ? "Sending..." : "Send"}
                 </button>

@@ -160,12 +160,12 @@ function ProfileFormModal({
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 pt-[12vh] backdrop-blur-[2px]" onClick={onClose}>
       <form
         onSubmit={handleSubmit}
-        className="flex w-full max-w-lg flex-col rounded-3xl bg-white shadow-2xl"
+        className="flex w-full max-w-lg flex-col rounded-xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-7 pt-7 pb-6">
-          <h2 className="text-[22px] font-bold text-zinc-900">
+        <div className="flex items-center justify-between px-5 pt-5 pb-4">
+          <h2 className="text-[17px] font-bold text-zinc-900">
             {isEditing ? "Edit Buyer Profile" : "New Buyer Profile"}
           </h2>
           <button
@@ -180,12 +180,12 @@ function ProfileFormModal({
         </div>
 
         {/* Body */}
-        <div className="px-7 pb-6 space-y-6">
+        <div className="px-5 pb-5 space-y-6">
           {/* Profile Name */}
           <div>
             <label className="block text-[14px] font-semibold text-zinc-900 mb-2">Profile Name</label>
             <input
-              className="w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-[14px] text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none transition-colors"
+              className="w-full rounded-lg border border-zinc-200 bg-white px-4 py-3 text-[14px] text-zinc-900 placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none transition-colors"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -202,7 +202,7 @@ function ProfileFormModal({
 
             {/* Tag box */}
             <div
-              className="flex min-h-[52px] flex-wrap gap-2 rounded-xl border border-zinc-200 bg-white px-3.5 py-2.5 cursor-text focus-within:border-zinc-400 transition-colors"
+              className="flex min-h-[52px] flex-wrap gap-2 rounded-lg border border-zinc-200 bg-white px-3.5 py-2.5 cursor-text focus-within:border-zinc-400 transition-colors"
               onClick={() => inputRef.current?.focus()}
             >
               {titles.map((title, i) => (
@@ -240,18 +240,18 @@ function ProfileFormModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between border-t border-zinc-100 px-7 py-5">
+        <div className="flex items-center justify-between border-t border-zinc-100 px-5 py-3">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-xl border border-zinc-200 px-6 py-3 text-[14px] font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
+            className="rounded-lg border border-zinc-200 px-4 py-2 text-[14px] font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={isLoading}
-            className="rounded-xl bg-zinc-900 px-6 py-3 text-[14px] font-semibold text-white transition-all hover:bg-black disabled:opacity-60"
+            className="rounded-lg bg-zinc-900 px-4 py-2 text-[14px] font-semibold text-white transition-all hover:bg-black disabled:opacity-60"
           >
             {isLoading ? "Saving…" : isEditing ? "Save Changes" : "Create Profile"}
           </button>
@@ -329,7 +329,7 @@ function ProfileCard({
 
   return (
     <div
-      className={`group relative flex flex-col rounded-2xl border bg-white px-5 py-4 shadow-sm transition-all hover:shadow-md hover:border-zinc-300 ${profile.isDefault ? "border-zinc-300" : "border-zinc-200"}`}
+      className={`group relative flex flex-col rounded-xl border bg-white px-5 py-4 shadow-sm transition-all hover:shadow-md hover:border-zinc-300 ${profile.isDefault ? "border-zinc-300" : "border-zinc-200"}`}
       onClick={onEdit}
     >
       {/* Header row */}
@@ -362,7 +362,7 @@ function ProfileCard({
           {showMenu && (
             <>
               <div className="fixed inset-0 z-20" onClick={(e) => { e.stopPropagation(); setShowMenu(false); }} />
-              <div className="absolute right-0 top-8 z-30 w-40 rounded-xl border border-zinc-200 bg-white py-1 shadow-lg">
+              <div className="absolute right-0 top-8 z-30 w-40 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
                 <button
                   onClick={(e) => { e.stopPropagation(); setShowMenu(false); onEdit(); }}
                   className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-zinc-700 hover:bg-zinc-50 transition-colors"
@@ -455,7 +455,7 @@ function AddProfileCard({ onClick }: { onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      className="group flex flex-col items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed border-zinc-200 bg-white transition-all hover:border-zinc-300 hover:bg-zinc-50 min-h-[230px]"
+      className="group flex flex-col items-center justify-center overflow-hidden rounded-xl border-2 border-dashed border-zinc-200 bg-white transition-all hover:border-zinc-300 hover:bg-zinc-50 min-h-[230px]"
     >
       <div className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-dashed border-zinc-300 text-zinc-300 transition-colors group-hover:border-zinc-400 group-hover:text-zinc-400">
         <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -566,7 +566,7 @@ export default function BuyerProfilesPage() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-[#f8f8f7]">
+    <div className="flex h-full flex-col bg-white">
       {error && <p className="px-6 pt-4 text-[13px] text-red-400">{error}</p>}
 
       <div className="flex-1 overflow-y-auto">

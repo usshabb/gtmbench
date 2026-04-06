@@ -24,6 +24,8 @@ export interface UserRecord {
   role: "admin" | "member";
   onboardingComplete: boolean;
   shareWithWorkspace?: boolean; // default true; when false, this user's Gmail/Calendar tokens are not shared
+  gmailConnected?: boolean;    // true when user has explicitly connected Gmail from settings
+  calendarConnected?: boolean; // true when user has explicitly connected Calendar from settings
   createdAt: string;
   updatedAt: string;
 }

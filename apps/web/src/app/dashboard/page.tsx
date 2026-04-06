@@ -369,7 +369,7 @@ function LinkedinCard({
   const data = signal.data as LinkedinPostData;
 
   return (
-    <div className={`overflow-hidden rounded-2xl border bg-white shadow-sm transition-all duration-200 ${onRestore ? "border-zinc-100 opacity-60" : "border-zinc-200 hover:shadow-md hover:-translate-y-0.5"}`}>
+    <div className={`overflow-hidden rounded-xl border bg-white shadow-sm transition-all duration-200 ${onRestore ? "border-zinc-100 opacity-60" : "border-zinc-200 hover:shadow-md hover:-translate-y-0.5"}`}>
       {/* Clickable content area */}
       <a
         href={data.postUrl}
@@ -478,7 +478,7 @@ function BuyerPickerModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-xl animate-slide-up"
+        className="w-full max-w-sm overflow-hidden rounded-xl bg-white shadow-xl animate-slide-up"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4">
@@ -541,7 +541,7 @@ function ATSCard({
   const domain = item.signal.companyDomain;
 
   return (
-    <div className={`overflow-hidden rounded-2xl border bg-white shadow-sm transition-all duration-200 ${onRestore ? "border-zinc-100 opacity-60" : "border-zinc-200 hover:shadow-md hover:-translate-y-0.5"}`}>
+    <div className={`overflow-hidden rounded-xl border bg-white shadow-sm transition-all duration-200 ${onRestore ? "border-zinc-100 opacity-60" : "border-zinc-200 hover:shadow-md hover:-translate-y-0.5"}`}>
       {/* Clickable content area — links to first job's page */}
       <a
         href={item.jobs[0]?.jobUrl ?? undefined}
@@ -657,7 +657,7 @@ function EmailComposeModal({
       onClick={() => !sending && onClose()}
     >
       <div
-        className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl"
+        className="w-full max-w-lg overflow-hidden rounded-xl bg-white shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -1055,18 +1055,18 @@ export default function SignalsPage() {
   }, [dismissedSignals]);
 
   return (
-    <div className="flex h-full flex-col bg-[#fafafa]">
+    <div className="flex h-full flex-col bg-white">
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         {/* Greeting header */}
-        <div className="flex flex-col items-center pt-14 pb-6 text-center">
+        <div className="flex flex-col items-center pt-10 pb-4 text-center">
           <h1 className="text-[30px] font-bold tracking-tight text-zinc-900">
             {getGreeting()}{userName ? `, ${userName}` : ""} 👋
           </h1>
         </div>
 
         {/* Week date strip */}
-        <div className="pb-8">
+        <div className="pb-6">
           <WeekStrip
             selectedDateKey={selectedDateKey}
             onSelect={setSelectedDateKey}

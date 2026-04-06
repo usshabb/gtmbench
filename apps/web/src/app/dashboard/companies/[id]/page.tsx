@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
-import { LetterAvatar, safeJson, apiFetch } from "../../components";
+import { LetterAvatar, safeJson, dispatchDataChanged, apiFetch } from "../../components";
 
 interface CompanyRecord {
   _id?: string;
@@ -256,6 +256,7 @@ function BuyersTab({
       }
 
       setAddedSlugs((prev) => new Set(prev).add(person.primary_slug));
+      dispatchDataChanged();
       onPersonAdded?.();
     } catch (err) {
       setAddError(err instanceof Error ? err.message : "Could not add person");
@@ -297,12 +298,12 @@ function BuyersTab({
   return (
     <div>
       {/* Controls */}
-      <div className="rounded-xl border border-zinc-100 bg-white">
+      <div className="rounded-xl border border-zinc-200 bg-white">
         <div className="flex items-center gap-3 px-4 py-3">
           <div className="relative min-w-0 flex-1">
             <button
               onClick={() => setShowProfileDropdown((v) => !v)}
-              className="flex w-full items-center justify-between rounded-[12px] border border-zinc-200 bg-zinc-50 px-3 py-2 text-left text-[13px] text-zinc-700 transition-all hover:bg-zinc-100"
+              className="flex w-full items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-left text-[13px] text-zinc-700 transition-all hover:bg-zinc-100"
             >
               <span className="truncate">{selectedProfile?.name ?? "Select profile"}{selectedProfile?.isDefault ? " (Default)" : ""}</span>
               <svg className={`h-3.5 w-3.5 shrink-0 text-zinc-400 transition-transform ${showProfileDropdown ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
@@ -310,7 +311,7 @@ function BuyersTab({
             {showProfileDropdown && (
               <>
                 <div className="fixed inset-0 z-20" onClick={() => setShowProfileDropdown(false)} />
-                <div className="absolute left-0 right-0 top-full z-30 mt-1 rounded-xl border border-zinc-200 bg-white py-1 shadow-lg">
+                <div className="absolute left-0 right-0 top-full z-30 mt-1 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
                   {profiles.map((p) => (
                     <button
                       key={p._id}
@@ -330,7 +331,7 @@ function BuyersTab({
           <button
             onClick={() => handleSearch()}
             disabled={isSearching || !selectedProfileId}
-            className="flex shrink-0 items-center gap-1.5 rounded-[12px] border border-zinc-200 bg-white px-3 py-2 text-[13px] font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:opacity-60"
+            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-[13px] font-medium text-zinc-700 transition-colors hover:bg-zinc-50 disabled:opacity-60"
           >
             {isSearching ? (
               <>
@@ -356,7 +357,7 @@ function BuyersTab({
         </div>
         {/* Profile titles + last fetched */}
         {selectedProfile && selectedProfile.titles.length > 0 && (
-          <div className="flex items-center gap-2 border-t border-zinc-100 px-4 py-2.5">
+          <div className="flex items-center gap-2 border-t border-zinc-200 px-4 py-2.5">
             <div className="flex flex-1 flex-wrap items-center gap-1.5">
               {selectedProfile.titles.map((t, i) => (
                 <span key={i} className="rounded-[10px] bg-zinc-100 px-2.5 py-0.5 text-[11px] font-medium text-zinc-600">{t}</span>
@@ -394,7 +395,7 @@ function BuyersTab({
               <p className="text-[13px] text-zinc-500">No buyers found matching this profile at this company</p>
             </div>
           ) : (
-            <div className="rounded-xl border border-zinc-100 bg-white divide-y divide-zinc-100">
+            <div className="rounded-xl border border-zinc-200 bg-white divide-y divide-zinc-200">
               {buyers.map((person) => {
                 const isAdded = addedSlugs.has(person.primary_slug) || existingPersonSlugs.has(person.primary_slug);
                 const isAdding = addingSlug === person.primary_slug;
@@ -448,7 +449,7 @@ function BuyersTab({
               <button
                 onClick={() => handleSearch(nextCursor)}
                 disabled={isLoadingMore}
-                className="rounded-[12px] border border-zinc-200 bg-white px-4 py-2 text-[13px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-60"
+                className="rounded-lg border border-zinc-200 bg-white px-4 py-2 text-[13px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-60"
               >
                 {isLoadingMore ? "Loading..." : "Load More"}
               </button>
@@ -531,7 +532,7 @@ function JobsTab({
         {jobs.map((job) => (
           <div
             key={job._id ?? job.jobUrl ?? job.title}
-            className="flex items-center gap-3 rounded-lg border border-zinc-100 px-4 py-3 transition-colors hover:bg-zinc-50"
+            className="flex items-center gap-3 rounded-lg border border-zinc-200 px-4 py-3 transition-colors hover:bg-zinc-50"
           >
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zinc-100">
               <svg className="h-4 w-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -616,6 +617,7 @@ export default function CompanyDetailPage() {
         const data = (await safeJson(res)) as { error?: string };
         throw new Error(data.error ?? "Could not remove company");
       }
+      dispatchDataChanged();
       router.replace("/dashboard/companies");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not remove company");
@@ -788,10 +790,10 @@ export default function CompanyDetailPage() {
   const hasDetectATS = enabledSkills.some((s) => s.skillType === "detect_ats");
 
   return (
-    <div className="h-full overflow-y-auto bg-[#f8f8f7]">
+    <div className="h-full overflow-y-auto bg-white">
       <div className="mx-auto max-w-3xl px-4 pt-6 pb-8">
         {/* Header card with 3-dot menu */}
-        <div className="group relative flex items-center gap-4 rounded-2xl border border-zinc-200 bg-white px-5 py-4 shadow-sm">
+        <div className="group relative flex items-center gap-4 rounded-xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
           <LetterAvatar name={name} size="lg" rounded="lg" src={logoUrl} />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
@@ -844,7 +846,7 @@ export default function CompanyDetailPage() {
             {showMenu && (
               <>
                 <div className="fixed inset-0 z-20" onClick={() => setShowMenu(false)} />
-                <div className="absolute right-0 top-8 z-30 w-36 rounded-xl border border-zinc-200 bg-white py-1 shadow-lg">
+                <div className="absolute right-0 top-8 z-30 w-36 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
                   <button
                     onClick={() => { setShowMenu(false); handleRemove(); }}
                     disabled={isRemoving}
@@ -865,7 +867,7 @@ export default function CompanyDetailPage() {
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`rounded-[12px] px-4 py-1.5 text-[13px] font-medium transition-colors ${
+              className={`rounded-lg px-4 py-1.5 text-[13px] font-medium transition-colors ${
                 activeTab === tab.key
                   ? "bg-zinc-200 text-zinc-900"
                   : "border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
@@ -881,16 +883,16 @@ export default function CompanyDetailPage() {
           <div>
             {/* Overview card — description + key metrics */}
             {(description || statItems.length > 0) && (
-              <div className="mt-6 rounded-xl border border-zinc-100 bg-white">
+              <div className="mt-6 rounded-xl border border-zinc-200 bg-white">
                 {description && (
-                  <div className={`px-5 py-4${statItems.length > 0 ? " border-b border-zinc-100" : ""}`}>
+                  <div className={`px-5 py-4${statItems.length > 0 ? " border-b border-zinc-200" : ""}`}>
                     <p className="text-sm leading-relaxed text-zinc-600">{description}</p>
                   </div>
                 )}
                 {statItems.length > 0 && (
                   <div className="px-4 py-3 flex flex-wrap gap-2">
                     {statItems.map((stat) => (
-                      <span key={stat.label} className="rounded-[12px] border border-zinc-100 bg-zinc-50 px-3 py-1.5 text-[12px]">
+                      <span key={stat.label} className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[12px]">
                         <span className="text-zinc-400">{stat.label}</span>
                         <span className="ml-1.5 font-semibold capitalize text-zinc-800">{stat.value}</span>
                       </span>
@@ -902,8 +904,8 @@ export default function CompanyDetailPage() {
 
             {/* Funding — single component with timeline + investors */}
             {((fundingRounds && fundingRounds.length > 0) || (topInvestors && topInvestors.length > 0)) && (
-              <div className="mt-6 rounded-xl border border-zinc-100 bg-white">
-                <div className="px-4 py-3 border-b border-zinc-100">
+              <div className="mt-6 rounded-xl border border-zinc-200 bg-white">
+                <div className="px-4 py-3 border-b border-zinc-200">
                   <h2 className="text-[13px] font-semibold text-zinc-700">Funding</h2>
                 </div>
                 {/* Timeline */}
@@ -934,7 +936,7 @@ export default function CompanyDetailPage() {
                 )}
                 {/* Key Investors */}
                 {topInvestors && topInvestors.length > 0 && (
-                  <div className="px-4 py-3 border-t border-zinc-100">
+                  <div className="px-4 py-3 border-t border-zinc-200">
                     <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-400 mb-2">Key Investors</p>
                     <div className="flex flex-wrap gap-1.5">
                       {topInvestors.map((inv) => (
@@ -948,11 +950,11 @@ export default function CompanyDetailPage() {
 
             {/* Acquisitions */}
             {acquisitions && acquisitions.length > 0 && (
-              <div className="mt-6 rounded-xl border border-zinc-100 bg-white">
-                <div className="px-4 py-3 border-b border-zinc-100">
+              <div className="mt-6 rounded-xl border border-zinc-200 bg-white">
+                <div className="px-4 py-3 border-b border-zinc-200">
                   <h2 className="text-[13px] font-semibold text-zinc-700">Acquisitions</h2>
                 </div>
-                <div className="divide-y divide-zinc-100">
+                <div className="divide-y divide-zinc-200">
                   {acquisitions.map((acq, i) => (
                     <div key={i} className="flex items-center justify-between px-4 py-3 text-sm">
                       <span className="font-medium text-zinc-800">{acq.acquiree_name}</span>
@@ -982,7 +984,7 @@ export default function CompanyDetailPage() {
                       <Link
                         key={person._id}
                         href={`/dashboard/people/${person._id}`}
-                        className="flex items-center gap-3 rounded-lg border border-zinc-100 px-4 py-3 transition-colors hover:bg-zinc-50"
+                        className="flex items-center gap-3 rounded-lg border border-zinc-200 px-4 py-3 transition-colors hover:bg-zinc-50"
                       >
                         <LetterAvatar name={pName} size="xs" src={photoUrl} />
                         <div className="min-w-0 flex-1">
@@ -1010,7 +1012,7 @@ export default function CompanyDetailPage() {
             <div className="space-y-3">
               {hasDetectATS && (
                 hasATS ? (
-                  <div className="flex items-center gap-3 rounded-xl border border-zinc-100 bg-white px-4 py-3">
+                  <div className="flex items-center gap-3 rounded-xl border border-zinc-200 bg-white px-4 py-3">
                     <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
                       <svg className="h-4 w-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
                     </div>

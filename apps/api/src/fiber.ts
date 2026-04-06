@@ -6,6 +6,44 @@ interface FiberEnrichmentResult {
   error?: string;
 }
 
+export async function enrichCompanyByLinkedinId(linkedinCompanyId: string, companyName?: string): Promise<FiberEnrichmentResult> {
+  const requestBody = {
+    apiKey: env.FIBER_API_KEY,
+    companyIdentifier: {
+      identifier: "linkedinSlug",
+      value: linkedinCompanyId,
+    },
+    companyName: { value: companyName ?? null },
+    companyDomain: { value: null },
+    numCompanies: 1,
+  };
+
+  const url = `${env.FIBER_API_BASE_URL}/v1/kitchen-sink/company`;
+  console.log("[fiber] enrichCompanyByLinkedinId POST %s for linkedinId=%s companyName=%s", url, linkedinCompanyId, companyName ?? "null");
+
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody),
+    });
+
+    const responseBody = (await response.json()) as Record<string, unknown>;
+    console.log("[fiber] enrichCompanyByLinkedinId response status: %d", response.status);
+    console.log("[fiber] enrichCompanyByLinkedinId response body:", JSON.stringify(responseBody).slice(0, 2000));
+
+    if (!response.ok) {
+      return { success: false, error: `Fiber API responded with ${response.status}`, payload: responseBody };
+    }
+
+    return { success: true, payload: responseBody };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Fiber API request failed";
+    console.error("[fiber] enrichCompanyByLinkedinId error:", message);
+    return { success: false, error: message };
+  }
+}
+
 export async function enrichDomainWithFiber(domain: string): Promise<FiberEnrichmentResult> {
   const requestBody = {
     apiKey: env.FIBER_API_KEY,

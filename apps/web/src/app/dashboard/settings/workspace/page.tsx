@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "../../components";
 
@@ -53,6 +53,9 @@ export default function WorkspaceSettingsPage() {
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [inviteCreating, setInviteCreating] = useState(false);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoUploadError, setLogoUploadError] = useState("");
+  const logoInputRef = useRef<HTMLInputElement>(null);
   const checkedRef = useRef(false);
 
   useEffect(() => {
@@ -83,6 +86,27 @@ export default function WorkspaceSettingsPage() {
     }).catch(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function handleLogoUpload(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLogoUploading(true);
+    setLogoUploadError("");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("fileName", file.name);
+      const res = await fetch("/api/upload", { method: "POST", body: form });
+      const data = (await res.json()) as { url?: string; error?: string };
+      if (!res.ok || !data.url) throw new Error(data.error ?? "Upload failed");
+      setLogoUrl(data.url);
+    } catch (err) {
+      setLogoUploadError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setLogoUploading(false);
+      if (logoInputRef.current) logoInputRef.current.value = "";
+    }
+  }
 
   async function handleSave(e: FormEvent) {
     e.preventDefault();
@@ -161,7 +185,7 @@ export default function WorkspaceSettingsPage() {
         <div className="mb-6">
           <h1 className="text-lg font-semibold text-zinc-900">Workspace</h1>
         </div>
-        <div className="rounded-xl border border-zinc-200 p-8 text-center">
+        <div className="rounded-lg border border-zinc-200 p-8 text-center">
           <p className="text-[14px] font-medium text-zinc-700">No workspace set up</p>
           <p className="mt-1 text-[13px] text-zinc-400">Complete onboarding to create a workspace.</p>
           <button
@@ -184,12 +208,19 @@ export default function WorkspaceSettingsPage() {
 
       {/* Logo + name header */}
       <div className="flex items-center gap-4">
-        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50 flex items-center justify-center">
-          {logoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={logoUrl} alt="" className="h-full w-full object-contain p-1" onError={() => setLogoUrl("")} />
-          ) : (
-            <span className="text-lg font-bold text-zinc-400">{name.charAt(0).toUpperCase()}</span>
+        <div className="relative h-14 w-14 shrink-0">
+          <div className="h-14 w-14 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50 flex items-center justify-center">
+            {logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoUrl} alt="" className="h-full w-full object-contain p-1" onError={() => setLogoUrl("")} />
+            ) : (
+              <span className="text-lg font-bold text-zinc-400">{name.charAt(0).toUpperCase()}</span>
+            )}
+          </div>
+          {logoUploading && (
+            <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/30">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+            </div>
           )}
         </div>
         <div>
@@ -199,7 +230,7 @@ export default function WorkspaceSettingsPage() {
       </div>
 
       <form onSubmit={handleSave} className="space-y-4">
-        <div className="rounded-xl border border-zinc-200 divide-y divide-zinc-100">
+        <div className="rounded-lg border border-zinc-200 divide-y divide-zinc-100">
           <div className="p-4">
             <label className="block text-[13px] font-medium text-zinc-700 mb-1.5">Company name</label>
             <input
@@ -211,14 +242,42 @@ export default function WorkspaceSettingsPage() {
             />
           </div>
           <div className="p-4">
-            <label className="block text-[13px] font-medium text-zinc-700 mb-1.5">Logo URL</label>
-            <input
-              type="url"
-              value={logoUrl}
-              onChange={(e) => setLogoUrl(e.target.value)}
-              placeholder="https://..."
-              className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-[13px] placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none"
-            />
+            <label className="block text-[13px] font-medium text-zinc-700 mb-1.5">Logo</label>
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50 flex items-center justify-center">
+                {logoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={logoUrl} alt="" className="h-full w-full object-contain p-0.5" onError={() => setLogoUrl("")} />
+                ) : (
+                  <span className="text-xs font-bold text-zinc-300">{name.charAt(0).toUpperCase()}</span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => logoInputRef.current?.click()}
+                disabled={logoUploading}
+                className="rounded-lg border border-zinc-200 px-3 py-1.5 text-[12px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-60"
+              >
+                {logoUploading ? "Uploading..." : "Upload logo"}
+              </button>
+              {logoUrl && (
+                <button
+                  type="button"
+                  onClick={() => setLogoUrl("")}
+                  className="text-[12px] text-zinc-400 hover:text-red-500 transition-colors"
+                >
+                  Remove
+                </button>
+              )}
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleLogoUpload}
+              />
+            </div>
+            {logoUploadError && <p className="mt-1 text-[11px] text-red-500">{logoUploadError}</p>}
           </div>
           <div className="p-4">
             <label className="block text-[13px] font-medium text-zinc-700 mb-1.5">Website URL</label>
@@ -293,7 +352,7 @@ export default function WorkspaceSettingsPage() {
 
         {/* Pending invites */}
         {invites.length > 0 && (
-          <div className="rounded-xl border border-zinc-200 divide-y divide-zinc-100">
+          <div className="rounded-lg border border-zinc-200 divide-y divide-zinc-100">
             {invites.map((inv) => {
               const link = `${typeof window !== "undefined" ? window.location.origin : ""}/onboarding?invite=${inv.token}`;
               const isCopied = copiedToken === inv.token;
@@ -333,7 +392,7 @@ export default function WorkspaceSettingsPage() {
           <h2 className="text-[14px] font-semibold text-zinc-900 mb-3">
             Members <span className="ml-1 text-[12px] font-normal text-zinc-400">{members.length}</span>
           </h2>
-          <div className="rounded-xl border border-zinc-200 divide-y divide-zinc-100">
+          <div className="rounded-lg border border-zinc-200 divide-y divide-zinc-100">
             {members.map((m) => {
               const displayName = m.fullName ?? m.email;
               const initial = displayName.charAt(0).toUpperCase();

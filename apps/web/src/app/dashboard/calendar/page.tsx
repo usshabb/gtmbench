@@ -71,21 +71,19 @@ function eventDuration(event: CalendarEvent): string {
 /*  Meeting Card                                                        */
 /* ------------------------------------------------------------------ */
 
-function MeetingCard({ event, multiUser }: { event: CalendarEvent; multiUser: boolean }) {
+function MeetingCard({ event, multiUser, connectedUsers }: { event: CalendarEvent; multiUser: boolean; connectedUsers: { email: string; name: string; profilePhotoUrl?: string | null }[] }) {
   const matched = event.matchedPersons ?? [];
+  const sourceUser = multiUser && event.sourceUserEmail
+    ? connectedUsers.find((u) => u.email === event.sourceUserEmail)
+    : undefined;
 
   return (
-    <div className="rounded-2xl border border-zinc-200 bg-white px-5 py-4 shadow-sm transition-all hover:shadow-md hover:border-zinc-300">
+    <div className="rounded-xl border border-zinc-200 bg-white px-4 py-3 shadow-sm transition-all hover:shadow-md hover:border-zinc-300">
       {/* Top row: title + actions */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <p className="text-[14px] font-semibold text-zinc-900 truncate">{event.summary}</p>
-            {event.sourceUserName && multiUser && (
-              <span className="shrink-0 rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500">
-                via {event.sourceUserName}
-              </span>
-            )}
           </div>
           <div className="mt-0.5 flex items-center gap-2 flex-wrap text-[12px] text-zinc-400">
             <span>
@@ -151,6 +149,28 @@ function MeetingCard({ event, multiUser }: { event: CalendarEvent; multiUser: bo
           +{event.attendees.length - matched.length} other attendee{event.attendees.length - matched.length !== 1 ? "s" : ""}
         </p>
       )}
+
+      {/* Synced from indicator */}
+      {sourceUser && (
+        <div className="mt-2 flex items-center gap-1 group/source">
+          <span className="text-[10px] text-zinc-400">Synced from</span>
+          <div className="relative">
+            {sourceUser.profilePhotoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={sourceUser.profilePhotoUrl} alt="" className="h-3.5 w-3.5 rounded-full object-cover" />
+            ) : (
+              <div className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-zinc-200 text-[7px] font-bold text-zinc-500">
+                {sourceUser.name.charAt(0).toUpperCase()}
+              </div>
+            )}
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover/source:block">
+              <div className="whitespace-nowrap rounded bg-zinc-800 px-2 py-1 text-[10px] text-white shadow-lg">
+                {sourceUser.name.split(" ")[0]}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -175,7 +195,7 @@ function CalendarInner() {
   const [authToken, setAuthToken] = useState("");
   const [connected, setConnected] = useState(false);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [connectedUsers, setConnectedUsers] = useState<{ email: string; name: string }[]>([]);
+  const [connectedUsers, setConnectedUsers] = useState<{ email: string; name: string; profilePhotoUrl?: string | null }[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -298,10 +318,10 @@ function CalendarInner() {
     return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [meetings]);
 
-  const multiUser = connectedUsers.length > 1;
+  const multiUser = connectedUsers.length >= 1;
 
   return (
-    <div className="flex h-full flex-col bg-[#f8f8f7]">
+    <div className="flex h-full flex-col bg-white">
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-3xl px-4 py-6">
           {/* Header */}
@@ -384,7 +404,7 @@ function CalendarInner() {
                   <div key={dateKey}>
                     {/* Date heading */}
                     <div className="mb-3 flex items-center gap-3">
-                      <div className={`flex h-9 w-9 shrink-0 flex-col items-center justify-center rounded-xl text-center ${isSameDay(dateKey) ? "bg-zinc-900 text-white" : "bg-white border border-zinc-200 text-zinc-700"}`}>
+                      <div className={`flex h-9 w-9 shrink-0 flex-col items-center justify-center rounded-lg text-center ${isSameDay(dateKey) ? "bg-zinc-900 text-white" : "bg-white border border-zinc-200 text-zinc-700"}`}>
                         <span className="text-[10px] font-semibold uppercase leading-none tracking-wide">
                           {new Date(dateKey + "T12:00:00Z").toLocaleDateString("en-US", { month: "short" })}
                         </span>
@@ -405,7 +425,7 @@ function CalendarInner() {
                     {/* Events */}
                     <div className="ml-12 space-y-3">
                       {dayEvents.map((event) => (
-                        <MeetingCard key={event.id} event={event} multiUser={multiUser} />
+                        <MeetingCard key={event.id} event={event} multiUser={multiUser} connectedUsers={connectedUsers} />
                       ))}
                     </div>
                   </div>

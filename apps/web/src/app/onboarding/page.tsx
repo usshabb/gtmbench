@@ -168,21 +168,48 @@ function OnboardingInner() {
 
   useEffect(() => {
     const token = window.localStorage.getItem(localStorageTokenKey);
-    if (!token) { router.replace("/"); return; }
+    if (!token) {
+      // Preserve invite token in redirect so login page can show context
+      router.replace(inviteToken ? `/?invite=${inviteToken}` : "/");
+      return;
+    }
     setAuthToken(token);
     if (checkedRef.current) return;
     checkedRef.current = true;
 
     void apiFetch(`${apiBaseUrl}/me`, { headers: { Authorization: `Bearer ${token}` } })
       .then(async (res) => {
-        if (!res.ok) { router.replace("/"); return; }
+        if (!res.ok) {
+          window.localStorage.removeItem(localStorageTokenKey);
+          router.replace(inviteToken ? `/?invite=${inviteToken}` : "/");
+          return;
+        }
         const data = (await res.json()) as { email: string; onboardingComplete?: boolean; user?: { fullName?: string; profilePhotoUrl?: string } };
-        if (data.onboardingComplete) { router.replace("/dashboard"); return; }
+        if (data.onboardingComplete) {
+          // Already onboarded — if there's an invite, accept it directly
+          if (inviteToken) {
+            try {
+              const acceptRes = await apiFetch(`${apiBaseUrl}/workspace/accept-invite`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ inviteToken }),
+              });
+              if (acceptRes.ok) {
+                window.localStorage.removeItem(localStorageInviteKey);
+              }
+            } catch { /* proceed to dashboard anyway */ }
+          }
+          router.replace("/dashboard");
+          return;
+        }
         setUserEmail(data.email);
         if (data.user?.fullName) setFullName(data.user.fullName);
         if (data.user?.profilePhotoUrl) setProfilePhotoUrl(data.user.profilePhotoUrl);
       })
-      .catch(() => router.replace("/"));
+      .catch(() => {
+        window.localStorage.removeItem(localStorageTokenKey);
+        router.replace(inviteToken ? `/?invite=${inviteToken}` : "/");
+      });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -210,6 +237,13 @@ function OnboardingInner() {
     e.preventDefault();
     if (!fullName.trim()) { setError("Full name is required"); return; }
     setError("");
+
+    // If user has an invite token, skip step 2 entirely — just join the workspace
+    if (inviteToken) {
+      void handleComplete(undefined, true);
+      return;
+    }
+
     setStep(2);
     void lookupWorkspace(authToken, userEmail);
   }

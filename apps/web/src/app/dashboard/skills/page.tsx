@@ -41,7 +41,7 @@ function SkillCard({
   const [showMenu, setShowMenu] = useState(false);
 
   return (
-    <div className="group relative flex flex-col rounded-2xl border border-zinc-200 bg-white px-5 py-4 transition-all hover:border-zinc-300 hover:shadow-sm">
+    <div className="group relative flex flex-col rounded-xl border border-zinc-200 bg-white px-4 py-3 transition-all hover:border-zinc-300 hover:shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
@@ -68,7 +68,7 @@ function SkillCard({
           {showMenu && (
             <>
               <div className="fixed inset-0 z-20" onClick={() => setShowMenu(false)} />
-              <div className="absolute right-0 top-8 z-30 w-40 rounded-xl border border-zinc-200 bg-white py-1 shadow-lg">
+              <div className="absolute right-0 top-8 z-30 w-40 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
                 <button
                   onClick={() => { setShowMenu(false); onToggle(); }}
                   disabled={isToggling}
@@ -158,7 +158,7 @@ export default function SkillsPage() {
   }
 
   return (
-    <div className="flex h-full flex-col bg-[#f8f8f7]">
+    <div className="flex h-full flex-col bg-white">
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-3xl px-4 py-6">
           {/* Header */}
@@ -168,11 +168,11 @@ export default function SkillsPage() {
 
           {/* Filter tabs + Create */}
           <div className="mt-4 flex items-center justify-between">
-            <div className="flex items-center gap-2">
+            <div className="inline-flex rounded-lg bg-zinc-100 p-0.5">
               {["All", "Enabled", "Disabled"].map((tab) => (
                 <button
                   key={tab}
-                  className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-[13px] font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
+                  className="rounded-md bg-white text-zinc-900 shadow-sm px-3 py-1.5 text-[13px] font-medium transition-colors"
                 >
                   {tab}
                 </button>

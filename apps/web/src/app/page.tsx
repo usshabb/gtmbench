@@ -1,31 +1,69 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { apiFetch } from "./dashboard/components";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { apiFetch, safeJson } from "./dashboard/components";
 
 const localStorageTokenKey = "gtmbench-token";
+const localStorageInviteKey = "gtmbench-invite-token";
 
 function getApiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_BASE_URL ?? "/api-proxy";
 }
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<main className="flex min-h-screen items-center justify-center bg-[#f0eeea]"><div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" /></main>}>
+      <LoginInner />
+    </Suspense>
+  );
+}
+
+function LoginInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const apiBaseUrl = useMemo(() => getApiBaseUrl(), []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Invite token from URL or localStorage
+  const inviteToken = useMemo(() => {
+    const fromUrl = searchParams.get("invite");
+    if (fromUrl) {
+      window.localStorage.setItem(localStorageInviteKey, fromUrl);
+      return fromUrl;
+    }
+    return window.localStorage.getItem(localStorageInviteKey);
+  }, [searchParams]);
+
+  const [inviteWorkspace, setInviteWorkspace] = useState<{ name: string } | null>(null);
+
   useEffect(() => {
     const token = window.localStorage.getItem(localStorageTokenKey);
-    if (token) router.replace("/dashboard");
-  }, [router]);
+    if (token) {
+      router.replace(inviteToken ? `/onboarding?invite=${inviteToken}` : "/dashboard");
+      return;
+    }
+
+    // If we have an invite token, fetch workspace info for display
+    if (inviteToken) {
+      void apiFetch(`${apiBaseUrl}/invite/${inviteToken}`)
+        .then(async (res) => {
+          if (res.ok) {
+            const data = (await safeJson(res)) as { workspace?: { name: string } };
+            if (data.workspace) setInviteWorkspace(data.workspace);
+          }
+        })
+        .catch(() => { /* ignore */ });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleSignInWithGoogle() {
     setLoading(true);
     setError(null);
     try {
-      const pendingInvite = window.localStorage.getItem("gtmbench-invite-token");
+      const pendingInvite = inviteToken ?? window.localStorage.getItem(localStorageInviteKey);
       const params = new URLSearchParams();
       if (pendingInvite) params.set("inviteToken", pendingInvite);
 
@@ -67,8 +105,21 @@ export default function LoginPage() {
 
         {/* Bottom 30% — white CTA area */}
         <div className="flex flex-col items-center bg-white px-7 pt-6 pb-7">
-          <h2 className="mb-1 text-[17px] font-semibold text-zinc-900">Welcome to sidr</h2>
-          <p className="mb-5 text-[13px] text-zinc-400">Sign in to continue to your workspace.</p>
+          {inviteWorkspace ? (
+            <>
+              <h2 className="mb-1 text-[17px] font-semibold text-zinc-900">
+                Join {inviteWorkspace.name}
+              </h2>
+              <p className="mb-5 text-[13px] text-zinc-400">
+                Sign in with Google to accept the invitation.
+              </p>
+            </>
+          ) : (
+            <>
+              <h2 className="mb-1 text-[17px] font-semibold text-zinc-900">Welcome to sidr</h2>
+              <p className="mb-5 text-[13px] text-zinc-400">Sign in to continue to your workspace.</p>
+            </>
+          )}
 
           {error && <p className="mb-3 text-[12px] text-red-500">{error}</p>}
 
