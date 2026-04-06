@@ -856,6 +856,7 @@ app.post("/companies/preview", async (request, response) => {
       buyers,
       buyerProfileId,
       buyerProfileName,
+      allProfiles: profiles.map((p: any) => ({ _id: p._id!.toHexString(), name: p.name, isDefault: p.isDefault ?? false })),
       _enrichment: {
         companyPayload,
         domain,
@@ -864,6 +865,63 @@ app.post("/companies/preview", async (request, response) => {
   } catch (err) {
     console.error("[company-preview] Error:", err);
     response.status(500).json({ error: "Failed to preview company" });
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/*  Search buyers for a company with a specific buyer profile           */
+/* ------------------------------------------------------------------ */
+
+app.post("/companies/search-buyers", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const { domain, buyerProfileId: rawProfileId } = request.body as { domain?: string; buyerProfileId?: string };
+
+  if (!domain) {
+    response.status(400).json({ error: "domain is required" });
+    return;
+  }
+
+  try {
+    const memberEmails = await getWorkspaceMemberEmails(userEmail);
+    const profilesCol = await getBuyerProfilesCollection();
+    const profiles = await profilesCol.find({ userEmail: { $in: memberEmails } }).sort({ createdAt: -1 }).toArray();
+
+    let profile: any;
+    if (rawProfileId) {
+      profile = profiles.find((p: any) => p._id!.toHexString() === rawProfileId);
+    }
+    if (!profile) {
+      profile = profiles.find((p: any) => p.isDefault) ?? profiles[0] ?? null;
+    }
+
+    if (!profile) {
+      response.json({ buyers: [], buyerProfileId: null, buyerProfileName: null });
+      return;
+    }
+
+    const buyerResult = await searchBuyersWithFiber(domain, profile.titles);
+    let buyers: any[] = [];
+    if (buyerResult.success) {
+      const payload = buyerResult.payload as any;
+      const rawBuyers = (payload?.output?.data ?? []) as any[];
+      buyers = rawBuyers.map((b: any) => ({
+        name: b.name ?? `${b.first_name ?? ""} ${b.last_name ?? ""}`.trim(),
+        title: b.headline ?? b.current_job?.title ?? undefined,
+        profilePic: b.profile_pic ?? undefined,
+        linkedinUrl: b.url ?? b.linkedin_url ?? (b.primary_slug ? `https://www.linkedin.com/in/${b.primary_slug}` : undefined),
+        workEmail: b.work_email ?? undefined,
+        _raw: b,
+      }));
+    }
+
+    response.json({
+      buyers,
+      buyerProfileId: profile._id!.toHexString(),
+      buyerProfileName: profile.name,
+    });
+  } catch (err) {
+    console.error("[search-buyers] Error:", err);
+    response.status(500).json({ error: "Failed to search buyers" });
   }
 });
 
@@ -891,9 +949,17 @@ app.post("/companies/confirm", async (request, response) => {
     const memberEmails = await getWorkspaceMemberEmails(userEmail);
     const existingCompany = await companiesCol.findOne({ domain });
 
+    const buyerProfileObjectId = buyerProfileId ? new ObjectId(buyerProfileId) : undefined;
+
     let companyId: ObjectId;
     if (existingCompany) {
-      await companiesCol.updateOne({ _id: existingCompany._id }, { $addToSet: { userEmails: userEmail } });
+      await companiesCol.updateOne(
+        { _id: existingCompany._id },
+        {
+          $addToSet: { userEmails: userEmail },
+          ...(buyerProfileObjectId ? { $set: { buyerProfileId: buyerProfileObjectId } } : {}),
+        },
+      );
       companyId = existingCompany._id!;
       // If existing but no enrichment data, update with new payload
       if (companyPayload && !existingCompany.enrichmentData) {
@@ -905,6 +971,7 @@ app.post("/companies/confirm", async (request, response) => {
       const ins = await companiesCol.insertOne({
         userEmails: [userEmail],
         domain,
+        ...(buyerProfileObjectId ? { buyerProfileId: buyerProfileObjectId } : {}),
         createdAt: new Date().toISOString(),
         enrichedAt: new Date().toISOString(),
         enrichmentStatus: "completed",
@@ -913,6 +980,9 @@ app.post("/companies/confirm", async (request, response) => {
       companyId = ins.insertedId;
     } else {
       companyId = await ensureCompany(domain, userEmail);
+      if (buyerProfileObjectId) {
+        await companiesCol.updateOne({ _id: companyId }, { $set: { buyerProfileId: buyerProfileObjectId } });
+      }
     }
 
     // Add selected buyers as persons
@@ -920,7 +990,6 @@ app.post("/companies/confirm", async (request, response) => {
     if (selectedBuyers && selectedBuyers.length > 0) {
       const personsCol = await getPersonsCollection();
       const now = new Date().toISOString();
-      const buyerProfileObjectId = buyerProfileId ? new ObjectId(buyerProfileId) : undefined;
 
       await Promise.all(
         selectedBuyers.map(async (buyer) => {
@@ -1052,6 +1121,48 @@ app.post("/companies", async (request, response) => {
 
   const savedCompany = await companiesCollection.findOne({ _id: companyId });
   response.status(201).json({ company: savedCompany });
+});
+
+app.patch("/companies/:id/buyer-profile", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+  const { buyerProfileId } = request.body as { buyerProfileId?: string | null };
+
+  if (buyerProfileId === undefined) {
+    response.status(400).json({ error: "buyerProfileId is required" });
+    return;
+  }
+
+  let companyObjectId: ObjectId;
+  try {
+    companyObjectId = new ObjectId(request.params.id);
+  } catch {
+    response.status(400).json({ error: "Invalid company ID" });
+    return;
+  }
+
+  const profileObjectId = buyerProfileId ? new ObjectId(buyerProfileId) : null;
+
+  const companiesCol = await getCompaniesCollection();
+  const company = await companiesCol.findOne({ _id: companyObjectId, userEmails: { $in: memberEmails } });
+  if (!company) {
+    response.status(404).json({ error: "Company not found" });
+    return;
+  }
+
+  await companiesCol.updateOne(
+    { _id: companyObjectId },
+    { $set: { buyerProfileId: profileObjectId } },
+  );
+
+  // Cascade to all persons linked to this company
+  const personsCol = await getPersonsCollection();
+  const { modifiedCount } = await personsCol.updateMany(
+    { companyId: companyObjectId, userEmails: { $in: memberEmails } },
+    { $set: { buyerProfileId: profileObjectId } },
+  );
+
+  response.json({ ok: true, personsUpdated: modifiedCount });
 });
 
 app.delete("/companies/:id", async (request, response) => {
@@ -1690,6 +1801,40 @@ app.post("/persons/by-email", async (request, response) => {
 
   const savedPerson = await personsCol.findOne({ _id: insertResult.insertedId });
   response.status(201).json({ person: savedPerson });
+});
+
+app.patch("/persons/:id/buyer-profile", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+  const { buyerProfileId } = request.body as { buyerProfileId?: string | null };
+
+  if (buyerProfileId === undefined) {
+    response.status(400).json({ error: "buyerProfileId is required" });
+    return;
+  }
+
+  let personObjectId: ObjectId;
+  try {
+    personObjectId = new ObjectId(request.params.id);
+  } catch {
+    response.status(400).json({ error: "Invalid person ID" });
+    return;
+  }
+
+  const profileObjectId = buyerProfileId ? new ObjectId(buyerProfileId) : null;
+  const personsCol = await getPersonsCollection();
+  const result = await personsCol.updateOne(
+    { _id: personObjectId, userEmails: { $in: memberEmails } },
+    { $set: { buyerProfileId: profileObjectId } },
+  );
+
+  if (result.matchedCount === 0) {
+    response.status(404).json({ error: "Person not found" });
+    return;
+  }
+
+  const updated = await personsCol.findOne({ _id: personObjectId });
+  response.json({ ok: true, person: updated });
 });
 
 app.delete("/persons/:id", async (request, response) => {
