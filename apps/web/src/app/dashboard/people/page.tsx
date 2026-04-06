@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { LetterAvatar, DATA_CHANGED_EVENT, safeJson, dispatchGlobalAction, apiFetch } from "../components";
+import { LetterAvatar, DATA_CHANGED_EVENT, safeJson, dispatchGlobalAction, dispatchDataChanged, apiFetch } from "../components";
 
 interface PersonRecord {
   _id?: string;
@@ -77,8 +77,8 @@ function PersonCard({
   const status = person.enrichmentStatus;
 
   return (
-    <div className="group relative flex items-center gap-4 rounded-2xl border border-zinc-200 bg-white px-5 py-4 shadow-sm transition-all hover:shadow-md hover:border-zinc-300">
-      <Link href={`/dashboard/people/${person._id}`} className="absolute inset-0 rounded-2xl" />
+    <div className="group relative flex items-center gap-3 rounded-lg border border-[#e6e6e9] bg-white px-3.5 py-2.5 transition-all hover:border-[#d4d4d8]">
+      <Link href={`/dashboard/people/${person._id}`} className="absolute inset-0 rounded-lg" />
 
       {/* Photo */}
       <div className="relative shrink-0">
@@ -93,13 +93,13 @@ function PersonCard({
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
-            className="relative z-10 text-[14px] font-semibold text-zinc-900 hover:underline"
+            className="relative z-10 text-[13px] font-medium text-[#1b1b1f] hover:underline"
           >
             {fullName}
           </a>
           {status !== "completed" && (
             <span
-              className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+              className={`rounded-md px-2 py-0.5 text-[11px] font-medium ${
                 status === "failed" ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-700"
               }`}
             >
@@ -107,7 +107,7 @@ function PersonCard({
             </span>
           )}
         </div>
-        <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[12px] text-zinc-400">
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[12px] text-[#8b8d94]">
           {title && <span>{title}</span>}
           {company && <span>{company}</span>}
           {location && <span>{location}</span>}
@@ -118,14 +118,14 @@ function PersonCard({
       <div className="relative z-10">
         <button
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu((v) => !v); }}
-          className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-400 transition-all hover:bg-zinc-100 hover:text-zinc-600"
+          className="flex h-7 w-7 items-center justify-center rounded-md text-[#8b8d94] transition-all hover:bg-[#ededf0] hover:text-[#6b6f76]"
         >
           <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" /></svg>
         </button>
         {showMenu && (
           <>
             <div className="fixed inset-0 z-20" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(false); }} />
-            <div className="absolute right-0 top-8 z-30 w-36 rounded-xl border border-zinc-200 bg-white py-1 shadow-lg">
+            <div className="absolute right-0 top-8 z-30 w-36 rounded-md border border-[#e6e6e9] bg-white py-1 shadow-sm">
               <button
                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(false); if (person._id) onRemove(person._id); }}
                 className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-red-600 hover:bg-red-50 transition-colors"
@@ -147,7 +147,7 @@ function PersonCard({
 
 function SkeletonCard() {
   return (
-    <div className="flex items-center gap-4 rounded-2xl border border-zinc-200 bg-white px-5 py-4">
+    <div className="flex items-center gap-3 rounded-lg border border-[#e6e6e9] bg-white px-3.5 py-2.5">
       <div className="h-10 w-10 rounded-lg animate-shimmer shrink-0" />
       <div className="flex-1 space-y-2">
         <div className="h-3.5 w-36 rounded animate-shimmer" />
@@ -216,6 +216,7 @@ export default function PeoplePage() {
         throw new Error(data.error ?? "Could not remove person");
       }
       setPersons((prev) => prev.filter((p) => p._id !== id));
+      dispatchDataChanged();
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Could not remove person");
     }
@@ -241,7 +242,7 @@ export default function PeoplePage() {
   }, [persons, searchQuery]);
 
   return (
-    <div className="flex h-full flex-col bg-[#f8f8f7]">
+    <div className="flex h-full flex-col bg-white">
       {message && (
         <div className="bg-red-50 px-6 py-2.5">
           <p className="text-[13px] text-red-600">{message}</p>
@@ -249,31 +250,29 @@ export default function PeoplePage() {
       )}
 
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-3xl px-4 pt-6 pb-5">
-          {/* Search bar */}
-          <div className="relative mb-4">
-            <svg className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-            </svg>
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search people…"
-              className="w-full rounded-2xl border border-zinc-200 bg-zinc-100 py-3 pl-11 pr-10 text-[14px] placeholder:text-zinc-400 focus:border-zinc-300 focus:bg-white focus:outline-none transition-all"
-            />
-            {searchQuery && (
-              <button onClick={() => setSearchQuery("")} className="absolute right-3.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-zinc-400 hover:text-zinc-600">
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
-            )}
-          </div>
-
-          {/* Add button row */}
-          <div className="mb-4 flex items-center justify-end">
+        <div className="mx-auto w-full max-w-3xl px-4 pt-5 pb-4">
+          {/* Search bar + Add button */}
+          <div className="relative mb-4 flex items-center gap-2">
+            <div className="relative flex-1">
+              <svg className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#8b8d94]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+              </svg>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search people…"
+                className="w-full rounded-md border border-[#e6e6e9] bg-white py-[7px] pl-10 pr-10 text-[14px] placeholder:text-[#8b8d94] focus:border-[#d4d4d8] focus:bg-white focus:outline-none transition-all"
+              />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery("")} className="absolute right-3.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-[#8b8d94] hover:text-[#6b6f76]">
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              )}
+            </div>
             <button
               onClick={() => dispatchGlobalAction("person")}
-              className="flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-[13px] font-medium text-zinc-700 transition-all hover:bg-zinc-50"
+              className="flex items-center gap-1.5 rounded-md border border-[#e6e6e9] bg-white px-3 py-1.5 text-[13px] font-medium text-[#6b6f76] transition-all hover:bg-[#f5f5f7]"
             >
               <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
@@ -283,11 +282,11 @@ export default function PeoplePage() {
           </div>
 
           {isLoadingList ? (
-            <div className="space-y-3">
+            <div className="space-y-2">
               {Array.from({ length: 5 }).map((_, i) => <SkeletonCard key={i} />)}
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-2">
               {filteredPersons.map((person) => (
                 <PersonCard
                   key={person._id ?? person.linkedinUrl}
@@ -297,12 +296,12 @@ export default function PeoplePage() {
               ))}
               {filteredPersons.length === 0 && persons.length > 0 && (
                 <div className="flex items-center justify-center py-16">
-                  <p className="text-[14px] text-zinc-400">No results for &ldquo;{searchQuery}&rdquo;</p>
+                  <p className="text-[14px] text-[#8b8d94]">No results for &ldquo;{searchQuery}&rdquo;</p>
                 </div>
               )}
               {persons.length === 0 && (
                 <div className="flex h-64 items-center justify-center">
-                  <p className="text-[14px] text-zinc-400">No people yet</p>
+                  <p className="text-[14px] text-[#8b8d94]">No people yet</p>
                 </div>
               )}
             </div>

@@ -216,7 +216,7 @@ function WeekStrip({
       {/* Left arrow */}
       <button
         onClick={() => setWeekOffset((o) => o - 1)}
-        className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600"
+        className="flex h-7 w-7 items-center justify-center rounded-full text-[#8b8d94] transition-colors hover:bg-[#f5f5f7] hover:text-[#6b6f76]"
       >
         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
@@ -235,20 +235,20 @@ function WeekStrip({
 
           return (
             <div key={key} className="group relative flex flex-col items-center gap-1.5">
-              <span className={`text-[11px] font-medium ${isFuture ? "text-zinc-300" : "text-zinc-400"}`}>
+              <span className={`text-[11px] font-medium ${isFuture ? "text-[#8b8d94]" : "text-[#8b8d94]"}`}>
                 {dayName}
               </span>
               <button
                 onClick={() => !isFuture && onSelect(key)}
                 disabled={isFuture}
-                className={`flex h-9 w-9 items-center justify-center rounded-full text-[15px] font-semibold transition-all ${
+                className={`flex h-9 w-9 items-center justify-center rounded-full text-[15px] font-medium transition-all ${
                   isSelected
-                    ? "bg-amber-400 text-white shadow-sm"
+                    ? "bg-amber-400 text-white"
                     : isFuture
-                    ? "cursor-default text-zinc-300"
+                    ? "cursor-default text-[#8b8d94]"
                     : count > 0
                     ? "text-red-500 hover:bg-red-50"
-                    : "text-zinc-500 hover:bg-zinc-100"
+                    : "text-[#6b6f76] hover:bg-[#f5f5f7]"
                 }`}
               >
                 {isSelected ? (
@@ -263,8 +263,8 @@ function WeekStrip({
               {/* Tooltip */}
               {!isFuture && (
                 <div className="pointer-events-none absolute top-full z-20 mt-2 hidden -translate-x-1/2 left-1/2 group-hover:flex flex-col items-center">
-                  <div className="h-2 w-2 rotate-45 bg-zinc-900 -mb-1" />
-                  <div className="whitespace-nowrap rounded-xl bg-zinc-900 px-3 py-1.5 text-[12px] font-medium text-white shadow-lg">
+                  <div className="h-2 w-2 rotate-45 bg-[#1b1b1f] -mb-1" />
+                  <div className="whitespace-nowrap rounded-md bg-[#1b1b1f] px-3 py-1.5 text-[12px] font-medium text-white shadow-lg">
                     {count} Notification{count !== 1 ? "s" : ""}
                   </div>
                 </div>
@@ -278,7 +278,7 @@ function WeekStrip({
       <button
         onClick={() => setWeekOffset((o) => o + 1)}
         disabled={weekOffset >= 0}
-        className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 disabled:cursor-default disabled:opacity-25"
+        className="flex h-7 w-7 items-center justify-center rounded-full text-[#8b8d94] transition-colors hover:bg-[#f5f5f7] hover:text-[#6b6f76] disabled:cursor-default disabled:opacity-25"
       >
         <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
@@ -313,18 +313,18 @@ function CompanyFavicon({ domain, size = 14 }: { domain?: string | null; size?: 
 
 function PersonChip({ name, photoUrl }: { name: string; photoUrl?: string | null }) {
   return (
-    <span className="group inline-flex items-center rounded-full border border-zinc-200 bg-white transition-all duration-200">
-      <span className="flex h-6 w-6 shrink-0 overflow-hidden rounded-full bg-zinc-100">
+    <span className="group inline-flex items-center rounded-full border border-[#e6e6e9] bg-white transition-all duration-200">
+      <span className="flex h-6 w-6 shrink-0 overflow-hidden rounded-full bg-[#f5f5f7]">
         {photoUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={photoUrl} alt={name} className="h-full w-full object-cover" />
         ) : (
-          <span className="flex h-full w-full items-center justify-center text-[10px] font-semibold text-zinc-500">
+          <span className="flex h-full w-full items-center justify-center text-[10px] font-medium text-[#6b6f76]">
             {name.charAt(0).toUpperCase()}
           </span>
         )}
       </span>
-      <span className="max-w-0 overflow-hidden whitespace-nowrap text-[13px] font-medium text-zinc-900 transition-all duration-200 group-hover:max-w-[8rem] group-hover:pl-1.5 group-hover:pr-0.5">
+      <span className="max-w-0 overflow-hidden whitespace-nowrap text-[13px] font-medium text-[#1b1b1f] transition-all duration-200 group-hover:max-w-[8rem] group-hover:pl-1.5 group-hover:pr-0.5">
         {name}
       </span>
     </span>
@@ -337,11 +337,11 @@ function PersonChip({ name, photoUrl }: { name: string; photoUrl?: string | null
 
 function CompanyChip({ domain }: { domain: string }) {
   return (
-    <span className="group inline-flex items-center rounded-full border border-zinc-200 bg-white transition-all duration-200">
+    <span className="group inline-flex items-center rounded-full border border-[#e6e6e9] bg-white transition-all duration-200">
       <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white">
         <CompanyFavicon domain={domain} size={14} />
       </span>
-      <span className="max-w-0 overflow-hidden whitespace-nowrap text-[13px] font-medium text-zinc-900 transition-all duration-200 group-hover:max-w-[8rem] group-hover:pl-1.5 group-hover:pr-0.5">
+      <span className="max-w-0 overflow-hidden whitespace-nowrap text-[13px] font-medium text-[#1b1b1f] transition-all duration-200 group-hover:max-w-[8rem] group-hover:pl-1.5 group-hover:pr-0.5">
         {domain}
       </span>
     </span>
@@ -369,43 +369,43 @@ function LinkedinCard({
   const data = signal.data as LinkedinPostData;
 
   return (
-    <div className={`overflow-hidden rounded-2xl border bg-white shadow-sm transition-all duration-200 ${onRestore ? "border-zinc-100 opacity-60" : "border-zinc-200 hover:shadow-md hover:-translate-y-0.5"}`}>
+    <div className={`overflow-hidden rounded-lg border bg-white transition-all duration-200 ${onRestore ? "border-[#ededf0] opacity-60" : "border-[#e6e6e9]"}`}>
       {/* Clickable content area */}
       <a
         href={data.postUrl}
         target="_blank"
         rel="noopener noreferrer"
-        className="block cursor-pointer px-5 pt-5 pb-6"
+        className="block cursor-pointer px-4 pt-4 pb-5"
       >
         <div className="flex items-start justify-between gap-3 mb-3">
-          <p className="flex flex-wrap items-center gap-1.5 text-[14px] leading-relaxed text-zinc-500">
+          <p className="flex flex-wrap items-center gap-1.5 text-[14px] leading-relaxed text-[#6b6f76]">
             <PersonChip name={signal.personName} photoUrl={data.authorProfilePicture} />
             {companyDomain && (
               <>
-                <span className="text-zinc-400">from</span>
+                <span className="text-[#8b8d94]">from</span>
                 <CompanyChip domain={companyDomain} />
               </>
             )}
             <span>posted on LinkedIn</span>
             {signal.matchedKeyword && (
-              <span className="inline-flex items-center rounded-full bg-zinc-100 px-1.5 py-0.5 text-[11px] font-medium text-zinc-600">
+              <span className="inline-flex items-center rounded-md bg-[#f5f5f7] px-1.5 py-0.5 text-[11px] font-medium text-[#6b6f76]">
                 {signal.matchedKeyword}
               </span>
             )}
           </p>
-          <span className="shrink-0 text-[12px] text-zinc-400">{timeAgo(data.postedAt)}</span>
+          <span className="shrink-0 text-[12px] text-[#8b8d94]">{timeAgo(data.postedAt)}</span>
         </div>
         {data.caption && (
-          <p className="text-[13px] leading-relaxed text-zinc-500">
+          <p className="text-[13px] leading-relaxed text-[#6b6f76]">
             {truncate(data.caption, 280)}
           </p>
         )}
       </a>
 
       {/* Bottom: action bar */}
-      <div className="flex items-center justify-between border-t border-zinc-100 bg-zinc-50 px-5 py-3">
+      <div className="flex items-center justify-between border-t border-[#ededf0] bg-[#f9f9fb] px-4 py-2.5">
         {/* Left: engagement */}
-        <div className="flex items-center gap-2.5 text-[12px] text-zinc-400">
+        <div className="flex items-center gap-2.5 text-[12px] text-[#8b8d94]">
           <span className="flex items-center gap-1">
             <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6.633 10.5c.806 0 1.533-.446 2.031-1.08a9.041 9.041 0 012.861-2.4c.723-.384 1.35-.956 1.653-1.715a4.498 4.498 0 00.322-1.672V3.75a.75.75 0 01.75-.75A2.25 2.25 0 0116.5 5.25c0 .372-.089.723-.245 1.033a3.25 3.25 0 00-.245 1.033c0 1.397.756 2.684 1.97 3.381A6.482 6.482 0 0121 16.5v.75a.75.75 0 01-.75.75H3.75a.75.75 0 01-.75-.75v-.75a6.482 6.482 0 013.02-5.803c1.214-.697 1.97-1.984 1.97-3.381a3.25 3.25 0 00-.245-1.033A2.25 2.25 0 017.5 5.25 2.25 2.25 0 019.75 3a.75.75 0 01.75.75v.582c0 .577.112 1.141.322 1.672.302.759.93 1.331 1.653 1.715a9.04 9.04 0 012.861 2.4c.498.634 1.226 1.08 2.031 1.08" />
@@ -425,7 +425,7 @@ function LinkedinCard({
           {onRestore ? (
             <button
               onClick={onRestore}
-              className="flex items-center rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-[13px] font-medium text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50"
+              className="flex items-center rounded-md border border-[#e6e6e9] bg-white px-3 py-1.5 text-[13px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f5f5f7]"
             >
               Restore
             </button>
@@ -433,13 +433,13 @@ function LinkedinCard({
             <>
               <button
                 onClick={onDismiss}
-                className="flex items-center rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-[13px] font-medium text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50"
+                className="flex items-center rounded-md border border-[#e6e6e9] bg-white px-3 py-1.5 text-[13px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f5f5f7]"
               >
                 Dismiss
               </button>
               <button
                 onClick={onEmail}
-                className="flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-[13px] font-medium text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50"
+                className="flex items-center gap-1.5 rounded-md border border-[#e6e6e9] bg-white px-3 py-1.5 text-[13px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f5f5f7]"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/gmail.webp" alt="Gmail" width={18} height={18} className="shrink-0 object-contain" />
@@ -478,17 +478,17 @@ function BuyerPickerModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-xl animate-slide-up"
+        className="w-full max-w-sm overflow-hidden rounded-lg bg-white shadow-xl animate-slide-up"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4">
+        <div className="flex items-center justify-between border-b border-[#ededf0] px-4 py-3">
           <div>
-            <p className="text-[15px] font-semibold text-zinc-900">Email a buyer at {domain}</p>
+            <p className="text-[13px] font-medium text-[#1b1b1f]">Email a buyer at {domain}</p>
             {jobs.length > 0 && (
-              <p className="mt-0.5 text-[12px] text-zinc-400">Re: {jobs[0].title}{jobs.length > 1 ? ` +${jobs.length - 1} more` : ""}</p>
+              <p className="mt-0.5 text-[12px] text-[#8b8d94]">Re: {jobs[0].title}{jobs.length > 1 ? ` +${jobs.length - 1} more` : ""}</p>
             )}
           </div>
-          <button onClick={onClose} className="rounded-lg p-1 text-zinc-400 hover:bg-zinc-100">
+          <button onClick={onClose} className="rounded-md p-1 text-[#8b8d94] hover:bg-[#ededf0]">
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -496,23 +496,23 @@ function BuyerPickerModal({
         </div>
 
         {buyers.length === 0 ? (
-          <div className="px-5 py-8 text-center text-[13px] text-zinc-400">
+          <div className="px-4 py-8 text-center text-[13px] text-[#8b8d94]">
             No contacts with emails found for {domain}.<br />Add people from this company first.
           </div>
         ) : (
-          <div className="divide-y divide-zinc-100">
+          <div className="divide-y divide-[#ededf0]">
             {buyers.map((p) => (
               <button
                 key={p._id}
                 onClick={() => onSelect(p)}
-                className="flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-zinc-50"
+                className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-[#f5f5f7]"
               >
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-[13px] font-semibold text-zinc-600">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#f5f5f7] text-[13px] font-medium text-[#6b6f76]">
                   {(p.fullName ?? p.workEmail ?? "?").charAt(0).toUpperCase()}
                 </div>
                 <div className="min-w-0">
-                  {p.fullName && <p className="text-[13px] font-medium text-zinc-900 truncate">{p.fullName}</p>}
-                  <p className="text-[12px] text-zinc-400 truncate">{p.workEmail}</p>
+                  {p.fullName && <p className="text-[13px] font-medium text-[#1b1b1f] truncate">{p.fullName}</p>}
+                  <p className="text-[12px] text-[#8b8d94] truncate">{p.workEmail}</p>
                 </div>
               </button>
             ))}
@@ -541,42 +541,42 @@ function ATSCard({
   const domain = item.signal.companyDomain;
 
   return (
-    <div className={`overflow-hidden rounded-2xl border bg-white shadow-sm transition-all duration-200 ${onRestore ? "border-zinc-100 opacity-60" : "border-zinc-200 hover:shadow-md hover:-translate-y-0.5"}`}>
+    <div className={`overflow-hidden rounded-lg border bg-white transition-all duration-200 ${onRestore ? "border-[#ededf0] opacity-60" : "border-[#e6e6e9]"}`}>
       {/* Clickable content area — links to first job's page */}
       <a
         href={item.jobs[0]?.jobUrl ?? undefined}
         target="_blank"
         rel="noopener noreferrer"
-        className={`block px-5 pt-5 pb-6 ${item.jobs[0]?.jobUrl ? "cursor-pointer" : "cursor-default"}`}
+        className={`block px-4 pt-4 pb-5 ${item.jobs[0]?.jobUrl ? "cursor-pointer" : "cursor-default"}`}
         onClick={(e) => { if (!item.jobs[0]?.jobUrl) e.preventDefault(); }}
       >
         <div className="flex items-start justify-between gap-3 mb-3">
-          <p className="flex flex-wrap items-center gap-1.5 text-[14px] leading-relaxed text-zinc-500">
+          <p className="flex flex-wrap items-center gap-1.5 text-[14px] leading-relaxed text-[#6b6f76]">
             <CompanyChip domain={domain} />
             <span>posted {item.jobs.length} new job{item.jobs.length !== 1 ? "s" : ""}</span>
           </p>
-          <span className="shrink-0 text-[12px] text-zinc-400">{timeAgo(item.signal.createdAt)}</span>
+          <span className="shrink-0 text-[12px] text-[#8b8d94]">{timeAgo(item.signal.createdAt)}</span>
         </div>
         <div className="flex flex-col gap-1.5">
           {item.jobs.slice(0, 4).map((job, i) => (
             <div key={i} className="flex items-center gap-2 text-[13px]">
-              <span className="font-medium text-zinc-700">{job.title}</span>
-              {job.location && <span className="text-zinc-400">{job.location}</span>}
-              {job.department && <span className="rounded-full bg-zinc-100 px-1.5 py-0.5 text-[11px] text-zinc-500">{job.department}</span>}
+              <span className="font-medium text-[#6b6f76]">{job.title}</span>
+              {job.location && <span className="text-[#8b8d94]">{job.location}</span>}
+              {job.department && <span className="rounded-md bg-[#f5f5f7] px-1.5 py-0.5 text-[11px] text-[#6b6f76]">{job.department}</span>}
             </div>
           ))}
           {item.jobs.length > 4 && (
-            <span className="text-[12px] text-zinc-400">+{item.jobs.length - 4} more</span>
+            <span className="text-[12px] text-[#8b8d94]">+{item.jobs.length - 4} more</span>
           )}
         </div>
       </a>
 
       {/* Bottom: action bar */}
-      <div className="flex items-center justify-end gap-2 border-t border-zinc-100 bg-zinc-50 px-5 py-3">
+      <div className="flex items-center justify-end gap-2 border-t border-[#ededf0] bg-[#f9f9fb] px-4 py-2.5">
         {onRestore ? (
           <button
             onClick={onRestore}
-            className="flex items-center rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-[13px] font-medium text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50"
+            className="flex items-center rounded-md border border-[#e6e6e9] bg-white px-3 py-1.5 text-[13px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f5f5f7]"
           >
             Restore
           </button>
@@ -584,13 +584,13 @@ function ATSCard({
           <>
             <button
               onClick={onDismiss}
-              className="flex items-center rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-[13px] font-medium text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50"
+              className="flex items-center rounded-md border border-[#e6e6e9] bg-white px-3 py-1.5 text-[13px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f5f5f7]"
             >
               Dismiss
             </button>
             <button
               onClick={onEmail}
-              className="flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-[13px] font-medium text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50"
+              className="flex items-center gap-1.5 rounded-md border border-[#e6e6e9] bg-white px-3 py-1.5 text-[13px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f5f5f7]"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src="/gmail.webp" alt="Gmail" width={18} height={18} className="shrink-0 object-contain" />
@@ -657,12 +657,12 @@ function EmailComposeModal({
       onClick={() => !sending && onClose()}
     >
       <div
-        className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-xl"
+        className="w-full max-w-lg overflow-hidden rounded-lg bg-white shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[#e3e8ee] px-5 py-4">
-          <h2 className="text-[15px] font-semibold text-[#1a1f36]">Compose Email</h2>
+          <h2 className="text-[13px] font-medium text-[#1a1f36]">Compose Email</h2>
           <button
             onClick={onClose}
             className="rounded-lg p-1 text-[#a3acb9] transition-colors hover:bg-[#f7fafc] hover:text-[#4f566b]"
@@ -1055,18 +1055,18 @@ export default function SignalsPage() {
   }, [dismissedSignals]);
 
   return (
-    <div className="flex h-full flex-col bg-[#fafafa]">
+    <div className="flex h-full flex-col bg-white">
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         {/* Greeting header */}
-        <div className="flex flex-col items-center pt-14 pb-6 text-center">
-          <h1 className="text-[30px] font-bold tracking-tight text-zinc-900">
+        <div className="flex flex-col items-center pt-10 pb-4 text-center">
+          <h1 className="text-[30px] font-medium tracking-tight text-[#1b1b1f]">
             {getGreeting()}{userName ? `, ${userName}` : ""} 👋
           </h1>
         </div>
 
         {/* Week date strip */}
-        <div className="pb-8">
+        <div className="pb-6">
           <WeekStrip
             selectedDateKey={selectedDateKey}
             onSelect={setSelectedDateKey}
@@ -1096,7 +1096,7 @@ export default function SignalsPage() {
                 ) : (
                   groups.map((group) => (
                     <div key={group.dateKey} className="pb-2">
-                      <div className="flex flex-col gap-3">
+                      <div className="flex flex-col gap-2">
                         {group.items.map((item, idx) => {
                           const key =
                             item.kind === "linkedin"
@@ -1146,24 +1146,24 @@ export default function SignalsPage() {
                       })}
                       className="group flex w-full items-center gap-3 py-1 text-left"
                     >
-                      <div className="h-px flex-1 bg-zinc-200" />
+                      <div className="h-px flex-1 bg-[#e6e6e9]" />
                       <div className="flex items-center gap-1.5">
-                        <span className="text-[12px] font-medium text-zinc-400 group-hover:text-zinc-600 transition-colors">Dismissed</span>
-                        <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-zinc-200 px-1 text-[10px] font-semibold text-zinc-500 group-hover:bg-zinc-300 transition-colors">
+                        <span className="text-[12px] font-medium text-[#8b8d94] group-hover:text-[#6b6f76] transition-colors">Dismissed</span>
+                        <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-[#e6e6e9] px-1 text-[10px] font-medium text-[#6b6f76] group-hover:bg-[#d4d4d8] transition-colors">
                           {dismissedItems.length}
                         </span>
                         <svg
-                          className={`h-3 w-3 text-zinc-400 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
+                          className={`h-3 w-3 text-[#8b8d94] transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
                           fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
                         >
                           <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
                         </svg>
                       </div>
-                      <div className="h-px flex-1 bg-zinc-200" />
+                      <div className="h-px flex-1 bg-[#e6e6e9]" />
                     </button>
 
                     {isExpanded && (
-                      <div className="mt-3 flex flex-col gap-3">
+                      <div className="mt-3 flex flex-col gap-2">
                         {dismissedItems.map((item, idx) => {
                           const key =
                             item.kind === "linkedin"

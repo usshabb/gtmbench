@@ -37,8 +37,14 @@ function AuthCallbackInner() {
     }
 
     if (onboardingComplete) {
-      window.localStorage.removeItem(localStorageInviteKey);
-      router.replace("/dashboard");
+      const pendingInvite = inviteFromUrl ?? window.localStorage.getItem(localStorageInviteKey);
+      if (pendingInvite) {
+        // Already onboarded but has invite — route through onboarding to accept it
+        router.replace(`/onboarding?invite=${pendingInvite}`);
+      } else {
+        window.localStorage.removeItem(localStorageInviteKey);
+        router.replace("/dashboard");
+      }
     } else {
       const pendingInvite = inviteFromUrl ?? window.localStorage.getItem(localStorageInviteKey);
       router.replace(pendingInvite ? `/onboarding?invite=${pendingInvite}` : "/onboarding");

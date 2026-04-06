@@ -9,7 +9,13 @@ export function createOAuth2Client() {
   );
 }
 
-const GOOGLE_SCOPES = [
+const SIGNIN_SCOPES = [
+  "openid",
+  "https://www.googleapis.com/auth/userinfo.email",
+  "https://www.googleapis.com/auth/userinfo.profile",
+];
+
+const CONNECT_SCOPES = [
   "openid",
   "https://www.googleapis.com/auth/userinfo.email",
   "https://www.googleapis.com/auth/userinfo.profile",
@@ -18,11 +24,23 @@ const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/calendar.readonly",
 ];
 
+/** Sign-in URL — only requests basic profile scopes, no gmail/calendar. */
+export function getGoogleSigninUrl(state: string): string {
+  const client = createOAuth2Client();
+  return client.generateAuthUrl({
+    access_type: "online",
+    scope: SIGNIN_SCOPES,
+    state,
+    prompt: "select_account",
+  });
+}
+
+/** Connect URL — requests gmail + calendar scopes with offline access for refresh token. */
 export function getGoogleAuthUrl(state: string): string {
   const client = createOAuth2Client();
   return client.generateAuthUrl({
     access_type: "offline",
-    scope: GOOGLE_SCOPES,
+    scope: CONNECT_SCOPES,
     state,
     prompt: "consent",
   });
