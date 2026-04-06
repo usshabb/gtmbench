@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "../../components";
 
@@ -53,6 +53,9 @@ export default function WorkspaceSettingsPage() {
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [inviteCreating, setInviteCreating] = useState(false);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoUploadError, setLogoUploadError] = useState("");
+  const logoInputRef = useRef<HTMLInputElement>(null);
   const checkedRef = useRef(false);
 
   useEffect(() => {
@@ -83,6 +86,27 @@ export default function WorkspaceSettingsPage() {
     }).catch(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function handleLogoUpload(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setLogoUploading(true);
+    setLogoUploadError("");
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("fileName", file.name);
+      const res = await fetch("/api/upload", { method: "POST", body: form });
+      const data = (await res.json()) as { url?: string; error?: string };
+      if (!res.ok || !data.url) throw new Error(data.error ?? "Upload failed");
+      setLogoUrl(data.url);
+    } catch (err) {
+      setLogoUploadError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setLogoUploading(false);
+      if (logoInputRef.current) logoInputRef.current.value = "";
+    }
+  }
 
   async function handleSave(e: FormEvent) {
     e.preventDefault();
@@ -150,7 +174,7 @@ export default function WorkspaceSettingsPage() {
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#d4d4d8] border-t-[#6b6f76]" />
       </div>
     );
   }
@@ -159,14 +183,14 @@ export default function WorkspaceSettingsPage() {
     return (
       <div className="mx-auto max-w-xl px-6 py-8">
         <div className="mb-6">
-          <h1 className="text-lg font-semibold text-zinc-900">Workspace</h1>
+          <h1 className="text-lg font-semibold text-[#1b1b1f]">Workspace</h1>
         </div>
-        <div className="rounded-xl border border-zinc-200 p-8 text-center">
-          <p className="text-[14px] font-medium text-zinc-700">No workspace set up</p>
-          <p className="mt-1 text-[13px] text-zinc-400">Complete onboarding to create a workspace.</p>
+        <div className="rounded-lg border border-[#e6e6e9] p-8 text-center">
+          <p className="text-[14px] font-medium text-[#6b6f76]">No workspace set up</p>
+          <p className="mt-1 text-[13px] text-[#8b8d94]">Complete onboarding to create a workspace.</p>
           <button
             onClick={() => router.push("/onboarding")}
-            className="mt-4 rounded-lg bg-zinc-900 px-5 py-2 text-[13px] font-medium text-white hover:opacity-90"
+            className="mt-4 rounded-md bg-[#1b1b1f] px-5 py-2 text-[13px] font-medium text-white hover:opacity-90"
           >
             Set up workspace
           </button>
@@ -178,72 +202,107 @@ export default function WorkspaceSettingsPage() {
   return (
     <div className="mx-auto max-w-xl px-6 py-8 space-y-8">
       <div>
-        <h1 className="text-lg font-semibold text-zinc-900">Workspace</h1>
-        <p className="text-[13px] text-zinc-500">Manage your company workspace settings.</p>
+        <h1 className="text-lg font-semibold text-[#1b1b1f]">Workspace</h1>
+        <p className="text-[13px] text-[#6b6f76]">Manage your company workspace settings.</p>
       </div>
 
       {/* Logo + name header */}
       <div className="flex items-center gap-4">
-        <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50 flex items-center justify-center">
-          {logoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={logoUrl} alt="" className="h-full w-full object-contain p-1" onError={() => setLogoUrl("")} />
-          ) : (
-            <span className="text-lg font-bold text-zinc-400">{name.charAt(0).toUpperCase()}</span>
+        <div className="relative h-14 w-14 shrink-0">
+          <div className="h-14 w-14 overflow-hidden rounded-lg border border-[#e6e6e9] bg-[#f9f9fb] flex items-center justify-center">
+            {logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoUrl} alt="" className="h-full w-full object-contain p-1" onError={() => setLogoUrl("")} />
+            ) : (
+              <span className="text-lg font-semibold text-[#8b8d94]">{name.charAt(0).toUpperCase()}</span>
+            )}
+          </div>
+          {logoUploading && (
+            <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/30">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+            </div>
           )}
         </div>
         <div>
-          <p className="text-[15px] font-semibold text-zinc-900">{workspace.name}</p>
-          <p className="text-[12px] text-zinc-400">{workspace.domain}</p>
+          <p className="text-[15px] font-semibold text-[#1b1b1f]">{workspace.name}</p>
+          <p className="text-[12px] text-[#8b8d94]">{workspace.domain}</p>
         </div>
       </div>
 
       <form onSubmit={handleSave} className="space-y-4">
-        <div className="rounded-xl border border-zinc-200 divide-y divide-zinc-100">
+        <div className="rounded-lg border border-[#e6e6e9] divide-y divide-[#ededf0]">
           <div className="p-4">
-            <label className="block text-[13px] font-medium text-zinc-700 mb-1.5">Company name</label>
+            <label className="block text-[13px] font-medium text-[#6b6f76] mb-1.5">Company name</label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-[13px] placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none"
+              className="w-full rounded-md border border-[#e6e6e9] px-3 py-2 text-[13px] placeholder:text-[#8b8d94] focus:border-[#5e6ad2] focus:ring-1 focus:ring-[#5e6ad2]/20 focus:outline-none"
             />
           </div>
           <div className="p-4">
-            <label className="block text-[13px] font-medium text-zinc-700 mb-1.5">Logo URL</label>
-            <input
-              type="url"
-              value={logoUrl}
-              onChange={(e) => setLogoUrl(e.target.value)}
-              placeholder="https://..."
-              className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-[13px] placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none"
-            />
+            <label className="block text-[13px] font-medium text-[#6b6f76] mb-1.5">Logo</label>
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-[#e6e6e9] bg-[#f9f9fb] flex items-center justify-center">
+                {logoUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={logoUrl} alt="" className="h-full w-full object-contain p-0.5" onError={() => setLogoUrl("")} />
+                ) : (
+                  <span className="text-xs font-semibold text-[#8b8d94]">{name.charAt(0).toUpperCase()}</span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => logoInputRef.current?.click()}
+                disabled={logoUploading}
+                className="rounded-md border border-[#e6e6e9] px-3 py-1.5 text-[12px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f5f5f7] disabled:opacity-60"
+              >
+                {logoUploading ? "Uploading..." : "Upload logo"}
+              </button>
+              {logoUrl && (
+                <button
+                  type="button"
+                  onClick={() => setLogoUrl("")}
+                  className="text-[12px] text-[#8b8d94] hover:text-red-500 transition-colors"
+                >
+                  Remove
+                </button>
+              )}
+              <input
+                ref={logoInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleLogoUpload}
+              />
+            </div>
+            {logoUploadError && <p className="mt-1 text-[11px] text-red-500">{logoUploadError}</p>}
           </div>
           <div className="p-4">
-            <label className="block text-[13px] font-medium text-zinc-700 mb-1.5">Website URL</label>
+            <label className="block text-[13px] font-medium text-[#6b6f76] mb-1.5">Website URL</label>
             <input
               type="url"
               value={websiteUrl}
               onChange={(e) => setWebsiteUrl(e.target.value)}
               placeholder="https://acme.com"
-              className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-[13px] placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none"
+              className="w-full rounded-md border border-[#e6e6e9] px-3 py-2 text-[13px] placeholder:text-[#8b8d94] focus:border-[#5e6ad2] focus:ring-1 focus:ring-[#5e6ad2]/20 focus:outline-none"
             />
           </div>
           <div className="p-4">
-            <label className="block text-[13px] font-medium text-zinc-700 mb-1.5">Description</label>
+            <label className="block text-[13px] font-medium text-[#6b6f76] mb-1.5">Description</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="What does your company do?"
               rows={3}
-              className="w-full resize-none rounded-lg border border-zinc-200 px-3 py-2 text-[13px] placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none"
+              className="w-full resize-none rounded-md border border-[#e6e6e9] px-3 py-2 text-[13px] placeholder:text-[#8b8d94] focus:border-[#5e6ad2] focus:ring-1 focus:ring-[#5e6ad2]/20 focus:outline-none"
             />
           </div>
           <div className="p-4">
-            <label className="block text-[13px] font-medium text-zinc-700 mb-1">Domain</label>
-            <p className="text-[13px] text-zinc-500">{workspace.domain}</p>
-            <p className="mt-0.5 text-[11px] text-zinc-400">Domain cannot be changed.</p>
+            <label className="block text-[13px] font-medium text-[#6b6f76] mb-1">Domain</label>
+            <p className="text-[13px] text-[#6b6f76]">{workspace.domain}</p>
+            <p className="mt-0.5 text-[11px] text-[#8b8d94]">Domain cannot be changed.</p>
           </div>
         </div>
 
@@ -253,22 +312,22 @@ export default function WorkspaceSettingsPage() {
           <button
             type="submit"
             disabled={saving}
-            className="rounded-lg bg-zinc-900 px-5 py-2 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+            className="rounded-md bg-[#1b1b1f] px-5 py-2 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
           >
             {saving ? "Saving..." : "Save changes"}
           </button>
-          {saved && <span className="text-[12px] text-green-600 font-medium">Saved!</span>}
+          {saved && <span className="text-[12px] text-[#059669] font-medium">Saved!</span>}
         </div>
       </form>
 
       {/* Invite Members */}
       <div>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-[14px] font-semibold text-zinc-900">Invite Members</h2>
+          <h2 className="text-[14px] font-semibold text-[#1b1b1f]">Invite Members</h2>
           <button
             onClick={() => void createInvite()}
             disabled={inviteCreating}
-            className="rounded-lg bg-zinc-900 px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-60"
+            className="rounded-md bg-[#1b1b1f] px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-60"
           >
             {inviteCreating ? "Generating..." : "Generate invite link"}
           </button>
@@ -276,15 +335,15 @@ export default function WorkspaceSettingsPage() {
 
         {/* Newly created invite link */}
         {inviteLink && (
-          <div className="mb-3 flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3">
+          <div className="mb-3 flex items-center gap-2 rounded-lg border border-[#e6e6e9] bg-[#f9f9fb] p-3">
             <input
               readOnly
               value={inviteLink}
-              className="flex-1 bg-transparent text-[12px] text-zinc-600 outline-none truncate"
+              className="flex-1 bg-transparent text-[12px] text-[#6b6f76] outline-none truncate"
             />
             <button
               onClick={() => copyLink(inviteLink, inviteLink.split("invite=")[1] ?? "")}
-              className="shrink-0 rounded-md border border-zinc-200 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100"
+              className="shrink-0 rounded-md border border-[#e6e6e9] bg-white px-2.5 py-1 text-[11px] font-medium text-[#6b6f76] hover:bg-[#ededf0]"
             >
               {copiedToken ? "Copied!" : "Copy"}
             </button>
@@ -293,21 +352,21 @@ export default function WorkspaceSettingsPage() {
 
         {/* Pending invites */}
         {invites.length > 0 && (
-          <div className="rounded-xl border border-zinc-200 divide-y divide-zinc-100">
+          <div className="rounded-lg border border-[#e6e6e9] divide-y divide-[#ededf0]">
             {invites.map((inv) => {
               const link = `${typeof window !== "undefined" ? window.location.origin : ""}/onboarding?invite=${inv.token}`;
               const isCopied = copiedToken === inv.token;
               return (
                 <div key={inv._id} className="flex items-center gap-3 px-4 py-3">
                   <div className="flex-1 min-w-0">
-                    <p className="text-[12px] text-zinc-500 truncate font-mono">{inv.token.slice(0, 8)}…</p>
-                    <p className="text-[11px] text-zinc-400">
+                    <p className="text-[12px] text-[#6b6f76] truncate font-mono">{inv.token.slice(0, 8)}…</p>
+                    <p className="text-[11px] text-[#8b8d94]">
                       Expires {new Date(inv.expiresAt).toLocaleDateString()}
                     </p>
                   </div>
                   <button
                     onClick={() => copyLink(link, inv.token)}
-                    className="shrink-0 rounded-md border border-zinc-200 px-2.5 py-1 text-[11px] font-medium text-zinc-600 hover:bg-zinc-50"
+                    className="shrink-0 rounded-md border border-[#e6e6e9] px-2.5 py-1 text-[11px] font-medium text-[#6b6f76] hover:bg-[#f5f5f7]"
                   >
                     {isCopied ? "Copied!" : "Copy link"}
                   </button>
@@ -323,35 +382,35 @@ export default function WorkspaceSettingsPage() {
           </div>
         )}
         {invites.length === 0 && (
-          <p className="text-[12px] text-zinc-400">No pending invites. Generate a link to invite teammates.</p>
+          <p className="text-[12px] text-[#8b8d94]">No pending invites. Generate a link to invite teammates.</p>
         )}
       </div>
 
       {/* Members */}
       {members.length > 0 && (
         <div>
-          <h2 className="text-[14px] font-semibold text-zinc-900 mb-3">
-            Members <span className="ml-1 text-[12px] font-normal text-zinc-400">{members.length}</span>
+          <h2 className="text-[14px] font-semibold text-[#1b1b1f] mb-3">
+            Members <span className="ml-1 text-[12px] font-normal text-[#8b8d94]">{members.length}</span>
           </h2>
-          <div className="rounded-xl border border-zinc-200 divide-y divide-zinc-100">
+          <div className="rounded-lg border border-[#e6e6e9] divide-y divide-[#ededf0]">
             {members.map((m) => {
               const displayName = m.fullName ?? m.email;
               const initial = displayName.charAt(0).toUpperCase();
               return (
                 <div key={m._id} className="flex items-center gap-3 px-4 py-3">
-                  <div className="h-8 w-8 shrink-0 overflow-hidden rounded-full bg-zinc-100">
+                  <div className="h-8 w-8 shrink-0 overflow-hidden rounded-full bg-[#f5f5f7]">
                     {m.profilePhotoUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={m.profilePhotoUrl} alt="" className="h-full w-full object-cover" />
                     ) : (
-                      <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-zinc-500">{initial}</div>
+                      <div className="flex h-full w-full items-center justify-center text-xs font-semibold text-[#6b6f76]">{initial}</div>
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-[13px] font-medium text-zinc-900 truncate">{displayName}</p>
-                    {m.fullName && <p className="text-[11px] text-zinc-400 truncate">{m.email}</p>}
+                    <p className="text-[13px] font-medium text-[#1b1b1f] truncate">{displayName}</p>
+                    {m.fullName && <p className="text-[11px] text-[#8b8d94] truncate">{m.email}</p>}
                   </div>
-                  <span className="text-[11px] font-medium rounded-full bg-zinc-100 px-2 py-0.5 text-zinc-500 capitalize">
+                  <span className="text-[11px] font-medium rounded-md bg-[#f5f5f7] px-2 py-0.5 text-[#6b6f76] capitalize">
                     {m.role}
                   </span>
                 </div>

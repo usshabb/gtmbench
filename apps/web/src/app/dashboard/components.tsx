@@ -55,7 +55,7 @@ export function LetterAvatar({
 }) {
   const color = AVATAR_COLORS[hashName(name) % AVATAR_COLORS.length];
   const initials = getInitials(name);
-  const roundedClass = rounded === "full" ? "rounded-full" : "rounded-lg";
+  const roundedClass = rounded === "full" ? "rounded-full" : "rounded-md";
 
   return (
     <AvatarPrimitive.Root
@@ -69,7 +69,7 @@ export function LetterAvatar({
         />
       )}
       <AvatarPrimitive.Fallback
-        className={`flex h-full w-full items-center justify-center font-semibold ${color.bg} ${color.text}`}
+        className={`flex h-full w-full items-center justify-center font-medium ${color.bg} ${color.text}`}
       >
         {initials}
       </AvatarPrimitive.Fallback>

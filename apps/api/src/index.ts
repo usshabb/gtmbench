@@ -6,10 +6,10 @@ import { z } from "zod";
 import { getBuyerProfilesCollection, getBuyerSearchResultsCollection, getCompanyATSCollection, getCompaniesCollection, getGoogleTokensCollection, getInvitesCollection, getJobsCollection, getLegacyLinkedinContentForPersonCollection, getLinkedinPostsForUserCollection, getPersonsCollection, getSignalsCollection, getSkillsCollection, getTriggerJobsCollection, getTriggersCollection, getUsersCollection, getWorkspacesCollection } from "./db.js";
 import { env } from "./env.js";
 import { getEmailFromToken, signToken } from "./auth.js";
-import { enrichDomainWithFiber, enrichPersonByEmailWithFiber, enrichPersonWithFiber, findEmailWithContactDetails, findPersonEmailWithFiber, searchBuyersWithFiber } from "./fiber.js";
+import { enrichCompanyByLinkedinId, enrichDomainWithFiber, enrichPersonByEmailWithFiber, enrichPersonWithFiber, findEmailWithContactDetails, findPersonEmailWithFiber, searchBuyersWithFiber } from "./fiber.js";
 import { startTriggersWorker, scheduleTriggersCron, triggerTriggersProcessing, createPendingJobs, enqueuePendingJobsForUser, enqueueSpecificJob } from "./triggers-worker.js";
 import { detectCompanyATS } from "./firecrawl.js";
-import { exchangeCodeForTokens, getCalendarEvents, getEmailsWithPerson, getGoogleAuthUrl, getInboxThreads, getThreadMessages, getUserInfoFromGoogle, markThreadAsRead, replyToThread, sendGmail } from "./google.js";
+import { exchangeCodeForTokens, getCalendarEvents, getEmailsWithPerson, getGoogleAuthUrl, getGoogleSigninUrl, getInboxThreads, getThreadMessages, getUserInfoFromGoogle, markThreadAsRead, replyToThread, sendGmail } from "./google.js";
 
 const app = express();
 
@@ -64,16 +64,41 @@ function sanitizeDomain(rawDomain: string): string {
  * Returns workEmail and companyDomain (with email-domain fallback).
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function extractPersonFields(enrichmentPayload: any): { workEmail?: string; companyDomain?: string } {
-  const personData = enrichmentPayload?.output?.data?.[0];
-  if (!personData) return {};
+function extractPersonFields(enrichmentPayload: any): { workEmail?: string; companyDomain?: string; companyName?: string; linkedinCompanyId?: string } {
+  const personData = enrichmentPayload?.output?.data?.[0] ?? enrichmentPayload?.data?.[0] ?? enrichmentPayload?.output ?? null;
+  if (!personData || typeof personData !== "object") return {};
 
   const workEmail: string | undefined =
     personData.work_email ?? personData.emails?.[0] ?? personData.personal_email ?? personData.email ?? undefined;
 
-  const currentJob = personData.current_job;
+  // Try multiple paths to find current job / company info
+  // First check current_job, then look in experiences array for is_current entries
+  const currentExperience = Array.isArray(personData.experiences)
+    ? personData.experiences.find((e: any) => e.is_current)
+    : Array.isArray(personData.experience)
+      ? personData.experience.find((e: any) => e.is_current || e.isCurrent)
+      : undefined;
+
+  const currentJob = personData.current_job ?? personData.current_position ?? currentExperience ?? undefined;
+
   let companyDomain: string | undefined =
-    currentJob?.company_domain ?? currentJob?.company_website_domain ?? undefined;
+    currentJob?.company_domain
+    ?? currentJob?.company_website_domain
+    ?? currentJob?.domain
+    ?? personData.current_company_domain
+    ?? personData.company_domain
+    ?? undefined;
+
+  // Try to extract domain from company website URL
+  if (!companyDomain) {
+    const companyUrl: string | undefined = currentJob?.company_website ?? currentJob?.company_url ?? currentJob?.website ?? personData.company_website ?? undefined;
+    if (companyUrl) {
+      try {
+        companyDomain = new URL(companyUrl.startsWith("http") ? companyUrl : `https://${companyUrl}`).hostname.replace(/^www\./, "");
+      } catch { /* ignore */ }
+    }
+  }
+
   if (companyDomain) companyDomain = sanitizeDomain(companyDomain);
 
   // Fallback: derive company domain from work email
@@ -84,7 +109,58 @@ function extractPersonFields(enrichmentPayload: any): { workEmail?: string; comp
     }
   }
 
-  return { workEmail, companyDomain };
+  const companyName: string | undefined = currentJob?.company_name ?? personData.current_company_name ?? personData.company_name ?? undefined;
+  const linkedinCompanyId: string | undefined = currentJob?.linkedin_company_id ?? undefined;
+
+  return { workEmail, companyDomain, companyName, linkedinCompanyId };
+}
+
+/**
+ * Extract display fields from a Fiber company enrichment payload.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractCompanyDisplayFields(enrichmentPayload: any): { domain?: string; name?: string; logo?: string; description?: string } {
+  const companyData = enrichmentPayload?.output?.data?.[0] ?? enrichmentPayload?.data?.[0] ?? enrichmentPayload?.output ?? null;
+  if (!companyData || typeof companyData !== "object") return {};
+
+  let domain: string | undefined =
+    companyData.domain
+    ?? companyData.company_domain
+    ?? companyData.website_domain
+    ?? companyData.primary_domain
+    ?? undefined;
+
+  // Fiber returns `domains` as an array — use the first one
+  if (!domain && Array.isArray(companyData.domains) && companyData.domains.length > 0) {
+    const first = companyData.domains[0];
+    domain = typeof first === "string" ? first : first?.domain ?? first?.value ?? undefined;
+  }
+
+  // Fiber returns `websites` as an array — extract domain from first URL
+  if (!domain && Array.isArray(companyData.websites) && companyData.websites.length > 0) {
+    const first = companyData.websites[0];
+    const urlStr = typeof first === "string" ? first : first?.url ?? first?.value ?? undefined;
+    if (urlStr) {
+      try { domain = new URL(urlStr.startsWith("http") ? urlStr : `https://${urlStr}`).hostname.replace(/^www\./, ""); } catch { /* ignore */ }
+    }
+  }
+
+  // Try singular website field
+  if (!domain) {
+    const website: string | undefined = companyData.website ?? companyData.company_website ?? companyData.homepage_url ?? companyData.url ?? undefined;
+    if (website) {
+      try { domain = new URL(website.startsWith("http") ? website : `https://${website}`).hostname.replace(/^www\./, ""); } catch { /* ignore */ }
+    }
+  }
+
+  if (domain) domain = sanitizeDomain(domain);
+
+  return {
+    domain,
+    name: companyData.preferred_name ?? companyData.name ?? companyData.company_name ?? undefined,
+    logo: companyData.logo_url ?? companyData.logo ?? companyData.profile_pic ?? companyData.profile_pic_url ?? undefined,
+    description: companyData.short_description ?? companyData.description ?? companyData.li_description ?? companyData.tagline ?? undefined,
+  };
 }
 
 /**
@@ -144,12 +220,12 @@ app.get("/health", (_request, response) => {
   response.json({ status: "ok" });
 });
 
-// Public — return Google OAuth URL for sign-in (no auth required)
+// Public — return Google OAuth URL for sign-in (basic scopes only — no gmail/calendar)
 app.get("/auth/google/signin-url", (request, response) => {
   const returnPath = (request.query.returnPath as string) || "/dashboard";
   const inviteToken = (request.query.inviteToken as string) || null;
   const state = Buffer.from(JSON.stringify({ mode: "signin", returnPath, inviteToken })).toString("base64");
-  const url = getGoogleAuthUrl(state);
+  const url = getGoogleSigninUrl(state);
   response.json({ url });
 });
 
@@ -261,8 +337,13 @@ app.get("/auth/google/callback", async (request, response) => {
         { upsert: true },
       );
 
-      // If the connected email is a different workspace member, upsert their token only
-      // (no new user record needed — they must sign in themselves)
+      // Mark gmail & calendar as connected on the user record
+      const usersColConnect = await getUsersCollection();
+      await usersColConnect.updateOne(
+        { email: userEmail.toLowerCase() },
+        { $set: { gmailConnected: true, calendarConnected: true, updatedAt: new Date().toISOString() } },
+      );
+
       response.redirect(`${env.APP_URL}${returnPath}?gmail=connected`);
     }
   } catch (err) {
@@ -535,6 +616,32 @@ app.delete("/workspace/invites/:token", async (request, response) => {
   response.json({ ok: true });
 });
 
+// Accept an invite (for users who have already completed onboarding)
+app.post("/workspace/accept-invite", async (request, response) => {
+  const email = response.locals.userEmail as string;
+  const { inviteToken } = request.body as { inviteToken?: string };
+  if (!inviteToken) {
+    response.status(400).json({ error: "Missing invite token" });
+    return;
+  }
+  const invitesCol = await getInvitesCollection();
+  const invite = await invitesCol.findOne({ token: inviteToken, status: "pending" });
+  if (!invite || new Date(invite.expiresAt) < new Date()) {
+    response.status(400).json({ error: "Invite is invalid or expired" });
+    return;
+  }
+  const usersCol = await getUsersCollection();
+  const now = new Date().toISOString();
+  await usersCol.updateOne(
+    { email },
+    { $set: { workspaceId: invite.workspaceId, role: "admin" as const, updatedAt: now } },
+  );
+  await invitesCol.updateOne({ _id: invite._id }, { $set: { status: "accepted" } });
+  const workspacesCol = await getWorkspacesCollection();
+  const workspace = await workspacesCol.findOne({ _id: invite.workspaceId });
+  response.json({ ok: true, workspace });
+});
+
 /* ------------------------------------------------------------------ */
 /*  Onboarding completion                                              */
 /* ------------------------------------------------------------------ */
@@ -616,7 +723,7 @@ app.post("/onboarding/complete", async (request, response) => {
       $set: {
         ...(fullName ? { fullName } : {}),
         ...(profilePhotoUrl !== undefined ? { profilePhotoUrl } : {}),
-        ...(workspaceId ? { workspaceId, role: isInvited ? ("member" as const) : ("admin" as const) } : {}),
+        ...(workspaceId ? { workspaceId, role: "admin" as const } : {}),
         onboardingComplete: true,
         updatedAt: now,
       },
@@ -638,8 +745,9 @@ app.get("/companies", async (_request, response) => {
 
 app.get("/companies/by-domain/:domain", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const companiesCollection = await getCompaniesCollection();
-  const company = await companiesCollection.findOne({ domain: request.params.domain, userEmails: userEmail });
+  const company = await companiesCollection.findOne({ domain: request.params.domain, userEmails: { $in: memberEmails } });
   if (!company) {
     response.status(404).json({ error: "Company not found" });
     return;
@@ -649,10 +757,11 @@ app.get("/companies/by-domain/:domain", async (request, response) => {
 
 app.get("/companies/:id", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const companiesCollection = await getCompaniesCollection();
   let company;
   try {
-    company = await companiesCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+    company = await companiesCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: { $in: memberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid company ID" });
     return;
@@ -666,10 +775,11 @@ app.get("/companies/:id", async (request, response) => {
 
 app.get("/companies/:id/persons", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const companiesCollection = await getCompaniesCollection();
   let company;
   try {
-    company = await companiesCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+    company = await companiesCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: { $in: memberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid company ID" });
     return;
@@ -684,9 +794,177 @@ app.get("/companies/:id/persons", async (request, response) => {
       { companyDomain: company.domain },
       { companyId: company._id },
     ],
-    userEmails: userEmail,
+    userEmails: { $in: memberEmails },
   }).sort({ createdAt: -1 }).toArray();
   response.json({ persons });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Preview company + search buyers (does NOT save)                      */
+/* ------------------------------------------------------------------ */
+
+app.post("/companies/preview", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const { domain: rawDomain } = request.body as { domain?: string };
+
+  if (!rawDomain) {
+    response.status(400).json({ error: "domain is required" });
+    return;
+  }
+
+  const domain = sanitizeDomain(rawDomain);
+
+  try {
+    // Enrich company
+    const companyResult = await enrichDomainWithFiber(domain);
+    const companyPayload = companyResult.success ? companyResult.payload : undefined;
+    const companyDisplay = companyPayload ? extractCompanyDisplayFields(companyPayload) : { domain, name: domain };
+
+    // Find default buyer profile
+    const memberEmails = await getWorkspaceMemberEmails(userEmail);
+    const profilesCol = await getBuyerProfilesCollection();
+    const profiles = await profilesCol.find({ userEmail: { $in: memberEmails } }).sort({ createdAt: -1 }).toArray();
+    const defaultProfile = profiles.find((p: any) => p.isDefault) ?? profiles[0] ?? null;
+
+    let buyers: any[] = [];
+    let buyerProfileId: string | null = null;
+    let buyerProfileName: string | null = null;
+
+    if (defaultProfile) {
+      buyerProfileId = defaultProfile._id!.toHexString();
+      buyerProfileName = defaultProfile.name ?? null;
+      // Search for buyers using the default profile
+      console.log(`[company-preview] Searching buyers for domain=${domain} with profile=${defaultProfile.name} titles=${JSON.stringify(defaultProfile.titles)}`);
+      const buyerResult = await searchBuyersWithFiber(domain, defaultProfile.titles);
+      if (buyerResult.success) {
+        const payload = buyerResult.payload as any;
+        const rawBuyers = (payload?.output?.data ?? []) as any[];
+        buyers = rawBuyers.map((b: any) => ({
+          name: b.name ?? `${b.first_name ?? ""} ${b.last_name ?? ""}`.trim(),
+          title: b.headline ?? b.current_job?.title ?? undefined,
+          profilePic: b.profile_pic ?? undefined,
+          linkedinUrl: b.url ?? b.linkedin_url ?? (b.primary_slug ? `https://www.linkedin.com/in/${b.primary_slug}` : undefined),
+          workEmail: b.work_email ?? undefined,
+          _raw: b,
+        }));
+        console.log(`[company-preview] Found ${buyers.length} buyers`);
+      }
+    }
+
+    response.json({
+      company: companyDisplay,
+      buyers,
+      buyerProfileId,
+      buyerProfileName,
+      _enrichment: {
+        companyPayload,
+        domain,
+      },
+    });
+  } catch (err) {
+    console.error("[company-preview] Error:", err);
+    response.status(500).json({ error: "Failed to preview company" });
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/*  Confirm adding a company + selected buyers                          */
+/* ------------------------------------------------------------------ */
+
+app.post("/companies/confirm", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const { domain, companyPayload, buyerProfileId, selectedBuyers } = request.body as {
+    domain?: string;
+    companyPayload?: any;
+    buyerProfileId?: string;
+    selectedBuyers?: { linkedinUrl: string; workEmail?: string; _raw?: any }[];
+  };
+
+  if (!domain) {
+    response.status(400).json({ error: "domain is required" });
+    return;
+  }
+
+  try {
+    // Create or link company
+    const companiesCol = await getCompaniesCollection();
+    const memberEmails = await getWorkspaceMemberEmails(userEmail);
+    const existingCompany = await companiesCol.findOne({ domain });
+
+    let companyId: ObjectId;
+    if (existingCompany) {
+      await companiesCol.updateOne({ _id: existingCompany._id }, { $addToSet: { userEmails: userEmail } });
+      companyId = existingCompany._id!;
+      // If existing but no enrichment data, update with new payload
+      if (companyPayload && !existingCompany.enrichmentData) {
+        await companiesCol.updateOne({ _id: companyId }, {
+          $set: { enrichedAt: new Date().toISOString(), enrichmentStatus: "completed", enrichmentData: companyPayload },
+        });
+      }
+    } else if (companyPayload) {
+      const ins = await companiesCol.insertOne({
+        userEmails: [userEmail],
+        domain,
+        createdAt: new Date().toISOString(),
+        enrichedAt: new Date().toISOString(),
+        enrichmentStatus: "completed",
+        enrichmentData: companyPayload,
+      });
+      companyId = ins.insertedId;
+    } else {
+      companyId = await ensureCompany(domain, userEmail);
+    }
+
+    // Add selected buyers as persons
+    let addedCount = 0;
+    if (selectedBuyers && selectedBuyers.length > 0) {
+      const personsCol = await getPersonsCollection();
+      const now = new Date().toISOString();
+      const buyerProfileObjectId = buyerProfileId ? new ObjectId(buyerProfileId) : undefined;
+
+      await Promise.all(
+        selectedBuyers.map(async (buyer) => {
+          if (!buyer.linkedinUrl) return;
+          let linkedinUrl: string;
+          try { linkedinUrl = normalizeLinkedinUrl(buyer.linkedinUrl); } catch { return; }
+
+          // Build enrichment data wrapper if we have raw Fiber data
+          const hasRaw = buyer._raw && typeof buyer._raw === "object";
+          const enrichmentData = hasRaw ? { output: { data: [buyer._raw] } } : undefined;
+
+          const result = await personsCol.updateOne(
+            { linkedinUrl },
+            {
+              $setOnInsert: {
+                linkedinUrl,
+                createdAt: now,
+              },
+              $addToSet: { userEmails: userEmail },
+              $set: {
+                companyId,
+                companyDomain: domain,
+                ...(buyerProfileObjectId ? { buyerProfileId: buyerProfileObjectId } : {}),
+                ...(buyer.workEmail ? { workEmail: buyer.workEmail } : {}),
+                ...(hasRaw ? {
+                  enrichmentStatus: "completed",
+                  enrichedAt: now,
+                  enrichmentData,
+                } : {}),
+              },
+            },
+            { upsert: true },
+          );
+          if (result.upsertedCount > 0 || result.modifiedCount > 0) addedCount++;
+        }),
+      );
+    }
+
+    const savedCompany = await companiesCol.findOne({ _id: companyId });
+    response.status(201).json({ company: savedCompany, buyersAdded: addedCount });
+  } catch (err) {
+    console.error("[confirm-company] Error:", err);
+    response.status(500).json({ error: "Failed to add company" });
+  }
 });
 
 app.post("/companies", async (request, response) => {
@@ -700,8 +978,9 @@ app.post("/companies", async (request, response) => {
   const domain = sanitizeDomain(parsed.data.domain);
   const companiesCollection = await getCompaniesCollection();
 
+  const createCompanyMemberEmails = await getWorkspaceMemberEmails(userEmail);
   // Check if this user already has this company
-  const existingForUser = await companiesCollection.findOne({ domain, userEmails: userEmail });
+  const existingForUser = await companiesCollection.findOne({ domain, userEmails: { $in: createCompanyMemberEmails } });
   if (existingForUser) {
     response.status(409).json({ error: "Company already exists", company: existingForUser });
     return;
@@ -777,13 +1056,14 @@ app.post("/companies", async (request, response) => {
 
 app.delete("/companies/:id", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const companiesCollection = await getCompaniesCollection();
 
   let result;
   try {
     result = await companiesCollection.updateOne(
-      { _id: new ObjectId(request.params.id), userEmails: userEmail },
-      { $pull: { userEmails: userEmail } },
+      { _id: new ObjectId(request.params.id), userEmails: { $in: memberEmails } },
+      { $pull: { userEmails: { $in: memberEmails } } },
     );
   } catch {
     response.status(400).json({ error: "Invalid company ID" });
@@ -818,10 +1098,11 @@ app.get("/persons", async (_request, response) => {
 
 app.get("/persons/:id", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const personsCollection = await getPersonsCollection();
   let person;
   try {
-    person = await personsCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+    person = await personsCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: { $in: memberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid person ID" });
     return;
@@ -831,6 +1112,304 @@ app.get("/persons/:id", async (request, response) => {
     return;
   }
   response.json({ person });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Preview person + company enrichment (does NOT save)                  */
+/* ------------------------------------------------------------------ */
+
+app.post("/persons/preview", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const { linkedinUrl: rawUrl, email: rawEmail } = request.body as { linkedinUrl?: string; email?: string };
+
+  const isEmail = !!rawEmail && !rawUrl;
+
+  try {
+    let personEnrichment: any;
+    let linkedinUrl: string | undefined;
+    let resolvedWorkEmail: string | undefined;
+
+    if (isEmail) {
+      // Email-based enrichment
+      const workEmail = rawEmail!.trim().toLowerCase();
+      const fiberResult = await enrichPersonByEmailWithFiber(workEmail);
+      personEnrichment = fiberResult.payload;
+      resolvedWorkEmail = workEmail;
+      if (fiberResult.success && personEnrichment) {
+        const personData = personEnrichment?.output?.data?.[0];
+        linkedinUrl = personData?.linkedin_url ?? personData?.linkedinUrl ?? personData?.linkedin ?? undefined;
+        if (linkedinUrl) {
+          linkedinUrl = normalizeLinkedinUrl(linkedinUrl);
+          // Do full kitchen-sink enrichment for richer data
+          const kitchenSink = await enrichPersonWithFiber(linkedinUrl);
+          if (kitchenSink.success && kitchenSink.payload) personEnrichment = kitchenSink.payload;
+        }
+      }
+    } else {
+      // LinkedIn-based enrichment
+      linkedinUrl = rawUrl?.startsWith("http") ? rawUrl : `https://www.linkedin.com/in/${rawUrl}`;
+      linkedinUrl = normalizeLinkedinUrl(linkedinUrl);
+      const enrichment = await enrichPersonWithFiber(linkedinUrl);
+      if (!enrichment.success) {
+        response.status(422).json({ error: "Could not enrich this person" });
+        return;
+      }
+      personEnrichment = enrichment.payload;
+    }
+
+    // Extract person display info
+    const personData = personEnrichment?.output?.data?.[0];
+    const { workEmail: extractedEmail, companyDomain, companyName, linkedinCompanyId } = extractPersonFields(personEnrichment ?? {});
+
+    const personPreview = {
+      name: personData ? `${personData.first_name ?? ""} ${personData.last_name ?? ""}`.trim() : undefined,
+      title: personData?.headline ?? undefined,
+      profilePic: personData?.profile_pic ?? undefined,
+      linkedinUrl,
+      workEmail: resolvedWorkEmail ?? extractedEmail,
+      companyName,
+      companyDomain,
+      linkedinCompanyId,
+    };
+
+    // Enrich company — try multiple strategies
+    let companyPreview: { domain?: string; name?: string; logo?: string; description?: string } | null = null;
+    let companyEnrichmentPayload: any = null;
+
+    // Strategy 1: Use LinkedIn company ID from experiences
+    if (linkedinCompanyId) {
+      console.log(`[preview] Enriching company by LinkedIn ID: ${linkedinCompanyId}, companyName: ${companyName ?? "none"}`);
+      const companyResult = await enrichCompanyByLinkedinId(linkedinCompanyId, companyName);
+      console.log(`[preview] Company by LinkedIn ID success=${companyResult.success}`);
+      if (companyResult.success && companyResult.payload) {
+        companyEnrichmentPayload = companyResult.payload;
+        const fields = extractCompanyDisplayFields(companyResult.payload);
+        console.log(`[preview] Extracted company fields: domain=${fields.domain}, name=${fields.name}`);
+        companyPreview = fields;
+        if (fields.domain) personPreview.companyDomain = fields.domain;
+        if (fields.name && !personPreview.companyName) personPreview.companyName = fields.name;
+      }
+    }
+
+    // Strategy 2: If we have a domain (from person enrichment or strategy 1), enrich by domain
+    if (!companyEnrichmentPayload && companyDomain) {
+      console.log(`[preview] Enriching company by domain: ${companyDomain}`);
+      const companyResult = await enrichDomainWithFiber(companyDomain);
+      if (companyResult.success && companyResult.payload) {
+        companyEnrichmentPayload = companyResult.payload;
+        companyPreview = extractCompanyDisplayFields(companyResult.payload);
+      } else {
+        companyPreview = { domain: companyDomain, name: companyName };
+      }
+    }
+
+    // Strategy 3: If we still have no domain but have a company name, try using it as a domain hint
+    if (!personPreview.companyDomain && companyName) {
+      // Try guessing domain from company name (e.g. "Acme Inc" → "acme.com")
+      const guessedDomain = companyName.toLowerCase().replace(/[^a-z0-9]/g, "") + ".com";
+      console.log(`[preview] No domain found. Trying guessed domain from company name: ${guessedDomain}`);
+      const companyResult = await enrichDomainWithFiber(guessedDomain);
+      if (companyResult.success && companyResult.payload) {
+        const fields = extractCompanyDisplayFields(companyResult.payload);
+        // Only use if the enrichment actually resolved to a real company
+        if (fields.name) {
+          companyEnrichmentPayload = companyResult.payload;
+          companyPreview = fields;
+          if (fields.domain) personPreview.companyDomain = fields.domain;
+          if (fields.name && !personPreview.companyName) personPreview.companyName = fields.name;
+          console.log(`[preview] Guessed domain resolved: domain=${fields.domain}, name=${fields.name}`);
+        }
+      }
+    }
+
+    // If we still have no enrichment payload but have display info, keep the preview
+    if (!companyPreview && (personPreview.companyDomain || personPreview.companyName)) {
+      companyPreview = { domain: personPreview.companyDomain, name: personPreview.companyName };
+    }
+
+    // Final domain resolution: use companyPreview.domain as fallback
+    const finalCompanyDomain = personPreview.companyDomain ?? companyPreview?.domain ?? undefined;
+    if (finalCompanyDomain) personPreview.companyDomain = finalCompanyDomain;
+
+    // Log raw company data keys for debugging
+    if (companyEnrichmentPayload) {
+      console.log(`[preview] Company payload top-level keys: ${JSON.stringify(Object.keys(companyEnrichmentPayload ?? {}))}`);
+      console.log(`[preview] Company payload.output keys: ${JSON.stringify(Object.keys(companyEnrichmentPayload?.output ?? {}))}`);
+      const outputData = companyEnrichmentPayload?.output?.data;
+      console.log(`[preview] Company payload.output.data is array: ${Array.isArray(outputData)}, length: ${Array.isArray(outputData) ? outputData.length : "N/A"}`);
+      const rawCompanyData = outputData?.[0] ?? companyEnrichmentPayload?.data?.[0] ?? companyEnrichmentPayload?.output ?? {};
+      console.log(`[preview] Raw company data keys: ${JSON.stringify(Object.keys(rawCompanyData ?? {}))}`);
+      // Dump all string/number fields for domain discovery
+      const domainHints: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(rawCompanyData ?? {})) {
+        if (typeof v === "string" || typeof v === "number") domainHints[k] = v;
+      }
+      console.log(`[preview] Company string fields: ${JSON.stringify(domainHints).slice(0, 3000)}`);
+      console.log(`[preview] Final companyDomain: ${finalCompanyDomain ?? "NONE"}, companyName: ${personPreview.companyName ?? "NONE"}`);
+    }
+
+    response.json({
+      person: personPreview,
+      company: companyPreview,
+      _enrichment: {
+        personPayload: personEnrichment,
+        companyPayload: companyEnrichmentPayload,
+        linkedinUrl,
+        workEmail: resolvedWorkEmail ?? extractedEmail,
+        companyDomain: finalCompanyDomain,
+      },
+    });
+  } catch (err) {
+    console.error("[preview] Error:", err);
+    response.status(500).json({ error: "Failed to preview person" });
+  }
+});
+
+/* ------------------------------------------------------------------ */
+/*  Confirm adding a person + company (saves both)                      */
+/* ------------------------------------------------------------------ */
+
+app.post("/persons/confirm", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const { linkedinUrl: rawLinkedinUrl, workEmail: rawWorkEmail, companyDomain, personPayload, companyPayload } = request.body as {
+    linkedinUrl?: string;
+    workEmail?: string;
+    companyDomain?: string;
+    personPayload?: any;
+    companyPayload?: any;
+  };
+
+  console.log(`[confirm-person] linkedinUrl=${rawLinkedinUrl}, workEmail=${rawWorkEmail}, companyDomain=${companyDomain}, hasPersonPayload=${!!personPayload}, hasCompanyPayload=${!!companyPayload}`);
+
+  if (!rawLinkedinUrl && !rawWorkEmail) {
+    response.status(400).json({ error: "linkedinUrl or workEmail required" });
+    return;
+  }
+
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+
+  try {
+    const personsCollection = await getPersonsCollection();
+    const linkedinUrl = rawLinkedinUrl ? normalizeLinkedinUrl(rawLinkedinUrl) : rawWorkEmail ? `email:${rawWorkEmail}` : undefined;
+
+    // Ensure company first
+    let companyId: ObjectId | undefined;
+    console.log(`[confirm-person] companyDomain=${companyDomain ?? "NONE"}`);
+    if (companyDomain) {
+      console.log(`[confirm-person] Creating/linking company for domain: ${companyDomain}`);
+      const companiesCol = await getCompaniesCollection();
+      const existingCompany = await companiesCol.findOne({ domain: companyDomain });
+      if (existingCompany) {
+        await companiesCol.updateOne({ _id: existingCompany._id }, { $addToSet: { userEmails: userEmail } });
+        companyId = existingCompany._id!;
+      } else if (companyPayload) {
+        const ins = await companiesCol.insertOne({
+          userEmails: [userEmail],
+          domain: companyDomain,
+          createdAt: new Date().toISOString(),
+          enrichedAt: new Date().toISOString(),
+          enrichmentStatus: "completed",
+          enrichmentData: companyPayload,
+        });
+        companyId = ins.insertedId;
+      } else {
+        companyId = await ensureCompany(companyDomain, userEmail);
+      }
+    }
+
+    // Check if person already exists (for this workspace or globally)
+    if (linkedinUrl) {
+      const existingForWorkspace = await personsCollection.findOne({ linkedinUrl, userEmails: { $in: memberEmails } });
+      if (existingForWorkspace) {
+        // Already in workspace — update company link if missing
+        const setFields: Record<string, unknown> = {};
+        if (companyId && !existingForWorkspace.companyId) setFields.companyId = companyId;
+        if (companyDomain && !existingForWorkspace.companyDomain) setFields.companyDomain = companyDomain;
+        if (Object.keys(setFields).length > 0) {
+          await personsCollection.updateOne({ _id: existingForWorkspace._id }, { $set: setFields });
+        }
+        const updated = await personsCollection.findOne({ _id: existingForWorkspace._id });
+        response.status(200).json({ person: updated });
+        return;
+      }
+
+      const existingGlobal = await personsCollection.findOne({ linkedinUrl });
+      if (existingGlobal) {
+        // Exists globally — add this user and update company link
+        const setFields: Record<string, unknown> = {};
+        if (companyId && !existingGlobal.companyId) setFields.companyId = companyId;
+        if (companyDomain && !existingGlobal.companyDomain) setFields.companyDomain = companyDomain;
+        if (rawWorkEmail && !existingGlobal.workEmail) setFields.workEmail = rawWorkEmail;
+        await personsCollection.updateOne(
+          { _id: existingGlobal._id },
+          { $addToSet: { userEmails: userEmail }, ...(Object.keys(setFields).length > 0 ? { $set: setFields } : {}) },
+        );
+        const updated = await personsCollection.findOne({ _id: existingGlobal._id });
+        response.status(201).json({ person: updated });
+        return;
+      }
+    }
+
+    // Try email search if no work email
+    let enrichmentPayload = personPayload;
+    if (enrichmentPayload) {
+      try {
+        const personData = enrichmentPayload?.output?.data?.[0];
+        const hasEmail = !!(personData?.work_email ?? personData?.emails?.[0] ?? personData?.personal_email);
+        if (!hasEmail && personData?.first_name && personData?.last_name && companyDomain) {
+          const foundEmail = await findPersonEmailWithFiber(personData.first_name, personData.last_name, companyDomain);
+          if (foundEmail) {
+            enrichmentPayload = {
+              ...enrichmentPayload,
+              output: { ...enrichmentPayload.output, data: [{ ...personData, work_email: foundEmail }] },
+            };
+          }
+        }
+      } catch { /* ignore */ }
+    }
+
+    const { workEmail: extractedEmail } = extractPersonFields(enrichmentPayload ?? {});
+    const finalWorkEmail = rawWorkEmail ?? extractedEmail;
+
+    const createdAt = new Date().toISOString();
+    const insertResult = await personsCollection.insertOne({
+      userEmails: [userEmail],
+      linkedinUrl: linkedinUrl!,
+      ...(finalWorkEmail ? { workEmail: finalWorkEmail } : {}),
+      ...(companyDomain ? { companyDomain } : {}),
+      ...(companyId ? { companyId } : {}),
+      createdAt,
+      enrichedAt: enrichmentPayload ? createdAt : undefined,
+      enrichmentStatus: enrichmentPayload ? "completed" : "pending",
+      enrichmentData: enrichmentPayload ?? undefined,
+    });
+
+    // Create trigger job if active linkedin_content trigger
+    try {
+      const triggersCol = await getTriggersCollection();
+      const linkedinTrigger = await triggersCol.findOne({ userEmail, triggerType: "linkedin_content", status: "active" });
+      if (linkedinTrigger && linkedinUrl && !linkedinUrl.startsWith("email:")) {
+        const triggerJobsCol = await getTriggerJobsCollection();
+        try {
+          await triggerJobsCol.insertOne({
+            triggerId: linkedinTrigger._id!,
+            userEmail,
+            jobType: "LinkedinPost" as const,
+            personId: insertResult.insertedId,
+            linkedinUrl,
+            status: "pending" as const,
+            createdAt,
+          });
+        } catch { /* duplicate — ignore */ }
+      }
+    } catch { /* ignore */ }
+
+    const savedPerson = await personsCollection.findOne({ _id: insertResult.insertedId });
+    response.status(201).json({ person: savedPerson });
+  } catch (err) {
+    console.error("[confirm-person] Error:", err);
+    response.status(500).json({ error: "Failed to add person" });
+  }
 });
 
 app.post("/persons", async (request, response) => {
@@ -846,7 +1425,8 @@ app.post("/persons", async (request, response) => {
   const reqCompanyId = parsed.data.companyId ? new ObjectId(parsed.data.companyId) : undefined;
   const personsCollection = await getPersonsCollection();
 
-  const existingForUser = await personsCollection.findOne({ linkedinUrl, userEmails: userEmail });
+  const createPersonMemberEmails = await getWorkspaceMemberEmails(userEmail);
+  const existingForUser = await personsCollection.findOne({ linkedinUrl, userEmails: { $in: createPersonMemberEmails } });
   if (existingForUser) {
     response.status(409).json({ error: "Person already exists", person: existingForUser });
     return;
@@ -931,6 +1511,7 @@ app.post("/persons", async (request, response) => {
     } catch { /* ignore */ }
 
     const { workEmail, companyDomain } = extractPersonFields(enrichmentPayload);
+    console.log(`[add-person] Extracted fields: workEmail=${workEmail ?? "none"}, companyDomain=${companyDomain ?? "none"}, currentJob keys=${JSON.stringify(Object.keys(enrichmentPayload?.output?.data?.[0]?.current_job ?? {}))}`);
     let companyId: ObjectId | undefined = reqCompanyId;
     if (companyDomain && !companyId) companyId = await ensureCompany(companyDomain, userEmail);
     await personsCollection.updateOne(
@@ -947,6 +1528,11 @@ app.post("/persons", async (request, response) => {
       },
     );
   } else {
+    console.log(`[add-person] Enrichment failed: ${enrichment.error ?? "unknown"}`);
+    // Even on failure, try to extract company domain from partial payload
+    const { companyDomain: failedDomain } = extractPersonFields(enrichmentPayload ?? {});
+    let failedCompanyId: ObjectId | undefined = reqCompanyId;
+    if (failedDomain && !failedCompanyId) failedCompanyId = await ensureCompany(failedDomain, userEmail);
     await personsCollection.updateOne(
       { _id: personId },
       {
@@ -955,6 +1541,8 @@ app.post("/persons", async (request, response) => {
           enrichmentStatus: "failed",
           enrichmentError: enrichment.error ?? "Fiber enrichment failed",
           enrichmentData: enrichmentPayload,
+          ...(failedDomain ? { companyDomain: failedDomain } : {}),
+          ...(failedCompanyId ? { companyId: failedCompanyId } : {}),
         },
       },
     );
@@ -1005,8 +1593,9 @@ app.post("/persons/by-email", async (request, response) => {
   const workEmail = email.trim().toLowerCase();
   const personsCol = await getPersonsCollection();
 
+  const byEmailMemberEmails = await getWorkspaceMemberEmails(userEmail);
   // Check if we already track a person with this email
-  const existing = await personsCol.findOne({ workEmail, userEmails: userEmail });
+  const existing = await personsCol.findOne({ workEmail, userEmails: { $in: byEmailMemberEmails } });
   if (existing) {
     response.status(409).json({ error: "Person already exists", person: existing });
     return;
@@ -1036,7 +1625,7 @@ app.post("/persons/by-email", async (request, response) => {
 
   // If Fiber returned a LinkedIn URL, check if that person already exists
   if (linkedinUrl) {
-    const existingByLinkedin = await personsCol.findOne({ linkedinUrl, userEmails: userEmail });
+    const existingByLinkedin = await personsCol.findOne({ linkedinUrl, userEmails: { $in: byEmailMemberEmails } });
     if (existingByLinkedin) {
       response.status(409).json({ error: "Person already exists", person: existingByLinkedin });
       return;
@@ -1044,6 +1633,10 @@ app.post("/persons/by-email", async (request, response) => {
     // If person exists under another user, add this user and return
     const existingGlobal = await personsCol.findOne({ linkedinUrl });
     if (existingGlobal) {
+      // Ensure company is linked for this user too
+      if (existingGlobal.companyDomain) {
+        await ensureCompany(existingGlobal.companyDomain, userEmail);
+      }
       await personsCol.updateOne(
         { _id: existingGlobal._id },
         { $addToSet: { userEmails: userEmail }, $set: { workEmail } },
@@ -1101,13 +1694,14 @@ app.post("/persons/by-email", async (request, response) => {
 
 app.delete("/persons/:id", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const personsCollection = await getPersonsCollection();
 
   let result;
   try {
     result = await personsCollection.updateOne(
-      { _id: new ObjectId(request.params.id), userEmails: userEmail },
-      { $pull: { userEmails: userEmail } },
+      { _id: new ObjectId(request.params.id), userEmails: { $in: memberEmails } },
+      { $pull: { userEmails: { $in: memberEmails } } },
     );
   } catch {
     response.status(400).json({ error: "Invalid person ID" });
@@ -1136,10 +1730,11 @@ app.get("/buyer-profiles", async (_request, response) => {
 
 app.get("/buyer-profiles/:id", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const collection = await getBuyerProfilesCollection();
   let profile;
   try {
-    profile = await collection.findOne({ _id: new ObjectId(request.params.id), userEmail });
+    profile = await collection.findOne({ _id: new ObjectId(request.params.id), userEmail: { $in: memberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid profile ID" });
     return;
@@ -1163,7 +1758,8 @@ app.post("/buyer-profiles", async (request, response) => {
   const collection = await getBuyerProfilesCollection();
 
   // If this is the first profile, make it default
-  const existingCount = await collection.countDocuments({ userEmail });
+  const createProfileMemberEmails = await getWorkspaceMemberEmails(userEmail);
+  const existingCount = await collection.countDocuments({ userEmail: { $in: createProfileMemberEmails } });
   const isDefault = existingCount === 0;
 
   const insertResult = await collection.insertOne({
@@ -1189,9 +1785,10 @@ app.put("/buyer-profiles/:id", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
   const collection = await getBuyerProfilesCollection();
 
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   let existingProfile;
   try {
-    existingProfile = await collection.findOne({ _id: new ObjectId(request.params.id), userEmail });
+    existingProfile = await collection.findOne({ _id: new ObjectId(request.params.id), userEmail: { $in: memberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid profile ID" });
     return;
@@ -1206,7 +1803,7 @@ app.put("/buyer-profiles/:id", async (request, response) => {
   if (parsed.data.titles !== undefined) updateFields.titles = parsed.data.titles;
 
   await collection.updateOne(
-    { _id: new ObjectId(request.params.id), userEmail },
+    { _id: new ObjectId(request.params.id), userEmail: { $in: memberEmails } },
     { $set: updateFields },
   );
 
@@ -1220,7 +1817,8 @@ app.delete("/buyer-profiles/:id", async (request, response) => {
 
   let result;
   try {
-    result = await collection.deleteOne({ _id: new ObjectId(request.params.id), userEmail });
+    const deleteMemberEmails = await getWorkspaceMemberEmails(userEmail);
+    result = await collection.deleteOne({ _id: new ObjectId(request.params.id), userEmail: { $in: deleteMemberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid profile ID" });
     return;
@@ -1236,11 +1834,12 @@ app.delete("/buyer-profiles/:id", async (request, response) => {
 
 app.put("/buyer-profiles/:id/set-default", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const collection = await getBuyerProfilesCollection();
 
   let profile;
   try {
-    profile = await collection.findOne({ _id: new ObjectId(request.params.id), userEmail });
+    profile = await collection.findOne({ _id: new ObjectId(request.params.id), userEmail: { $in: memberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid profile ID" });
     return;
@@ -1250,8 +1849,8 @@ app.put("/buyer-profiles/:id/set-default", async (request, response) => {
     return;
   }
 
-  // Unset all defaults for this user, then set the selected one
-  await collection.updateMany({ userEmail }, { $set: { isDefault: false } });
+  // Unset all defaults for this workspace, then set the selected one
+  await collection.updateMany({ userEmail: { $in: memberEmails } }, { $set: { isDefault: false } });
   await collection.updateOne({ _id: new ObjectId(request.params.id) }, { $set: { isDefault: true } });
 
   const updated = await collection.findOne({ _id: new ObjectId(request.params.id) });
@@ -1288,7 +1887,7 @@ app.get("/companies/:id/buyers", async (request, response) => {
   }
 
   const cache = await getBuyerSearchResultsCollection();
-  const existing = await cache.findOne({ companyId: companyObjectId, buyerProfileId: profileObjectId, userEmail });
+  const existing = await cache.findOne({ companyId: companyObjectId, buyerProfileId: profileObjectId });
 
   if (!existing) {
     response.json({ result: null });
@@ -1318,7 +1917,8 @@ app.post("/companies/:id/find-buyers", async (request, response) => {
   const companiesCollection = await getCompaniesCollection();
   let company;
   try {
-    company = await companiesCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+    const findBuyersMemberEmails = await getWorkspaceMemberEmails(userEmail);
+    company = await companiesCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: { $in: findBuyersMemberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid company ID" });
     return;
@@ -1330,9 +1930,10 @@ app.post("/companies/:id/find-buyers", async (request, response) => {
 
   // Get the buyer profile
   const profilesCollection = await getBuyerProfilesCollection();
+  const findBuyersProfileMemberEmails = await getWorkspaceMemberEmails(userEmail);
   let buyerProfile;
   try {
-    buyerProfile = await profilesCollection.findOne({ _id: new ObjectId(parsed.data.buyerProfileId), userEmail });
+    buyerProfile = await profilesCollection.findOne({ _id: new ObjectId(parsed.data.buyerProfileId), userEmail: { $in: findBuyersProfileMemberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid buyer profile ID" });
     return;
@@ -1363,17 +1964,16 @@ app.post("/companies/:id/find-buyers", async (request, response) => {
 
   if (cursor) {
     await cache.updateOne(
-      { companyId: companyObjectId, buyerProfileId: buyerProfileObjectId, userEmail },
+      { companyId: companyObjectId, buyerProfileId: buyerProfileObjectId },
       { $push: { buyers: { $each: newBuyers } }, $set: { nextCursor } },
     );
   } else {
     await cache.updateOne(
-      { companyId: companyObjectId, buyerProfileId: buyerProfileObjectId, userEmail },
+      { companyId: companyObjectId, buyerProfileId: buyerProfileObjectId },
       {
         $set: {
           companyId: companyObjectId,
           buyerProfileId: buyerProfileObjectId,
-          userEmail,
           buyers: newBuyers,
           fetchedAt: new Date().toISOString(),
           nextCursor,
@@ -1423,11 +2023,12 @@ app.post("/companies/:id/find-buyers", async (request, response) => {
 // GET ATS information for a company
 app.get("/companies/:id/ats", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const companiesCollection = await getCompaniesCollection();
 
   let company;
   try {
-    company = await companiesCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+    company = await companiesCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: { $in: memberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid company ID" });
     return;
@@ -1447,13 +2048,14 @@ app.get("/companies/:id/ats", async (request, response) => {
 // POST to detect ATS for a company
 app.post("/companies/:id/detect-ats", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const companiesCollection = await getCompaniesCollection();
 
   console.log(`[detect-ats] Request from ${userEmail} for company ${request.params.id}`);
 
   let company;
   try {
-    company = await companiesCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+    company = await companiesCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: { $in: memberEmails } });
   } catch {
     console.log(`[detect-ats] Invalid company ID: ${request.params.id}`);
     response.status(400).json({ error: "Invalid company ID" });
@@ -1576,11 +2178,12 @@ app.post("/companies/:id/detect-ats", async (request, response) => {
 // GET all jobs for a company
 app.get("/companies/:id/jobs", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const companiesCollection = await getCompaniesCollection();
 
   let company;
   try {
-    company = await companiesCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+    company = await companiesCollection.findOne({ _id: new ObjectId(request.params.id), userEmails: { $in: memberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid company ID" });
     return;
@@ -1635,8 +2238,9 @@ app.post("/triggers", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
   const triggersCol = await getTriggersCollection();
 
-  // Check if trigger already exists for this user
-  const existing = await triggersCol.findOne({ userEmail, triggerType: parsed.data.triggerType });
+  // Check if trigger already exists for the workspace
+  const createTriggerMemberEmails = await getWorkspaceMemberEmails(userEmail);
+  const existing = await triggersCol.findOne({ userEmail: { $in: createTriggerMemberEmails }, triggerType: parsed.data.triggerType });
   if (existing) {
     response.status(409).json({ error: "Trigger already enabled", trigger: existing });
     return;
@@ -1657,9 +2261,9 @@ app.post("/triggers", async (request, response) => {
   let jobsCreated = 0;
 
   if (parsed.data.triggerType === "linkedin_content") {
-    // Create TriggerJob entries for all persons this user tracks
+    // Create TriggerJob entries for all persons the workspace tracks
     const personsCol = await getPersonsCollection();
-    const persons = await personsCol.find({ userEmails: userEmail }).toArray();
+    const persons = await personsCol.find({ userEmails: { $in: createTriggerMemberEmails } }).toArray();
     console.log(`[create-trigger] Found ${persons.length} persons for userEmail=${userEmail}`);
     for (const p of persons) {
       console.log(`[create-trigger]   person _id=${p._id} linkedinUrl=${p.linkedinUrl} userEmails=${JSON.stringify(p.userEmails)}`);
@@ -1693,7 +2297,8 @@ app.post("/triggers", async (request, response) => {
     const companiesCol = await getCompaniesCollection();
     const atsCol = await getCompanyATSCollection();
 
-    const userCompanies = await companiesCol.find({ userEmails: userEmail }).toArray();
+    const triggerMemberEmails = await getWorkspaceMemberEmails(userEmail);
+    const userCompanies = await companiesCol.find({ userEmails: { $in: triggerMemberEmails } }).toArray();
     const companyIds = userCompanies.map((c) => c._id!);
 
     if (companyIds.length > 0) {
@@ -1782,11 +2387,12 @@ app.put("/triggers/:id", async (request, response) => {
   }
 
   const userEmail = response.locals.userEmail as string;
+  const triggerMemberEmails = await getWorkspaceMemberEmails(userEmail);
   const triggersCol = await getTriggersCollection();
 
   let trigger;
   try {
-    trigger = await triggersCol.findOne({ _id: new ObjectId(request.params.id), userEmail });
+    trigger = await triggersCol.findOne({ _id: new ObjectId(request.params.id), userEmail: { $in: triggerMemberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid trigger ID" });
     return;
@@ -1809,11 +2415,12 @@ app.put("/triggers/:id", async (request, response) => {
 
 app.delete("/triggers/:id", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const deleteTriggerMemberEmails = await getWorkspaceMemberEmails(userEmail);
   const triggersCol = await getTriggersCollection();
 
   let trigger;
   try {
-    trigger = await triggersCol.findOne({ _id: new ObjectId(request.params.id), userEmail });
+    trigger = await triggersCol.findOne({ _id: new ObjectId(request.params.id), userEmail: { $in: deleteTriggerMemberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid trigger ID" });
     return;
@@ -1841,12 +2448,13 @@ app.post("/triggers/trigger-processing", async (_request, response) => {
 /*  Trigger Jobs endpoints                                               */
 /* ------------------------------------------------------------------ */
 
-// List all trigger jobs for the current user
+// List all trigger jobs for the workspace
 app.get("/trigger-jobs", async (_request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const jobMemberEmails = await getWorkspaceMemberEmails(userEmail);
   const triggerJobsCol = await getTriggerJobsCollection();
-  const jobs = await triggerJobsCol.find({ userEmail }).sort({ createdAt: -1 }).limit(500).toArray();
-  console.log(`[get-trigger-jobs] Returning ${jobs.length} trigger jobs for userEmail=${userEmail}`);
+  const jobs = await triggerJobsCol.find({ userEmail: { $in: jobMemberEmails } }).sort({ createdAt: -1 }).limit(500).toArray();
+  console.log(`[get-trigger-jobs] Returning ${jobs.length} trigger jobs for workspace (userEmail=${userEmail})`);
   const linkedinJobs = jobs.filter(j => j.jobType === "LinkedinPost");
   const atsJobs = jobs.filter(j => j.jobType === "ATSJobs");
   console.log(`[get-trigger-jobs] Breakdown: ${linkedinJobs.length} LinkedinPost, ${atsJobs.length} ATSJobs`);
@@ -1955,6 +2563,7 @@ app.get("/signals", async (request, response) => {
 
 app.delete("/signals/:id", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const signalMemberEmails = await getWorkspaceMemberEmails(userEmail);
 
   let id: ObjectId;
   try {
@@ -1969,7 +2578,7 @@ app.delete("/signals/:id", async (request, response) => {
   // Soft-delete: mark as dismissed rather than removing the record
   const signalsCol = await getSignalsCollection();
   const atsResult = await signalsCol.updateOne(
-    { _id: id, userEmail },
+    { _id: id, userEmail: { $in: signalMemberEmails } },
     { $set: { dismissed: true, dismissedAt: now } },
   );
   if (atsResult.matchedCount > 0) {
@@ -1979,7 +2588,7 @@ app.delete("/signals/:id", async (request, response) => {
 
   const postsCol = await getLinkedinPostsForUserCollection();
   const postResult = await postsCol.updateOne(
-    { _id: id, userEmail },
+    { _id: id, userEmail: { $in: signalMemberEmails } },
     { $set: { dismissed: true, dismissedAt: now } },
   );
   if (postResult.matchedCount > 0) {
@@ -1992,6 +2601,7 @@ app.delete("/signals/:id", async (request, response) => {
 
 app.post("/signals/:id/restore", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const restoreMemberEmails = await getWorkspaceMemberEmails(userEmail);
 
   let id: ObjectId;
   try {
@@ -2003,7 +2613,7 @@ app.post("/signals/:id/restore", async (request, response) => {
 
   const signalsCol = await getSignalsCollection();
   const atsResult = await signalsCol.updateOne(
-    { _id: id, userEmail },
+    { _id: id, userEmail: { $in: restoreMemberEmails } },
     { $set: { dismissed: false }, $unset: { dismissedAt: "" } },
   );
   if (atsResult.matchedCount > 0) {
@@ -2013,7 +2623,7 @@ app.post("/signals/:id/restore", async (request, response) => {
 
   const postsCol = await getLinkedinPostsForUserCollection();
   const postResult = await postsCol.updateOne(
-    { _id: id, userEmail },
+    { _id: id, userEmail: { $in: restoreMemberEmails } },
     { $set: { dismissed: false }, $unset: { dismissedAt: "" } },
   );
   if (postResult.matchedCount > 0) {
@@ -2032,13 +2642,14 @@ app.post("/signals/backfill-linkedin", async (request, response) => {
   const triggersCol = await getTriggersCollection();
   const personsCol = await getPersonsCollection();
 
-  const trigger = await triggersCol.findOne({ userEmail, triggerType: "linkedin_content" });
+  const backfillMemberEmails = await getWorkspaceMemberEmails(userEmail);
+  const trigger = await triggersCol.findOne({ userEmail: { $in: backfillMemberEmails }, triggerType: "linkedin_content" });
 
   // Collect posts from new per-user collection
-  const newPosts = await postsCol.find({ userEmail }).toArray();
+  const newPosts = await postsCol.find({ userEmail: { $in: backfillMemberEmails } }).toArray();
 
-  // Also collect posts from legacy collection (filtered by persons the user tracks)
-  const userPersons = await personsCol.find({ userEmails: userEmail }).toArray();
+  // Also collect posts from legacy collection (filtered by persons the workspace tracks)
+  const userPersons = await personsCol.find({ userEmails: { $in: backfillMemberEmails } }).toArray();
   const legacyPosts = await legacyCol.find({ personId: { $in: userPersons.map((p) => p._id!) } }).toArray();
 
   // Merge, deduplicating by postId (prefer new collection records)
@@ -2133,9 +2744,10 @@ app.post("/skills", async (request, response) => {
   }
 
   const userEmail = response.locals.userEmail as string;
+  const skillMemberEmails = await getWorkspaceMemberEmails(userEmail);
   const skillsCol = await getSkillsCollection();
 
-  const existing = await skillsCol.findOne({ userEmail, skillType: parsed.data.skillType });
+  const existing = await skillsCol.findOne({ userEmail: { $in: skillMemberEmails }, skillType: parsed.data.skillType });
   if (existing) {
     // Re-enable if disabled
     if (!existing.enabled) {
@@ -2167,11 +2779,12 @@ app.post("/skills", async (request, response) => {
 // PUT toggle a skill
 app.put("/skills/:id", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const skillMemberEmails = await getWorkspaceMemberEmails(userEmail);
   const skillsCol = await getSkillsCollection();
 
   let skill;
   try {
-    skill = await skillsCol.findOne({ _id: new ObjectId(request.params.id), userEmail });
+    skill = await skillsCol.findOne({ _id: new ObjectId(request.params.id), userEmail: { $in: skillMemberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid skill ID" });
     return;
@@ -2194,11 +2807,12 @@ app.put("/skills/:id", async (request, response) => {
 // DELETE disable a skill
 app.delete("/skills/:id", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const deleteSkillMemberEmails = await getWorkspaceMemberEmails(userEmail);
   const skillsCol = await getSkillsCollection();
 
   let skill;
   try {
-    skill = await skillsCol.findOne({ _id: new ObjectId(request.params.id), userEmail });
+    skill = await skillsCol.findOne({ _id: new ObjectId(request.params.id), userEmail: { $in: deleteSkillMemberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid skill ID" });
     return;
@@ -2248,12 +2862,79 @@ app.get("/gmail/status", async (_request, response) => {
   const userEmail = response.locals.userEmail as string;
   const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const googleTokensCol = await getGoogleTokensCollection();
+  const usersCol = await getUsersCollection();
   const connectedTokens = await googleTokensCol.find({ userEmail: { $in: memberEmails } }).toArray();
   const connected = connectedTokens.length > 0;
   const connectedUsers = connectedTokens.map((t) => ({ email: t.userEmail }));
-  // Also return whether the requesting user specifically has their account connected
   const selfConnected = connectedTokens.some((t) => t.userEmail === userEmail);
-  response.json({ connected, selfConnected, connectedUsers });
+
+  // Per-service connection flags for the requesting user
+  const selfUser = await usersCol.findOne({ email: userEmail });
+  const selfToken = connectedTokens.find((t) => t.userEmail === userEmail);
+  const hasGmailScope = selfToken?.scope?.includes("gmail") ?? false;
+  const hasCalendarScope = selfToken?.scope?.includes("calendar") ?? false;
+
+  // gmailConnected/calendarConnected: explicit flag if set, otherwise infer from token scopes
+  const gmailConnected = selfUser?.gmailConnected ?? hasGmailScope;
+  const calendarConnected = selfUser?.calendarConnected ?? hasCalendarScope;
+
+  response.json({ connected, selfConnected, connectedUsers, gmailConnected, calendarConnected });
+});
+
+// Disconnect Gmail
+app.post("/gmail/disconnect", async (_request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const usersCol = await getUsersCollection();
+  await usersCol.updateOne(
+    { email: userEmail },
+    { $set: { gmailConnected: false, updatedAt: new Date().toISOString() } },
+  );
+  response.json({ ok: true });
+});
+
+// Disconnect Calendar
+app.post("/calendar/disconnect", async (_request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const usersCol = await getUsersCollection();
+  await usersCol.updateOne(
+    { email: userEmail },
+    { $set: { calendarConnected: false, updatedAt: new Date().toISOString() } },
+  );
+  response.json({ ok: true });
+});
+
+// Reconnect Gmail (re-enable without new OAuth if token already has scopes)
+app.post("/gmail/connect", async (_request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const googleTokensCol = await getGoogleTokensCollection();
+  const token = await googleTokensCol.findOne({ userEmail });
+  if (!token?.scope?.includes("gmail")) {
+    response.json({ ok: false, needsOAuth: true });
+    return;
+  }
+  const usersCol = await getUsersCollection();
+  await usersCol.updateOne(
+    { email: userEmail },
+    { $set: { gmailConnected: true, updatedAt: new Date().toISOString() } },
+  );
+  response.json({ ok: true });
+});
+
+// Reconnect Calendar (re-enable without new OAuth if token already has scopes)
+app.post("/calendar/connect", async (_request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const googleTokensCol = await getGoogleTokensCollection();
+  const token = await googleTokensCol.findOne({ userEmail });
+  if (!token?.scope?.includes("calendar")) {
+    response.json({ ok: false, needsOAuth: true });
+    return;
+  }
+  const usersCol = await getUsersCollection();
+  await usersCol.updateOne(
+    { email: userEmail },
+    { $set: { calendarConnected: true, updatedAt: new Date().toISOString() } },
+  );
+  response.json({ ok: true });
 });
 
 // Unified inbox — threads from all workspace members' Gmail connections
@@ -2269,9 +2950,12 @@ app.get("/inbox/emails", async (_request, response) => {
   const memberNameMap = new Map(memberUserRecords.map((u) => [u.email, u.fullName ?? u.email]));
 
   // Only use tokens from members who have sharing enabled (or are the requester themselves)
-  const sharingEnabledEmails = new Set([userEmail]);
+  // Also respect the gmailConnected flag — if explicitly false, exclude that member's token
+  const selfUser = memberUserRecords.find((m) => m.email === userEmail);
+  const sharingEnabledEmails = new Set<string>();
+  if (selfUser?.gmailConnected !== false) sharingEnabledEmails.add(userEmail);
   for (const m of memberUserRecords) {
-    if (m.email !== userEmail && m.shareWithWorkspace !== false) sharingEnabledEmails.add(m.email);
+    if (m.email !== userEmail && m.shareWithWorkspace !== false && m.gmailConnected !== false) sharingEnabledEmails.add(m.email);
   }
 
   // Collect workspace members with Gmail connected and sharing enabled
@@ -2334,9 +3018,11 @@ app.get("/inbox/emails", async (_request, response) => {
     const merged = allThreadResults.flat();
     merged.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
+    const memberPhotoMap = new Map(memberUserRecords.map((u) => [u.email, u.profilePhotoUrl ?? null]));
     const connectedUsers = allTokens.map((t) => ({
       email: t.userEmail,
       name: memberNameMap.get(t.userEmail) ?? t.userEmail,
+      profilePhotoUrl: memberPhotoMap.get(t.userEmail) ?? null,
     }));
 
     response.json({ threads: merged, personEmails: personEmailMeta, connectedUsers });
@@ -2465,9 +3151,12 @@ app.get("/calendar/events", async (request, response) => {
   const memberNameMap = new Map(memberUserRecords.map((u) => [u.email, u.fullName ?? u.email]));
 
   // Only use tokens from members who have sharing enabled (or are the requester themselves)
-  const sharingEnabledEmails = new Set([userEmail]);
+  // Also respect the calendarConnected flag
+  const calSelf = memberUserRecords.find((m) => m.email === userEmail);
+  const sharingEnabledEmails = new Set<string>();
+  if (calSelf?.calendarConnected !== false) sharingEnabledEmails.add(userEmail);
   for (const m of memberUserRecords) {
-    if (m.email !== userEmail && m.shareWithWorkspace !== false) sharingEnabledEmails.add(m.email);
+    if (m.email !== userEmail && m.shareWithWorkspace !== false && m.calendarConnected !== false) sharingEnabledEmails.add(m.email);
   }
 
   const allTokens = await googleTokensCol.find({ userEmail: { $in: [...sharingEnabledEmails] } }).toArray();
@@ -2552,9 +3241,11 @@ app.get("/calendar/events", async (request, response) => {
     const merged = allResults.flat();
     merged.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
 
+    const memberPhotoMap = new Map(memberUserRecords.map((u) => [u.email, u.profilePhotoUrl ?? null]));
     const connectedUsers = allTokens.map((t) => ({
       email: t.userEmail,
       name: memberNameMap.get(t.userEmail) ?? t.userEmail,
+      profilePhotoUrl: memberPhotoMap.get(t.userEmail) ?? null,
     }));
 
     response.json({ events: merged, connectedUsers });
@@ -2571,12 +3262,13 @@ app.get("/calendar/events", async (request, response) => {
 // Get last 5 emails exchanged with a person
 app.get("/persons/:id/emails", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const personsCol = await getPersonsCollection();
   const googleTokensCol = await getGoogleTokensCollection();
 
   let person;
   try {
-    person = await personsCol.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+    person = await personsCol.findOne({ _id: new ObjectId(request.params.id), userEmails: { $in: memberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid person ID" });
     return;
@@ -2586,8 +3278,18 @@ app.get("/persons/:id/emails", async (request, response) => {
     return;
   }
 
-  const tokenRecord = await googleTokensCol.findOne({ userEmail });
-  if (!tokenRecord) {
+  // Search across all workspace members' connected Gmail accounts
+  const usersCol = await getUsersCollection();
+  const memberUserRecords = await usersCol.find({ email: { $in: memberEmails } }).toArray();
+  const sharingEnabledEmails = new Set<string>();
+  const selfUser = memberUserRecords.find((m) => m.email === userEmail);
+  if (selfUser?.gmailConnected !== false) sharingEnabledEmails.add(userEmail);
+  for (const m of memberUserRecords) {
+    if (m.email !== userEmail && m.shareWithWorkspace !== false && m.gmailConnected !== false) sharingEnabledEmails.add(m.email);
+  }
+
+  const allTokens = await googleTokensCol.find({ userEmail: { $in: [...sharingEnabledEmails] } }).toArray();
+  if (allTokens.length === 0) {
     response.status(403).json({ error: "Gmail not connected" });
     return;
   }
@@ -2599,7 +3301,39 @@ app.get("/persons/:id/emails", async (request, response) => {
   }
 
   try {
-    const emails = await getEmailsWithPerson(tokenRecord.accessToken, tokenRecord.refreshToken, personEmail);
+    const memberNameMap = new Map(memberUserRecords.map((u) => [u.email, u.fullName ?? u.email]));
+    const memberPhotoMap = new Map(memberUserRecords.map((u) => [u.email, u.profilePhotoUrl ?? null]));
+
+    // Fetch emails from all connected accounts in parallel
+    const allResults = await Promise.all(
+      allTokens.map(async (tokenRecord) => {
+        try {
+          const emails = await getEmailsWithPerson(tokenRecord.accessToken, tokenRecord.refreshToken, personEmail);
+          return emails.map((e) => ({
+            ...e,
+            sourceUserEmail: tokenRecord.userEmail,
+            sourceUserName: memberNameMap.get(tokenRecord.userEmail) ?? tokenRecord.userEmail,
+            sourceUserPhoto: memberPhotoMap.get(tokenRecord.userEmail) ?? null,
+          }));
+        } catch {
+          return [];
+        }
+      }),
+    );
+
+    // Merge and sort by date descending, dedup by thread ID
+    const merged = allResults.flat();
+    merged.sort((a, b) => new Date(b.date as string).getTime() - new Date(a.date as string).getTime());
+
+    // Deduplicate threads by id (same thread may appear in multiple accounts)
+    const seen = new Set<string>();
+    const emails = merged.filter((e) => {
+      const id = e.id as string;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+
     response.json({ emails });
   } catch (err) {
     console.error("[gmail-threads] Failed:", err);
@@ -2610,11 +3344,12 @@ app.get("/persons/:id/emails", async (request, response) => {
 // Re-enrich a person via Fiber using their LinkedIn URL (kitchen-sink/person)
 app.post("/persons/:id/re-enrich", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const personsCol = await getPersonsCollection();
 
   let person;
   try {
-    person = await personsCol.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+    person = await personsCol.findOne({ _id: new ObjectId(request.params.id), userEmails: { $in: memberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid person ID" });
     return;
@@ -2685,11 +3420,12 @@ app.post("/persons/:id/re-enrich", async (request, response) => {
 // Find email for a person using Fiber (people-search + contact-enrich batch/poll)
 app.post("/persons/:id/find-email", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const personsCol = await getPersonsCollection();
 
   let person;
   try {
-    person = await personsCol.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+    person = await personsCol.findOne({ _id: new ObjectId(request.params.id), userEmails: { $in: memberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid person ID" });
     return;
@@ -2753,11 +3489,12 @@ app.post("/persons/:id/set-email", async (request, response) => {
     return;
   }
 
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const personsCol = await getPersonsCollection();
 
   let person;
   try {
-    person = await personsCol.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+    person = await personsCol.findOne({ _id: new ObjectId(request.params.id), userEmails: { $in: memberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid person ID" });
     return;
@@ -2789,12 +3526,13 @@ app.post("/persons/:id/set-email", async (request, response) => {
 // Send an email to a person
 app.post("/persons/:id/emails", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const personsCol = await getPersonsCollection();
   const googleTokensCol = await getGoogleTokensCollection();
 
   let person;
   try {
-    person = await personsCol.findOne({ _id: new ObjectId(request.params.id), userEmails: userEmail });
+    person = await personsCol.findOne({ _id: new ObjectId(request.params.id), userEmails: { $in: memberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid person ID" });
     return;

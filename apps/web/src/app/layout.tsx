@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Work_Sans } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
 
 const inter = Inter({
@@ -7,11 +7,10 @@ const inter = Inter({
   subsets: ["latin"],
 });
 
-const workSans = Work_Sans({
+const interBody = Inter({
   variable: "--font-body",
   subsets: ["latin"],
   weight: ["300", "400", "500", "600", "700"],
-  style: ["normal", "italic"],
 });
 
 export const metadata: Metadata = {
@@ -42,7 +41,7 @@ export default function RootLayout({
         />
       </head>
       <body
-        className={`${inter.variable} ${workSans.variable} antialiased`}
+        className={`${inter.variable} ${interBody.variable} antialiased`}
       >
         {children}
       </body>

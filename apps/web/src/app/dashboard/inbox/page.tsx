@@ -37,7 +37,8 @@ interface InboxThread {
 
 type FilterItem =
   | { type: "person"; email: string; name: string }
-  | { type: "company"; domain: string; name: string };
+  | { type: "company"; domain: string; name: string }
+  | { type: "source"; email: string; name: string };
 
 interface ThreadMessage {
   id: string;
@@ -85,12 +86,16 @@ function ThreadRow({
   isRead,
   onClick,
   profilePic,
+  sourceUser,
+  showSource,
 }: {
   thread: InboxThread;
   selected: boolean;
   isRead: boolean;
   onClick: () => void;
   profilePic?: string;
+  sourceUser?: { name: string; profilePhotoUrl?: string | null };
+  showSource?: boolean;
 }) {
   const { name: fromName } = parseDisplayName(thread.from);
   const displayName = thread.personName ?? fromName;
@@ -99,15 +104,14 @@ function ThreadRow({
   return (
     <button
       onClick={onClick}
-      className={`w-full text-left px-4 py-3 flex items-start gap-3 transition-colors border-b border-zinc-100 ${
-        selected ? "bg-zinc-100" : "hover:bg-zinc-50"
+      className={`w-full text-left px-3 py-2.5 flex items-center gap-2.5 transition-colors border-b border-[#ededf0] border-l-2 ${
+        selected
+          ? "bg-[#f5f5f7] border-l-[#8b8d94]"
+          : unread
+            ? "border-l-[#5e6ad2] hover:bg-[#f9f9fb]"
+            : "border-l-transparent hover:bg-[#f9f9fb]"
       }`}
     >
-      {/* Unread dot */}
-      <div className="mt-1.5 shrink-0 w-1.5">
-        {unread && <div className="h-1.5 w-1.5 rounded-full bg-blue-500" />}
-      </div>
-
       {/* Avatar */}
       <div className="shrink-0">
         <LetterAvatar name={displayName} size="sm" src={profilePic} />
@@ -116,15 +120,35 @@ function ThreadRow({
       {/* Content */}
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline justify-between gap-2">
-          <span className={`truncate text-[13px] ${unread ? "font-semibold text-zinc-900" : "font-medium text-zinc-700"}`}>
+          <span className={`truncate text-[13px] ${unread ? "font-medium text-[#1b1b1f]" : "font-medium text-[#6b6f76]"}`}>
             {displayName}
           </span>
-          <span className="shrink-0 text-[11px] text-zinc-400">{formatDate(thread.date)}</span>
+          <span className="shrink-0 text-[11px] text-[#8b8d94]">{formatDate(thread.date)}</span>
         </div>
-        <p className={`mt-0.5 truncate text-[12px] ${unread ? "font-medium text-zinc-700" : "text-zinc-500"}`}>
+        <p className={`truncate text-[12px] leading-snug ${unread ? "font-medium text-[#6b6f76]" : "text-[#6b6f76]"}`}>
           {thread.subject}
         </p>
-        <p className="mt-0.5 truncate text-[11px] text-zinc-400">{thread.snippet}</p>
+        <p className="truncate text-[11px] leading-snug text-[#8b8d94]">{thread.snippet}</p>
+        {showSource && sourceUser && (
+          <div className="mt-1 flex items-center gap-1 group/source">
+            <span className="text-[10px] text-[#8b8d94]">Synced from</span>
+            <div className="relative">
+              {sourceUser.profilePhotoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={sourceUser.profilePhotoUrl} alt="" className="h-3.5 w-3.5 rounded-full object-cover" />
+              ) : (
+                <div className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[#e6e6e9] text-[7px] font-semibold text-[#6b6f76]">
+                  {sourceUser.name.charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover/source:block">
+                <div className="whitespace-nowrap rounded bg-[#1b1b1f] px-2 py-1 text-[10px] text-white">
+                  {sourceUser.name.split(" ")[0]}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </button>
   );
@@ -142,11 +166,11 @@ function MessageBubble({
   const [expanded, setExpanded] = useState(true);
 
   return (
-    <div className={`flex gap-3 ${isMine ? "flex-row-reverse" : ""}`}>
+    <div className={`flex gap-2.5 ${isMine ? "flex-row-reverse" : ""}`}>
       {/* Avatar */}
       <div className="shrink-0">
-        <div className={`flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-semibold ${
-          isMine ? "bg-zinc-800 text-white" : "bg-zinc-100 text-zinc-600"
+        <div className={`flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-semibold ${
+          isMine ? "bg-[#1b1b1f] text-white" : "bg-[#e6e6e9] text-[#6b6f76]"
         }`}>
           {getInitials(fromName)}
         </div>
@@ -155,34 +179,25 @@ function MessageBubble({
       {/* Bubble */}
       <div className={`min-w-0 max-w-[75%] ${isMine ? "items-end" : "items-start"} flex flex-col`}>
         {/* Header */}
-        <div className={`flex items-center gap-2 mb-1 ${isMine ? "flex-row-reverse" : ""}`}>
-          <span className="text-[12px] font-semibold text-zinc-700">{fromName}</span>
-          <span className="text-[11px] text-zinc-400">{formatDate(msg.date)}</span>
-          <button
-            onClick={() => setExpanded((v) => !v)}
-            className="text-[11px] text-zinc-400 hover:text-zinc-600"
-          >
-            {expanded ? "▴" : "▾"}
-          </button>
-        </div>
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className={`flex items-center gap-2 mb-1 ${isMine ? "flex-row-reverse" : ""} group`}
+        >
+          <span className="text-[12px] font-semibold text-[#6b6f76]">{fromName}</span>
+          <span className="text-[11px] text-[#8b8d94]">{formatDate(msg.date)}</span>
+          <svg className={`h-3 w-3 text-[#8b8d94] group-hover:text-[#6b6f76] transition-transform ${expanded ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+          </svg>
+        </button>
 
         {expanded && (
-          <>
-            {/* To/Cc meta */}
-            <div className="mb-2 text-[11px] text-zinc-400">
-              <span>To: {msg.to}</span>
-              {msg.cc && <span className="ml-2">Cc: {msg.cc}</span>}
-            </div>
-
-            {/* Body */}
-            <div className={`rounded-2xl px-4 py-3 text-[13px] leading-relaxed whitespace-pre-wrap break-words ${
-              isMine
-                ? "bg-zinc-800 text-white rounded-tr-sm"
-                : "bg-zinc-100 text-zinc-800 rounded-tl-sm"
-            }`}>
-              {msg.body || <span className="italic opacity-50">No content</span>}
-            </div>
-          </>
+          <div className={`rounded-2xl px-4 py-3 text-[13px] leading-relaxed whitespace-pre-wrap break-words ${
+            isMine
+              ? "bg-[#1b1b1f] text-white rounded-tr-sm"
+              : "bg-[#f5f5f7] text-[#1b1b1f] rounded-tl-sm"
+          }`}>
+            {msg.body || <span className="italic opacity-50">No content</span>}
+          </div>
         )}
       </div>
     </div>
@@ -210,7 +225,7 @@ function InboxInner() {
   // Thread list
   const [threads, setThreads] = useState<InboxThread[]>([]);
   const [personEmails, setPersonEmails] = useState<PersonMeta[]>([]);
-  const [connectedUsers, setConnectedUsers] = useState<{ email: string; name: string }[]>([]);
+  const [connectedUsers, setConnectedUsers] = useState<{ email: string; name: string; profilePhotoUrl?: string | null }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -224,7 +239,7 @@ function InboxInner() {
 
   // Filter dropdown state
   const [showFilter, setShowFilter] = useState(false);
-  const [filterPanel, setFilterPanel] = useState<"main" | "people" | "company">("main");
+  const [filterPanel, setFilterPanel] = useState<"main" | "people" | "company" | "source">("main");
   const [panelSearch, setPanelSearch] = useState("");
   const filterRef = useRef<HTMLDivElement>(null);
 
@@ -272,7 +287,7 @@ function InboxInner() {
       const data = (await safeJson(res)) as {
         threads: InboxThread[];
         personEmails: PersonMeta[];
-        connectedUsers?: { email: string; name: string }[];
+        connectedUsers?: { email: string; name: string; profilePhotoUrl?: string | null }[];
       };
       setThreads(data.threads ?? []);
       setPersonEmails(data.personEmails ?? []);
@@ -437,12 +452,21 @@ function InboxInner() {
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [personEmails]);
 
+  const sourceUserMap = useMemo(() => {
+    const map = new Map<string, { name: string; profilePhotoUrl?: string | null }>();
+    for (const u of connectedUsers) map.set(u.email, { name: u.name, profilePhotoUrl: u.profilePhotoUrl });
+    return map;
+  }, [connectedUsers]);
+
+  const showSourceIndicators = connectedUsers.length >= 1;
+
   // Helper: is a filter active?
   function isFilterActive(item: FilterItem) {
     return activeFilters.some((f) =>
       f.type === item.type &&
       (f.type === "person" && item.type === "person" ? f.email === item.email :
-       f.type === "company" && item.type === "company" ? f.domain === item.domain : false),
+       f.type === "company" && item.type === "company" ? f.domain === item.domain :
+       f.type === "source" && item.type === "source" ? f.email === item.email : false),
     );
   }
 
@@ -451,7 +475,8 @@ function InboxInner() {
       const active = prev.some((f) =>
         f.type === item.type &&
         (f.type === "person" && item.type === "person" ? f.email === item.email :
-         f.type === "company" && item.type === "company" ? f.domain === item.domain : false),
+         f.type === "company" && item.type === "company" ? f.domain === item.domain :
+         f.type === "source" && item.type === "source" ? f.email === item.email : false),
       );
       if (active) return prev.filter((f) => !(f.type === item.type && JSON.stringify(f) === JSON.stringify(item)));
       return [...prev, item];
@@ -484,12 +509,14 @@ function InboxInner() {
     if (activeFilters.length > 0) {
       const personFilters = activeFilters.filter((f): f is Extract<FilterItem, { type: "person" }> => f.type === "person");
       const companyFilters = activeFilters.filter((f): f is Extract<FilterItem, { type: "company" }> => f.type === "company");
+      const sourceFilters = activeFilters.filter((f): f is Extract<FilterItem, { type: "source" }> => f.type === "source");
 
       result = result.filter((t) => {
         const personMeta = personEmails.find((p) => p.email.toLowerCase() === t.personEmail.toLowerCase());
         const matchesPerson = personFilters.length === 0 || personFilters.some((f) => f.email.toLowerCase() === t.personEmail.toLowerCase());
         const matchesCompany = companyFilters.length === 0 || companyFilters.some((f) => personMeta?.companyDomain === f.domain);
-        return matchesPerson && matchesCompany;
+        const matchesSource = sourceFilters.length === 0 || sourceFilters.some((f) => f.email.toLowerCase() === (t.sourceUserEmail ?? "").toLowerCase());
+        return matchesPerson && matchesCompany && matchesSource;
       });
     }
 
@@ -557,13 +584,13 @@ function InboxInner() {
     <div className="flex h-full overflow-hidden bg-white">
 
       {/* ── Left panel: thread list ─────────────────────────────────────── */}
-      <div className="flex w-[300px] shrink-0 flex-col border-r border-zinc-150 overflow-hidden">
+      <div className="flex w-[340px] shrink-0 flex-col border-r border-[#e6e6e9] overflow-hidden">
 
         {/* Search + Filter button */}
-        <div className="border-b border-zinc-100 px-3 py-3">
+        <div className="border-b border-[#ededf0] px-3 py-3">
           <div className="flex items-center gap-2">
-            <div className="flex flex-1 items-center gap-2 rounded-lg bg-zinc-100 px-3 py-2">
-              <svg className="h-3.5 w-3.5 shrink-0 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <div className="flex flex-1 items-center gap-2 rounded-lg bg-[#f5f5f7] px-3 py-2">
+              <svg className="h-3.5 w-3.5 shrink-0 text-[#8b8d94]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
               </svg>
               <input
@@ -571,10 +598,10 @@ function InboxInner() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search"
-                className="min-w-0 flex-1 bg-transparent text-[13px] text-zinc-800 placeholder:text-zinc-400 outline-none"
+                className="min-w-0 flex-1 bg-transparent text-[13px] text-[#1b1b1f] placeholder:text-[#8b8d94] outline-none"
               />
               {searchQuery && (
-                <button onClick={() => setSearchQuery("")} className="text-zinc-400 hover:text-zinc-600">
+                <button onClick={() => setSearchQuery("")} className="text-[#8b8d94] hover:text-[#6b6f76]">
                   <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                   </svg>
@@ -588,12 +615,12 @@ function InboxInner() {
                 onClick={() => { setShowFilter((v) => !v); setFilterPanel("main"); setPanelSearch(""); }}
                 className={`flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
                   showFilter || activeFilters.length > 0
-                    ? "bg-zinc-900 text-white"
-                    : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200"
+                    ? "bg-[#1b1b1f] text-white"
+                    : "bg-[#f5f5f7] text-[#6b6f76] hover:bg-[#e6e6e9]"
                 }`}
               >
                 {activeFilters.length > 0 && (
-                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-500 px-1 text-[9px] font-bold text-white">
+                  <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#5e6ad2] px-1 text-[9px] font-semibold text-white">
                     {activeFilters.length}
                   </span>
                 )}
@@ -604,56 +631,77 @@ function InboxInner() {
 
               {/* Dropdown */}
               {showFilter && (
-                <div className="absolute right-0 top-full mt-1 w-64 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl z-30">
+                <div className="absolute right-0 top-full mt-1 w-64 overflow-hidden rounded-lg border border-[#e6e6e9] bg-white z-30">
 
                   {/* Main panel */}
                   {filterPanel === "main" && (
                     <div>
-                      <div className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400 border-b border-zinc-100">
+                      <div className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-[#8b8d94] border-b border-[#ededf0]">
                         Filter by
                       </div>
                       <button
                         onClick={() => { setFilterPanel("people"); setPanelSearch(""); }}
-                        className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-zinc-50 transition-colors"
+                        className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-[#f9f9fb] transition-colors"
                       >
                         <div className="flex items-center gap-2.5">
-                          <svg className="h-4 w-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <svg className="h-4 w-4 text-[#8b8d94]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
                           </svg>
-                          <span className="text-[13px] font-medium text-zinc-700">People</span>
+                          <span className="text-[13px] font-medium text-[#6b6f76]">People</span>
                           {activeFilters.filter((f) => f.type === "person").length > 0 && (
-                            <span className="rounded-full bg-zinc-800 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                            <span className="rounded-full bg-[#1b1b1f] px-1.5 py-0.5 text-[10px] font-semibold text-white">
                               {activeFilters.filter((f) => f.type === "person").length}
                             </span>
                           )}
                         </div>
-                        <svg className="h-3.5 w-3.5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <svg className="h-3.5 w-3.5 text-[#8b8d94]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                         </svg>
                       </button>
                       <button
                         onClick={() => { setFilterPanel("company"); setPanelSearch(""); }}
-                        className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-zinc-50 transition-colors border-t border-zinc-100"
+                        className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-[#f9f9fb] transition-colors border-t border-[#ededf0]"
                       >
                         <div className="flex items-center gap-2.5">
-                          <svg className="h-4 w-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <svg className="h-4 w-4 text-[#8b8d94]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3.75h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008zm0 3h.008v.008h-.008v-.008z" />
                           </svg>
-                          <span className="text-[13px] font-medium text-zinc-700">Company</span>
+                          <span className="text-[13px] font-medium text-[#6b6f76]">Company</span>
                           {activeFilters.filter((f) => f.type === "company").length > 0 && (
-                            <span className="rounded-full bg-zinc-800 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                            <span className="rounded-full bg-[#1b1b1f] px-1.5 py-0.5 text-[10px] font-semibold text-white">
                               {activeFilters.filter((f) => f.type === "company").length}
                             </span>
                           )}
                         </div>
-                        <svg className="h-3.5 w-3.5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <svg className="h-3.5 w-3.5 text-[#8b8d94]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                         </svg>
                       </button>
+                      {connectedUsers.length > 1 && (
+                        <button
+                          onClick={() => { setFilterPanel("source" as "main"); setPanelSearch(""); }}
+                          className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-[#f9f9fb] transition-colors border-t border-[#ededf0]"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <svg className="h-4 w-4 text-[#8b8d94]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+                            </svg>
+                            <span className="text-[13px] font-medium text-[#6b6f76]">Synced from</span>
+                            {activeFilters.filter((f) => f.type === "source").length > 0 && (
+                              <span className="rounded-full bg-[#1b1b1f] px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                                {activeFilters.filter((f) => f.type === "source").length}
+                              </span>
+                            )}
+                          </div>
+                          <svg className="h-3.5 w-3.5 text-[#8b8d94]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                          </svg>
+                        </button>
+                      )}
                       {activeFilters.length > 0 && (
                         <button
                           onClick={() => { setActiveFilters([]); setShowFilter(false); }}
-                          className="flex w-full items-center justify-center px-4 py-2.5 text-[12px] font-medium text-red-500 hover:bg-red-50 border-t border-zinc-100 transition-colors"
+                          className="flex w-full items-center justify-center px-4 py-2.5 text-[12px] font-medium text-red-500 hover:bg-red-50 border-t border-[#ededf0] transition-colors"
                         >
                           Clear all filters
                         </button>
@@ -664,10 +712,10 @@ function InboxInner() {
                   {/* People sub-panel */}
                   {filterPanel === "people" && (
                     <div>
-                      <div className="flex items-center gap-2 border-b border-zinc-100 px-3 py-2">
+                      <div className="flex items-center gap-2 border-b border-[#ededf0] px-3 py-2">
                         <button
                           onClick={() => setFilterPanel("main")}
-                          className="text-zinc-400 hover:text-zinc-600"
+                          className="text-[#8b8d94] hover:text-[#6b6f76]"
                         >
                           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
@@ -679,7 +727,7 @@ function InboxInner() {
                           value={panelSearch}
                           onChange={(e) => setPanelSearch(e.target.value)}
                           placeholder="Search people…"
-                          className="flex-1 text-[12px] text-zinc-800 placeholder:text-zinc-400 outline-none"
+                          className="flex-1 text-[12px] text-[#1b1b1f] placeholder:text-[#8b8d94] outline-none"
                         />
                       </div>
                       <div className="max-h-56 overflow-y-auto">
@@ -692,9 +740,9 @@ function InboxInner() {
                               <button
                                 key={p.email}
                                 onClick={() => toggleFilter(item)}
-                                className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-zinc-50 transition-colors"
+                                className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-[#f9f9fb] transition-colors"
                               >
-                                <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${active ? "border-zinc-900 bg-zinc-900" : "border-zinc-300"}`}>
+                                <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${active ? "border-[#1b1b1f] bg-[#1b1b1f]" : "border-[#8b8d94]"}`}>
                                   {active && (
                                     <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                                       <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
@@ -702,14 +750,14 @@ function InboxInner() {
                                   )}
                                 </div>
                                 <div className="min-w-0">
-                                  <p className="truncate text-[12px] font-medium text-zinc-800">{p.name}</p>
-                                  <p className="truncate text-[11px] text-zinc-400">{p.email}</p>
+                                  <p className="truncate text-[12px] font-medium text-[#1b1b1f]">{p.name}</p>
+                                  <p className="truncate text-[11px] text-[#8b8d94]">{p.email}</p>
                                 </div>
                               </button>
                             );
                           })}
                         {personEmails.filter((p) => !panelSearch || p.name.toLowerCase().includes(panelSearch.toLowerCase())).length === 0 && (
-                          <p className="px-4 py-4 text-[12px] text-zinc-400">No people found</p>
+                          <p className="px-4 py-4 text-[12px] text-[#8b8d94]">No people found</p>
                         )}
                       </div>
                     </div>
@@ -718,10 +766,10 @@ function InboxInner() {
                   {/* Company sub-panel */}
                   {filterPanel === "company" && (
                     <div>
-                      <div className="flex items-center gap-2 border-b border-zinc-100 px-3 py-2">
+                      <div className="flex items-center gap-2 border-b border-[#ededf0] px-3 py-2">
                         <button
                           onClick={() => setFilterPanel("main")}
-                          className="text-zinc-400 hover:text-zinc-600"
+                          className="text-[#8b8d94] hover:text-[#6b6f76]"
                         >
                           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
@@ -733,7 +781,7 @@ function InboxInner() {
                           value={panelSearch}
                           onChange={(e) => setPanelSearch(e.target.value)}
                           placeholder="Search companies…"
-                          className="flex-1 text-[12px] text-zinc-800 placeholder:text-zinc-400 outline-none"
+                          className="flex-1 text-[12px] text-[#1b1b1f] placeholder:text-[#8b8d94] outline-none"
                         />
                       </div>
                       <div className="max-h-56 overflow-y-auto">
@@ -746,9 +794,9 @@ function InboxInner() {
                               <button
                                 key={c.domain}
                                 onClick={() => toggleFilter(item)}
-                                className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-zinc-50 transition-colors"
+                                className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-[#f9f9fb] transition-colors"
                               >
-                                <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${active ? "border-zinc-900 bg-zinc-900" : "border-zinc-300"}`}>
+                                <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${active ? "border-[#1b1b1f] bg-[#1b1b1f]" : "border-[#8b8d94]"}`}>
                                   {active && (
                                     <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
                                       <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
@@ -756,15 +804,66 @@ function InboxInner() {
                                   )}
                                 </div>
                                 <div className="min-w-0">
-                                  <p className="truncate text-[12px] font-medium text-zinc-800">{c.name}</p>
-                                  <p className="truncate text-[11px] text-zinc-400">{c.domain}</p>
+                                  <p className="truncate text-[12px] font-medium text-[#1b1b1f]">{c.name}</p>
+                                  <p className="truncate text-[11px] text-[#8b8d94]">{c.domain}</p>
                                 </div>
                               </button>
                             );
                           })}
                         {companies.filter((c) => !panelSearch || c.name.toLowerCase().includes(panelSearch.toLowerCase())).length === 0 && (
-                          <p className="px-4 py-4 text-[12px] text-zinc-400">No companies found</p>
+                          <p className="px-4 py-4 text-[12px] text-[#8b8d94]">No companies found</p>
                         )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Source user sub-panel */}
+                  {filterPanel === "source" && (
+                    <div>
+                      <div className="flex items-center gap-2 border-b border-[#ededf0] px-3 py-2">
+                        <button
+                          onClick={() => setFilterPanel("main")}
+                          className="text-[#8b8d94] hover:text-[#6b6f76]"
+                        >
+                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                          </svg>
+                        </button>
+                        <span className="text-[12px] font-medium text-[#6b6f76]">Synced from</span>
+                      </div>
+                      <div className="max-h-56 overflow-y-auto">
+                        {connectedUsers.map((u) => {
+                          const item: FilterItem = { type: "source", email: u.email, name: u.name };
+                          const active = isFilterActive(item);
+                          return (
+                            <button
+                              key={u.email}
+                              onClick={() => toggleFilter(item)}
+                              className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-[#f9f9fb] transition-colors"
+                            >
+                              <div className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${active ? "border-[#1b1b1f] bg-[#1b1b1f]" : "border-[#8b8d94]"}`}>
+                                {active && (
+                                  <svg className="h-2.5 w-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                                  </svg>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 min-w-0">
+                                {u.profilePhotoUrl ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={u.profilePhotoUrl} alt="" className="h-5 w-5 rounded-full object-cover" />
+                                ) : (
+                                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[#e6e6e9] text-[9px] font-semibold text-[#6b6f76]">
+                                    {u.name.charAt(0).toUpperCase()}
+                                  </div>
+                                )}
+                                <div className="min-w-0">
+                                  <p className="truncate text-[12px] font-medium text-[#1b1b1f]">{u.name}</p>
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -774,44 +873,44 @@ function InboxInner() {
           </div>
         </div>
 
-        {/* Read / Unread tabs */}
-        <div className="flex items-center gap-2 px-4 py-2 border-b border-zinc-100">
-          <button
-            onClick={() => setTabFilter("all")}
-            className={`rounded-full px-3 py-1 text-[12px] font-medium transition-colors ${
-              tabFilter === "all"
-                ? "bg-zinc-900 text-white"
-                : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200"
-            }`}
-          >
-            All
-          </button>
-          <button
-            onClick={() => setTabFilter("unread")}
-            className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-medium transition-colors ${
-              tabFilter === "unread"
-                ? "bg-zinc-900 text-white"
-                : "bg-zinc-100 text-zinc-500 hover:bg-zinc-200"
-            }`}
-          >
-            Unread
-            {unreadCount > 0 && (
-              <span className={`flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold ${
-                tabFilter === "unread" ? "bg-white/20 text-white" : "bg-zinc-300 text-zinc-600"
-              }`}>
-                {unreadCount}
-              </span>
-            )}
-          </button>
+        {/* All / Unread toggle */}
+        <div className="flex items-center px-3 py-2 border-b border-[#ededf0]">
+          <div className="inline-flex rounded-lg bg-[#f5f5f7] p-0.5">
+            <button
+              onClick={() => setTabFilter("all")}
+              className={`rounded-md px-3 py-1 text-[12px] font-medium transition-colors ${
+                tabFilter === "all"
+                  ? "bg-white text-[#1b1b1f]"
+                  : "text-[#6b6f76] hover:text-[#6b6f76]"
+              }`}
+            >
+              All
+            </button>
+            <button
+              onClick={() => setTabFilter("unread")}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-[12px] font-medium transition-colors ${
+                tabFilter === "unread"
+                  ? "bg-white text-[#1b1b1f]"
+                  : "text-[#6b6f76] hover:text-[#6b6f76]"
+              }`}
+            >
+              Unread
+              {unreadCount > 0 && (
+                <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-[#5e6ad2] px-1 text-[10px] font-semibold text-white">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Active filter pills */}
         {activeFilters.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 px-4 py-2 border-b border-zinc-100">
+          <div className="flex flex-wrap gap-1 px-3 py-1.5 border-b border-[#ededf0]">
             {activeFilters.map((f, i) => (
               <span
                 key={i}
-                className="inline-flex items-center gap-1 rounded-full bg-zinc-800 pl-2.5 pr-1.5 py-0.5 text-[11px] font-medium text-white"
+                className="inline-flex items-center gap-1 rounded-full bg-[#1b1b1f] pl-2.5 pr-1.5 py-0.5 text-[11px] font-medium text-white"
               >
                 {f.type === "person" ? f.name : f.name}
                 <button
@@ -831,17 +930,19 @@ function InboxInner() {
         <div className="flex-1 overflow-y-auto">
           {filtered.length === 0 ? (
             <div className="flex h-full items-center justify-center">
-              <p className="text-[13px] text-zinc-400">No emails found</p>
+              <p className="text-[13px] text-[#8b8d94]">No emails found</p>
             </div>
           ) : (
             filtered.map((thread) => (
               <ThreadRow
-                key={thread.id}
+                key={thread.id + (thread.sourceUserEmail ?? "")}
                 thread={thread}
                 selected={selectedThread?.id === thread.id}
                 isRead={readIds.has(thread.id)}
                 onClick={() => selectThread(thread)}
                 profilePic={profilePicMap.get(thread.personEmail.toLowerCase())}
+                sourceUser={thread.sourceUserEmail ? sourceUserMap.get(thread.sourceUserEmail) : undefined}
+                showSource={showSourceIndicators}
               />
             ))
           )}
@@ -851,21 +952,24 @@ function InboxInner() {
       {/* ── Right panel: thread detail ──────────────────────────────────── */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {!selectedThread ? (
-          <div className="flex h-full items-center justify-center">
-            <p className="text-[14px] text-zinc-400">Select a conversation</p>
+          <div className="flex h-full flex-col items-center justify-center gap-1">
+            <svg className="h-8 w-8 text-[#8b8d94]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+            </svg>
+            <p className="text-[13px] text-[#8b8d94]">Select a conversation</p>
           </div>
         ) : (
           <>
             {/* Thread header */}
-            <div className="flex items-center justify-between border-b border-zinc-100 px-6 py-4">
+            <div className="flex items-center justify-between border-b border-[#e6e6e9] px-5 py-3">
               <div className="min-w-0">
-                <h2 className="truncate text-[15px] font-semibold text-zinc-900">
+                <h2 className="truncate text-[14px] font-semibold text-[#1b1b1f]">
                   {selectedThread.subject}
                 </h2>
-                <p className="mt-0.5 text-[12px] text-zinc-400">
+                <p className="mt-0.5 text-[12px] text-[#6b6f76]">
                   {selectedThread.personName ?? selectedThread.personEmail}
-                  {selectedThread.sourceUserName && connectedUsers.length > 1 && (
-                    <span className="ml-2 rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-500">
+                  {selectedThread.sourceUserName && connectedUsers.length >= 1 && (
+                    <span className="ml-1.5 text-[11px] text-[#8b8d94]">
                       via {selectedThread.sourceUserName}
                     </span>
                   )}
@@ -874,13 +978,13 @@ function InboxInner() {
             </div>
 
             {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
               {loadingMessages ? (
                 <div className="flex justify-center py-8">
                   <div className="h-5 w-5 animate-spin rounded-full border-2 border-black/10 border-t-black/40" />
                 </div>
               ) : messages.length === 0 ? (
-                <p className="text-center text-[13px] text-zinc-400">No messages</p>
+                <p className="text-center text-[13px] text-[#8b8d94]">No messages</p>
               ) : (
                 messages.map((msg) => (
                   <MessageBubble key={msg.id} msg={msg} myEmails={myEmails} />
@@ -890,83 +994,66 @@ function InboxInner() {
             </div>
 
             {/* Reply composer */}
-            <div className="border-t border-zinc-100 bg-white">
-              <div className="px-4 py-3">
-                {/* From / To meta */}
-                <div className="mb-2 flex items-center gap-4 text-[12px] text-zinc-400">
-                  <span>
-                    <span className="font-medium text-zinc-500">From:</span>{" "}
-                    {selectedThread.sourceUserEmail ?? connectedUsers[0]?.email ?? ""}
-                  </span>
-                  <span>
-                    <span className="font-medium text-zinc-500">To:</span>{" "}
-                    {selectedThread.personEmail}
-                  </span>
-                </div>
+            <div className="border-t border-[#e6e6e9] bg-white px-4 py-3">
+              {/* Textarea with @ mention */}
+              <div className="relative">
+                <textarea
+                  ref={replyRef}
+                  value={replyBody}
+                  onChange={handleReplyChange}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                      e.preventDefault();
+                      void sendReply();
+                    }
+                    if (e.key === "Escape") setMentionQuery(null);
+                  }}
+                  placeholder="Write a reply…"
+                  rows={3}
+                  className="w-full resize-none rounded-lg border border-[#e6e6e9] bg-[#f9f9fb] px-3 py-2.5 text-[13px] text-[#1b1b1f] placeholder:text-[#8b8d94] outline-none focus:border-[#8b8d94] focus:bg-white transition-colors"
+                />
 
-                {/* Textarea with @ mention */}
-                <div className="relative">
-                  <textarea
-                    ref={replyRef}
-                    value={replyBody}
-                    onChange={handleReplyChange}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                        e.preventDefault();
-                        void sendReply();
-                      }
-                      if (e.key === "Escape") setMentionQuery(null);
-                    }}
-                    placeholder={`Reply… (type @ to mention a teammate, ⌘↵ to send)`}
-                    rows={4}
-                    className="w-full resize-none rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-[13px] text-zinc-800 placeholder:text-zinc-400 outline-none focus:border-zinc-300 focus:bg-white transition-colors"
-                  />
+                {/* @ mention dropdown */}
+                {mentionQuery !== null && filteredMentionMembers.length > 0 && (
+                  <div className="absolute bottom-full left-0 mb-1 w-60 overflow-hidden rounded-lg border border-[#e6e6e9] bg-white z-10">
+                    {filteredMentionMembers.map((m) => (
+                      <button
+                        key={m.email}
+                        onMouseDown={(e) => { e.preventDefault(); insertMention(m); }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[#f9f9fb] transition-colors"
+                      >
+                        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#e6e6e9] text-[10px] font-semibold text-[#6b6f76]">
+                          {getInitials(m.name)}
+                        </div>
+                        <div>
+                          <p className="text-[12px] font-medium text-[#1b1b1f]">{m.name}</p>
+                          <p className="text-[11px] text-[#8b8d94]">{m.email}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
 
-                  {/* @ mention dropdown */}
-                  {mentionQuery !== null && filteredMentionMembers.length > 0 && (
-                    <div className="absolute bottom-full left-0 mb-1 w-64 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-lg z-10">
-                      <div className="px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400 border-b border-zinc-100">
-                        Mention a teammate
-                      </div>
-                      {filteredMentionMembers.map((m) => (
-                        <button
-                          key={m.email}
-                          onMouseDown={(e) => { e.preventDefault(); insertMention(m); }}
-                          className="flex w-full items-center gap-2.5 px-3 py-2 text-left hover:bg-zinc-50 transition-colors"
-                        >
-                          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-zinc-200 text-[10px] font-semibold text-zinc-600">
-                            {getInitials(m.name)}
-                          </div>
-                          <div>
-                            <p className="text-[12px] font-medium text-zinc-800">{m.name}</p>
-                            <p className="text-[11px] text-zinc-400">{m.email}</p>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
+              {/* Send bar */}
+              <div className="mt-2 flex items-center justify-end gap-3">
+                <span className="text-[11px] text-[#8b8d94]">
+                  <kbd className="rounded bg-[#f5f5f7] px-1 py-0.5 font-mono text-[10px] text-[#6b6f76]">⌘↵</kbd> to send
+                </span>
+                <button
+                  onClick={sendReply}
+                  disabled={!replyBody.trim() || sendingReply}
+                  className="flex items-center gap-1.5 rounded-lg bg-[#1b1b1f] px-3.5 py-1.5 text-[12px] font-medium text-white transition-opacity disabled:opacity-40 hover:bg-[#1b1b1f]"
+                >
+                  {sendingReply ? (
+                    <div className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  ) : (
+                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+                    </svg>
                   )}
-                </div>
-
-                {/* Send bar */}
-                <div className="mt-2 flex items-center justify-between">
-                  <p className="text-[11px] text-zinc-400">
-                    Type <kbd className="rounded bg-zinc-100 px-1 py-0.5 font-mono text-zinc-500">@</kbd> to mention a teammate
-                  </p>
-                  <button
-                    onClick={sendReply}
-                    disabled={!replyBody.trim() || sendingReply}
-                    className="flex items-center gap-1.5 rounded-lg bg-zinc-900 px-4 py-2 text-[13px] font-medium text-white transition-opacity disabled:opacity-40 hover:bg-zinc-700"
-                  >
-                    {sendingReply ? (
-                      <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                    ) : (
-                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
-                      </svg>
-                    )}
-                    Send
-                  </button>
-                </div>
+                  Send
+                </button>
               </div>
             </div>
           </>
