@@ -107,6 +107,9 @@ function GlobalActionModal({
   const [buyers, setBuyers] = useState<BuyerPreview[]>([]);
   const [selectedBuyerUrls, setSelectedBuyerUrls] = useState<Set<string>>(new Set());
   const [buyerProfileId, setBuyerProfileId] = useState<string | null>(null);
+  const [buyerProfileName, setBuyerProfileName] = useState<string | null>(null);
+  const [allBuyerProfiles, setAllBuyerProfiles] = useState<{ _id: string; name: string; isDefault: boolean }[]>([]);
+  const [isSwitchingProfile, setIsSwitchingProfile] = useState(false);
 
   if (!actionType) return null;
 
@@ -120,6 +123,7 @@ function GlobalActionModal({
     setPersonPreview(null); setCompanyPreview(null); setEnrichment(null);
     setCompanyOnlyPreview(null); setCompanyEnrichmentPayload(null); setCompanyDomain("");
     setBuyers([]); setSelectedBuyerUrls(new Set()); setBuyerProfileId(null);
+    setBuyerProfileName(null); setAllBuyerProfiles([]);
     setError("");
   }
 
@@ -140,6 +144,8 @@ function GlobalActionModal({
           company?: CompanyPreview;
           buyers?: BuyerPreview[];
           buyerProfileId?: string;
+          buyerProfileName?: string;
+          allProfiles?: { _id: string; name: string; isDefault: boolean }[];
           _enrichment?: { companyPayload?: unknown; domain?: string };
           error?: string;
         };
@@ -148,6 +154,8 @@ function GlobalActionModal({
         setCompanyEnrichmentPayload(result._enrichment?.companyPayload ?? null);
         setCompanyDomain(result._enrichment?.domain ?? value.trim());
         setBuyerProfileId(result.buyerProfileId ?? null);
+        setBuyerProfileName(result.buyerProfileName ?? null);
+        setAllBuyerProfiles(result.allProfiles ?? []);
         const foundBuyers = (result.buyers ?? []).filter((b: BuyerPreview) => b.linkedinUrl);
         setBuyers(foundBuyers);
         // Select all by default
@@ -252,6 +260,35 @@ function GlobalActionModal({
     }
   }
 
+  async function handleSwitchBuyerProfile(profileId: string): Promise<void> {
+    if (profileId === buyerProfileId || isSwitchingProfile) return;
+    setIsSwitchingProfile(true);
+    setError("");
+    try {
+      const res = await apiFetch(`${apiBaseUrl}/companies/search-buyers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ domain: companyDomain, buyerProfileId: profileId }),
+      });
+      const data = (await safeJson(res)) as {
+        buyers?: BuyerPreview[];
+        buyerProfileId?: string;
+        buyerProfileName?: string;
+        error?: string;
+      };
+      if (!res.ok) throw new Error(data.error ?? "Could not load buyers");
+      const found = (data.buyers ?? []).filter((b) => b.linkedinUrl);
+      setBuyers(found);
+      setBuyerProfileId(data.buyerProfileId ?? null);
+      setBuyerProfileName(data.buyerProfileName ?? null);
+      setSelectedBuyerUrls(new Set(found.map((b) => b.linkedinUrl!)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not switch profile");
+    } finally {
+      setIsSwitchingProfile(false);
+    }
+  }
+
   const title = isCompanyPreview
     ? "Add Company & Buyers"
     : isPersonPreview
@@ -302,12 +339,37 @@ function GlobalActionModal({
                 <p className="text-[12px] text-[#6b6f76] leading-relaxed line-clamp-2">{companyOnlyPreview.description}</p>
               )}
 
+              {/* Buyer profile switcher */}
+              {allBuyerProfiles.length > 1 && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] text-[#8b8d94] shrink-0">Buyer profile:</span>
+                  {allBuyerProfiles.map((p) => (
+                    <button
+                      key={p._id}
+                      type="button"
+                      disabled={isSwitchingProfile}
+                      onClick={() => handleSwitchBuyerProfile(p._id)}
+                      className={`rounded-full border px-2.5 py-0.5 text-[12px] font-medium transition-colors disabled:opacity-50 ${
+                        buyerProfileId === p._id
+                          ? "border-[#1b1b1f] bg-[#1b1b1f] text-white"
+                          : "border-[#e6e6e9] bg-[#f5f5f7] text-[#6b6f76] hover:border-[#d4d4d8]"
+                      }`}
+                    >
+                      {isSwitchingProfile && buyerProfileId !== p._id ? p.name : p.name}
+                    </button>
+                  ))}
+                  {isSwitchingProfile && (
+                    <span className="text-[11px] text-[#8b8d94]">Loading…</span>
+                  )}
+                </div>
+              )}
+
               {/* Buyers list */}
               {buyers.length > 0 ? (
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <p className="text-[12px] font-medium text-[#6b6f76]">
-                      Buyers found ({buyers.length})
+                      {buyerProfileName ? `${buyerProfileName} · ` : ""}Buyers found ({buyers.length})
                     </p>
                     <button
                       type="button"
@@ -349,7 +411,9 @@ function GlobalActionModal({
                   </div>
                 </div>
               ) : (
-                <p className="text-[12px] text-[#8b8d94]">No buyers found for the default buyer profile.</p>
+                <p className="text-[12px] text-[#8b8d94]">
+                  No buyers found{buyerProfileName ? ` for "${buyerProfileName}"` : ""}.
+                </p>
               )}
 
               {error && <p className="text-[12px] text-red-600">{error}</p>}
