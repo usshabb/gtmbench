@@ -61,9 +61,9 @@ function ImageUploadRow({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="flex items-center gap-4 rounded-xl bg-black/[0.04] px-4 py-3">
+      <div className="flex items-center gap-3 rounded-md border border-[#e6e6e9] px-3 py-2.5">
         {/* Preview / icon */}
-        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-black/[0.04]">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md bg-[#f5f5f7]">
           {previewUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={previewUrl} alt={label} className="h-full w-full object-cover" />
@@ -79,8 +79,8 @@ function ImageUploadRow({
 
         {/* Text */}
         <div className="flex-1">
-          <p className="text-[16px] font-medium leading-[1.2] text-[#050505]">{label}</p>
-          {hint && <p className="text-[11px] text-black/56">{hint}</p>}
+          <p className="text-[13px] font-medium text-[#1b1b1f]">{label}</p>
+          {hint && <p className="text-[11px] text-[#8b8d94]">{hint}</p>}
         </div>
 
         {/* Upload button */}
@@ -88,7 +88,7 @@ function ImageUploadRow({
           type="button"
           onClick={() => inputRef.current?.click()}
           disabled={uploading}
-          className="shrink-0 rounded-lg bg-black/[0.12] px-3.5 py-2 text-[14px] font-semibold text-black/70 backdrop-blur-sm transition hover:bg-black/[0.18] disabled:opacity-50"
+          className="shrink-0 rounded-md border border-[#e6e6e9] bg-white px-3 py-1.5 text-[13px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f5f5f7] disabled:opacity-50"
         >
           {uploading ? "Uploading…" : "Upload"}
         </button>
@@ -115,17 +115,17 @@ function Field({
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <label className="text-[14px] font-medium leading-[1.2] text-black/70">{label}</label>
+      <label className="text-[13px] font-medium text-[#6b6f76]">{label}</label>
       {children}
     </div>
   );
 }
 
 const inputCls =
-  "h-12 w-full rounded-xl border border-black/[0.04] bg-white/72 px-3 text-[16px] text-[#050505] placeholder:text-black/44 focus:border-black/20 focus:outline-none";
+  "h-10 w-full rounded-md border border-[#e6e6e9] bg-white px-3 text-[13px] text-[#1b1b1f] placeholder:text-[#8b8d94] focus:border-[#5e6ad2] focus:ring-1 focus:ring-[#5e6ad2]/20 focus:outline-none";
 
 const textareaCls =
-  "w-full rounded-xl border border-black/[0.04] bg-white/72 px-3 py-3 text-[16px] text-[#050505] placeholder:text-black/44 focus:border-black/20 focus:outline-none resize-none";
+  "w-full rounded-md border border-[#e6e6e9] bg-white px-3 py-2.5 text-[13px] text-[#1b1b1f] placeholder:text-[#8b8d94] focus:border-[#5e6ad2] focus:ring-1 focus:ring-[#5e6ad2]/20 focus:outline-none resize-none";
 
 // ─── Page ──────────────────────────────────────────────────────────────────────
 export default function OnboardingPage() {
@@ -290,14 +290,14 @@ function OnboardingInner() {
       {/* Top-left logo */}
       <div className="p-4">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo.png" alt="sidr" className="h-16 w-16 object-contain" />
+        <img src="/logo.png" alt="sidr" className="h-12 w-12 object-contain" />
       </div>
 
       {/* Centered content */}
       <div className="flex flex-1 items-start justify-center px-4 pt-2 pb-10">
-        <div className="w-full max-w-[480px]">
+        <div className="w-full max-w-[460px]">
           {/* Step indicator */}
-          <div className="mb-8 flex items-center gap-0">
+          <div className="mb-6 flex items-center gap-0">
             {stepLabels.map((label, i) => {
               const num = (i + 1) as 1 | 2;
               const isActive = step === num;
@@ -308,19 +308,19 @@ function OnboardingInner() {
                   <button
                     type="button"
                     onClick={() => isDone && setStep(num)}
-                    className={`flex flex-col items-center gap-2 ${isDone ? "cursor-pointer" : "cursor-default"}`}
+                    className={`flex flex-col items-center gap-1.5 ${isDone ? "cursor-pointer" : "cursor-default"}`}
                   >
                     <div
-                      className={`flex h-8 w-8 items-center justify-center rounded-full text-[13px] font-semibold transition-all ${
+                      className={`flex h-7 w-7 items-center justify-center rounded-full text-[12px] font-medium transition-all ${
                         isDone
-                          ? "bg-[#050505] text-white"
+                          ? "bg-[#1b1b1f] text-white"
                           : isActive
-                          ? "border-2 border-[#050505] bg-white text-[#050505]"
-                          : "border-2 border-black/20 bg-white text-black/30"
+                          ? "border-2 border-[#1b1b1f] bg-white text-[#1b1b1f]"
+                          : "border-2 border-[#d4d4d8] bg-white text-[#8b8d94]"
                       }`}
                     >
                       {isDone ? (
-                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                         </svg>
                       ) : (
@@ -328,15 +328,15 @@ function OnboardingInner() {
                       )}
                     </div>
                     <span
-                      className={`text-[12px] font-medium whitespace-nowrap ${
-                        isActive ? "text-[#050505]" : isDone ? "text-black/50" : "text-black/30"
+                      className={`text-[11px] font-medium whitespace-nowrap ${
+                        isActive ? "text-[#1b1b1f]" : isDone ? "text-[#6b6f76]" : "text-[#8b8d94]"
                       }`}
                     >
                       {label}
                     </span>
                   </button>
                   {!isLast && (
-                    <div className={`mx-2 mb-5 h-[2px] flex-1 rounded-full transition-all ${isDone ? "bg-[#050505]" : "bg-black/10"}`} />
+                    <div className={`mx-2 mb-5 h-[1.5px] flex-1 rounded-full transition-all ${isDone ? "bg-[#1b1b1f]" : "bg-[#e6e6e9]"}`} />
                   )}
                 </div>
               );
@@ -344,7 +344,7 @@ function OnboardingInner() {
           </div>
 
         {/* Card */}
-        <div className="min-h-[580px] rounded-3xl bg-white p-6 shadow-[0_2px_24px_rgba(0,0,0,0.08)]">
+        <div className="min-h-[520px] rounded-xl border border-[#e6e6e9] bg-white p-5 shadow-sm">
 
           {/* Step 1: Profile */}
           {step === 1 && (
@@ -382,7 +382,7 @@ function OnboardingInner() {
 
               <button
                 type="submit"
-                className="mt-1 h-12 w-full rounded-xl bg-[#050505] text-[14px] font-semibold text-white transition-opacity hover:opacity-80"
+                className="mt-1 h-9 w-full rounded-md bg-[#1b1b1f] text-[13px] font-medium text-white transition-colors hover:bg-[#2c2c33]"
               >
                 Continue
               </button>
@@ -401,25 +401,25 @@ function OnboardingInner() {
 
               {workspaceMode === "invite" && existingWorkspace && (
                 <div className="flex flex-col gap-4">
-                  <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                  <div className="flex items-center gap-3 rounded-md border border-[#bbf7d0] bg-[#ecfdf5] p-3">
                     {existingWorkspace.logoUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={existingWorkspace.logoUrl} alt="" className="h-10 w-10 rounded-lg object-contain" />
                     ) : (
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 text-[13px] font-bold text-emerald-600">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-md bg-[#d1fae5] text-[12px] font-medium text-[#059669]">
                         {existingWorkspace.name.charAt(0).toUpperCase()}
                       </div>
                     )}
                     <div>
-                      <p className="text-[14px] font-semibold text-[#050505]">{existingWorkspace.name}</p>
-                      <p className="text-[12px] text-black/56">You&apos;ve been invited to join this workspace</p>
+                      <p className="text-[13px] font-medium text-[#1b1b1f]">{existingWorkspace.name}</p>
+                      <p className="text-[12px] text-[#6b6f76]">You&apos;ve been invited to join this workspace</p>
                     </div>
                   </div>
                   {error && <p className="text-[12px] text-red-500">{error}</p>}
                   <button
                     onClick={() => void handleComplete(undefined, true)}
                     disabled={isLoading}
-                    className="h-12 w-full rounded-xl bg-[#050505] text-[14px] font-semibold text-white transition-opacity hover:opacity-80 disabled:opacity-50"
+                    className="h-9 w-full rounded-md bg-[#1b1b1f] text-[13px] font-medium text-white transition-colors hover:bg-[#2c2c33] disabled:opacity-50"
                   >
                     {isLoading ? "Joining…" : `Join ${existingWorkspace.name}`}
                   </button>
@@ -428,33 +428,33 @@ function OnboardingInner() {
 
               {workspaceMode === "join" && existingWorkspace && (
                 <div className="flex flex-col gap-4">
-                  <div className="flex items-center gap-3 rounded-xl border border-black/[0.06] p-4">
+                  <div className="flex items-center gap-3 rounded-md border border-[#e6e6e9] p-3">
                     {existingWorkspace.logoUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={existingWorkspace.logoUrl} alt="" className="h-10 w-10 rounded-lg object-contain" />
                     ) : (
-                      <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-black/[0.06] text-[13px] font-bold text-black/50">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-md bg-[#f5f5f7] text-[12px] font-medium text-[#8b8d94]">
                         {existingWorkspace.name.charAt(0).toUpperCase()}
                       </div>
                     )}
                     <div>
-                      <p className="text-[14px] font-semibold text-[#050505]">{existingWorkspace.name}</p>
-                      <p className="text-[12px] text-black/44">{existingWorkspace.domain}</p>
+                      <p className="text-[13px] font-medium text-[#1b1b1f]">{existingWorkspace.name}</p>
+                      <p className="text-[12px] text-[#8b8d94]">{existingWorkspace.domain}</p>
                     </div>
                   </div>
-                  <p className="text-[13px] text-black/56">A workspace already exists for your domain. Join it or create a new one.</p>
+                  <p className="text-[12px] text-[#6b6f76]">A workspace already exists for your domain. Join it or create a new one.</p>
                   {error && <p className="text-[12px] text-red-500">{error}</p>}
                   <div className="flex gap-2">
                     <button
                       onClick={() => void handleComplete(existingWorkspace._id)}
                       disabled={isLoading}
-                      className="h-12 flex-1 rounded-xl bg-[#050505] text-[14px] font-semibold text-white transition-opacity hover:opacity-80 disabled:opacity-50"
+                      className="h-9 flex-1 rounded-md bg-[#1b1b1f] text-[13px] font-medium text-white transition-colors hover:bg-[#2c2c33] disabled:opacity-50"
                     >
                       {isLoading ? "Joining…" : `Join ${existingWorkspace.name}`}
                     </button>
                     <button
                       onClick={() => { setWorkspaceMode("create"); setWorkspace((w) => ({ ...w, domain: existingWorkspace.domain })); }}
-                      className="h-12 rounded-xl border border-black/[0.08] px-4 text-[14px] font-medium text-black/70 hover:bg-black/[0.03]"
+                      className="h-9 rounded-md border border-[#e6e6e9] px-3 text-[13px] font-medium text-[#6b6f76] hover:bg-[#f5f5f7]"
                     >
                       Create new
                     </button>
@@ -520,14 +520,14 @@ function OnboardingInner() {
                     <button
                       type="button"
                       onClick={() => setStep(1)}
-                      className="h-12 rounded-xl border border-black/[0.08] px-4 text-[14px] font-medium text-black/70 hover:bg-black/[0.03]"
+                      className="h-9 rounded-md border border-[#e6e6e9] px-3 text-[13px] font-medium text-[#6b6f76] hover:bg-[#f5f5f7]"
                     >
                       Back
                     </button>
                     <button
                       type="submit"
                       disabled={isLoading}
-                      className="h-12 flex-1 rounded-xl bg-[#050505] text-[14px] font-semibold text-white transition-opacity hover:opacity-80 disabled:opacity-50"
+                      className="h-9 flex-1 rounded-md bg-[#1b1b1f] text-[13px] font-medium text-white transition-colors hover:bg-[#2c2c33] disabled:opacity-50"
                     >
                       {isLoading ? "Setting up…" : "Create workspace"}
                     </button>

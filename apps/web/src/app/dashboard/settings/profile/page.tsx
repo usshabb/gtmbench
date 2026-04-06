@@ -12,7 +12,7 @@ function getApiBaseUrl(): string {
 
 export default function ProfileSettingsPage() {
   return (
-    <Suspense fallback={<div className="flex h-full items-center justify-center"><div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" /></div>}>
+    <Suspense fallback={<div className="flex h-full items-center justify-center"><div className="h-5 w-5 animate-spin rounded-full border-2 border-[#d4d4d8] border-t-[#6b6f76]" /></div>}>
       <ProfileSettingsInner />
     </Suspense>
   );
@@ -196,7 +196,7 @@ function ProfileSettingsInner() {
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#d4d4d8] border-t-[#6b6f76]" />
       </div>
     );
   }
@@ -204,20 +204,20 @@ function ProfileSettingsInner() {
   return (
     <div className="mx-auto max-w-xl px-6 py-8">
       <div className="mb-6">
-        <h1 className="text-lg font-semibold text-zinc-900">Profile</h1>
-        <p className="text-[13px] text-zinc-500">Manage your personal information.</p>
+        <h1 className="text-lg font-semibold text-[#1b1b1f]">Profile</h1>
+        <p className="text-[13px] text-[#6b6f76]">Manage your personal information.</p>
       </div>
 
       <form onSubmit={handleSave} className="space-y-6">
         {/* Avatar */}
         <div className="flex items-center gap-5">
           <div className="relative h-20 w-20 shrink-0">
-            <div className="h-20 w-20 overflow-hidden rounded-full bg-zinc-100">
+            <div className="h-20 w-20 overflow-hidden rounded-full bg-[#f5f5f7]">
               {profilePhotoUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={profilePhotoUrl} alt="Profile" className="h-full w-full object-cover" onError={() => setProfilePhotoUrl("")} />
               ) : (
-                <div className="flex h-full w-full items-center justify-center text-2xl font-semibold text-zinc-400">
+                <div className="flex h-full w-full items-center justify-center text-2xl font-semibold text-[#8b8d94]">
                   {(fullName || email).charAt(0).toUpperCase()}
                 </div>
               )}
@@ -229,13 +229,13 @@ function ProfileSettingsInner() {
             )}
           </div>
           <div className="flex flex-col gap-2">
-            <p className="text-[13px] font-medium text-zinc-700">Profile photo</p>
+            <p className="text-[13px] font-medium text-[#6b6f76]">Profile photo</p>
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploading}
-                className="rounded-lg border border-zinc-200 px-3 py-1.5 text-[12px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-60"
+                className="rounded-md border border-[#e6e6e9] px-3 py-1.5 text-[12px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f5f5f7] disabled:opacity-60"
               >
                 {uploading ? "Uploading..." : "Upload photo"}
               </button>
@@ -243,7 +243,7 @@ function ProfileSettingsInner() {
                 <button
                   type="button"
                   onClick={() => setProfilePhotoUrl("")}
-                  className="text-[12px] text-zinc-400 hover:text-red-500 transition-colors"
+                  className="text-[12px] text-[#8b8d94] hover:text-red-500 transition-colors"
                 >
                   Remove
                 </button>
@@ -260,31 +260,31 @@ function ProfileSettingsInner() {
           </div>
         </div>
 
-        <div className="rounded-lg border border-zinc-200 divide-y divide-zinc-100">
+        <div className="rounded-lg border border-[#e6e6e9] divide-y divide-[#ededf0]">
           <div className="p-4">
-            <label className="block text-[13px] font-medium text-zinc-700 mb-1.5">Full name</label>
+            <label className="block text-[13px] font-medium text-[#6b6f76] mb-1.5">Full name</label>
             <input
               type="text"
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
               placeholder="Jane Smith"
-              className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-[13px] placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none"
+              className="w-full rounded-md border border-[#e6e6e9] px-3 py-2 text-[13px] placeholder:text-[#8b8d94] focus:border-[#5e6ad2] focus:ring-1 focus:ring-[#5e6ad2]/20 focus:outline-none"
             />
           </div>
           <div className="p-4">
-            <label className="block text-[13px] font-medium text-zinc-700 mb-1.5">Email</label>
+            <label className="block text-[13px] font-medium text-[#6b6f76] mb-1.5">Email</label>
             <input
               type="email"
               value={email}
               disabled
-              className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px] text-zinc-400"
+              className="w-full rounded-md border border-[#e6e6e9] bg-[#f9f9fb] px-3 py-2 text-[13px] text-[#8b8d94]"
             />
-            <p className="mt-1 text-[11px] text-zinc-400">Email cannot be changed.</p>
+            <p className="mt-1 text-[11px] text-[#8b8d94]">Email cannot be changed.</p>
           </div>
           <div className="flex items-center justify-between p-4">
             <div className="flex-1 pr-4">
-              <p className="text-[13px] font-medium text-zinc-700">Share Gmail &amp; Calendar with workspace</p>
-              <p className="mt-0.5 text-[12px] text-zinc-400">
+              <p className="text-[13px] font-medium text-[#6b6f76]">Share Gmail &amp; Calendar with workspace</p>
+              <p className="mt-0.5 text-[12px] text-[#8b8d94]">
                 When enabled, your connected Gmail and Google Calendar are visible to all workspace members.
               </p>
             </div>
@@ -294,7 +294,7 @@ function ProfileSettingsInner() {
               aria-checked={shareWithWorkspace}
               onClick={() => setShareWithWorkspace((v) => !v)}
               className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${
-                shareWithWorkspace ? "bg-zinc-900" : "bg-zinc-200"
+                shareWithWorkspace ? "bg-[#1b1b1f]" : "bg-[#e6e6e9]"
               }`}
             >
               <span
@@ -312,22 +312,22 @@ function ProfileSettingsInner() {
           <button
             type="submit"
             disabled={saving}
-            className="rounded-lg bg-zinc-900 px-5 py-2 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+            className="rounded-md bg-[#1b1b1f] px-5 py-2 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
           >
             {saving ? "Saving..." : "Save changes"}
           </button>
-          {saved && <span className="text-[12px] text-green-600 font-medium">Saved!</span>}
+          {saved && <span className="text-[12px] text-[#059669] font-medium">Saved!</span>}
         </div>
       </form>
 
       {/* Connected accounts */}
       <div className="mt-10">
-        <h2 className="text-[15px] font-semibold text-zinc-900">Connected accounts</h2>
-        <p className="mt-1 text-[13px] text-zinc-500">
+        <h2 className="text-[15px] font-semibold text-[#1b1b1f]">Connected accounts</h2>
+        <p className="mt-1 text-[13px] text-[#6b6f76]">
           Manage your Google integrations. Connect to enable inbox and calendar features.
         </p>
 
-        <div className="mt-4 rounded-lg border border-zinc-200 divide-y divide-zinc-100">
+        <div className="mt-4 rounded-lg border border-[#e6e6e9] divide-y divide-[#ededf0]">
           {/* Gmail */}
           <div className="flex items-center justify-between p-4">
             <div className="flex items-center gap-3">
@@ -336,20 +336,20 @@ function ProfileSettingsInner() {
                 <img src="https://img.icons8.com/color/48/gmail-new.png" alt="Gmail" className="h-7 w-7" />
               </div>
               <div>
-                <p className="text-[13px] font-medium text-zinc-700">Gmail</p>
-                <p className="text-[12px] text-zinc-400">
+                <p className="text-[13px] font-medium text-[#6b6f76]">Gmail</p>
+                <p className="text-[12px] text-[#8b8d94]">
                   {gmailConnected ? "Connected" : "Not connected"}
                 </p>
               </div>
             </div>
             {connectionsLoading ? (
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-200 border-t-zinc-500" />
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#e6e6e9] border-t-[#6b6f76]" />
             ) : gmailConnected ? (
               <button
                 type="button"
                 disabled={disconnecting === "gmail"}
                 onClick={() => handleDisconnect("gmail")}
-                className="rounded-lg border border-zinc-200 px-3 py-1.5 text-[12px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-60"
+                className="rounded-md border border-[#e6e6e9] px-3 py-1.5 text-[12px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f5f5f7] disabled:opacity-60"
               >
                 {disconnecting === "gmail" ? "Disconnecting..." : "Disconnect"}
               </button>
@@ -358,7 +358,7 @@ function ProfileSettingsInner() {
                 type="button"
                 disabled={connecting === "gmail"}
                 onClick={() => handleConnect("gmail")}
-                className="rounded-lg bg-zinc-900 px-3 py-1.5 text-[12px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+                className="rounded-md bg-[#1b1b1f] px-3 py-1.5 text-[12px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
               >
                 {connecting === "gmail" ? "Connecting..." : "Connect"}
               </button>
@@ -373,20 +373,20 @@ function ProfileSettingsInner() {
                 <img src="https://img.icons8.com/color/48/google-calendar--v2.png" alt="Google Calendar" className="h-7 w-7" />
               </div>
               <div>
-                <p className="text-[13px] font-medium text-zinc-700">Google Calendar</p>
-                <p className="text-[12px] text-zinc-400">
+                <p className="text-[13px] font-medium text-[#6b6f76]">Google Calendar</p>
+                <p className="text-[12px] text-[#8b8d94]">
                   {calendarConnected ? "Connected" : "Not connected"}
                 </p>
               </div>
             </div>
             {connectionsLoading ? (
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-200 border-t-zinc-500" />
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#e6e6e9] border-t-[#6b6f76]" />
             ) : calendarConnected ? (
               <button
                 type="button"
                 disabled={disconnecting === "calendar"}
                 onClick={() => handleDisconnect("calendar")}
-                className="rounded-lg border border-zinc-200 px-3 py-1.5 text-[12px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-60"
+                className="rounded-md border border-[#e6e6e9] px-3 py-1.5 text-[12px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f5f5f7] disabled:opacity-60"
               >
                 {disconnecting === "calendar" ? "Disconnecting..." : "Disconnect"}
               </button>
@@ -395,7 +395,7 @@ function ProfileSettingsInner() {
                 type="button"
                 disabled={connecting === "calendar"}
                 onClick={() => handleConnect("calendar")}
-                className="rounded-lg bg-zinc-900 px-3 py-1.5 text-[12px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+                className="rounded-md bg-[#1b1b1f] px-3 py-1.5 text-[12px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
               >
                 {connecting === "calendar" ? "Connecting..." : "Connect"}
               </button>

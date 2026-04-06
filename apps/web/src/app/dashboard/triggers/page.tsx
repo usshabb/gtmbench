@@ -81,16 +81,16 @@ function JobTitlesInput({
 
   return (
     <div
-      className="flex min-h-[46px] flex-wrap gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-2 cursor-text focus-within:border-zinc-400 transition-colors"
+      className="flex min-h-[46px] flex-wrap gap-1.5 rounded-md border border-[#e6e6e9] bg-white px-3 py-2 cursor-text focus-within:border-zinc-400 transition-colors"
       onClick={() => inputRef.current?.focus()}
     >
       {titles.map((t, i) => (
-        <span key={i} className="inline-flex items-center gap-1 rounded-lg bg-zinc-100 pl-2.5 pr-1.5 py-0.5 text-[12px] font-medium text-zinc-700">
+        <span key={i} className="inline-flex items-center gap-1 rounded-md bg-[#f5f5f7] pl-2.5 pr-1.5 py-0.5 text-[12px] font-medium text-[#6b6f76]">
           {t}
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onChange(titles.filter((_, idx) => idx !== i)); }}
-            className="flex h-3.5 w-3.5 items-center justify-center rounded-full text-zinc-400 hover:text-zinc-600"
+            className="flex h-3.5 w-3.5 items-center justify-center rounded-full text-[#8b8d94] hover:text-[#6b6f76]"
           >
             <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -106,7 +106,7 @@ function JobTitlesInput({
         onKeyDown={handleKeyDown}
         onBlur={() => commit(inputValue)}
         placeholder={titles.length === 0 ? (placeholder ?? "Add title…") : "Add title…"}
-        className="min-w-[120px] flex-1 bg-transparent text-[13px] text-zinc-900 placeholder:text-zinc-400 outline-none"
+        className="min-w-[120px] flex-1 bg-transparent text-[13px] text-[#1b1b1f] placeholder:text-[#8b8d94] outline-none"
       />
     </div>
   );
@@ -145,20 +145,20 @@ function TriggerCard({
   const [showMenu, setShowMenu] = useState(false);
 
   return (
-    <div className="group relative flex flex-col rounded-xl border border-zinc-200 bg-white px-4 py-3 transition-all hover:border-zinc-300 hover:shadow-sm">
+    <div className="group relative flex flex-col rounded-lg border border-[#e6e6e9] bg-white px-3.5 py-2.5 transition-all hover:border-[#d4d4d8]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h3 className="text-[14px] font-semibold text-zinc-900">{def.name}</h3>
+            <h3 className="text-[13px] font-medium text-[#1b1b1f]">{def.name}</h3>
             {isEnabled && (
               <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                isActive ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600"
+                isActive ? "bg-[#ecfdf5] text-[#059669]" : "bg-[#fffbeb] text-[#d97706]"
               }`}>
                 {isActive ? "Active" : "Paused"}
               </span>
             )}
           </div>
-          <p className="mt-1.5 text-[13px] leading-relaxed text-zinc-400 line-clamp-2">
+          <p className="mt-1.5 text-[12px] leading-relaxed text-[#8b8d94] line-clamp-2">
             {def.description}
           </p>
         </div>
@@ -167,26 +167,26 @@ function TriggerCard({
         <div className="relative z-10 shrink-0">
           <button
             onClick={() => setShowMenu((v) => !v)}
-            className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-400 transition-all hover:bg-zinc-100 hover:text-zinc-600"
+            className="flex h-7 w-7 items-center justify-center rounded-full text-[#8b8d94] transition-all hover:bg-[#f5f5f7] hover:text-[#6b6f76]"
           >
             <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" /></svg>
           </button>
           {showMenu && (
             <>
               <div className="fixed inset-0 z-20" onClick={() => setShowMenu(false)} />
-              <div className="absolute right-0 top-8 z-30 w-40 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
+              <div className="absolute right-0 top-8 z-30 w-40 rounded-md border border-[#e6e6e9] bg-white py-1 shadow-lg">
                 {isEnabled ? (
                   <>
                     <button
                       onClick={() => { setShowMenu(false); onPauseResume(); }}
-                      className="flex w-full items-center px-3 py-2 text-[13px] text-zinc-700 hover:bg-zinc-50 transition-colors"
+                      className="flex w-full items-center px-3 py-2 text-[13px] text-[#6b6f76] hover:bg-[#f9f9fb] transition-colors"
                     >
                       {isActive ? "Pause" : "Resume"}
                     </button>
                     {def.hasKeyword && (
                       <button
                         onClick={() => { setShowMenu(false); onEditKeyword(); }}
-                        className="flex w-full items-center px-3 py-2 text-[13px] text-zinc-700 hover:bg-zinc-50 transition-colors"
+                        className="flex w-full items-center px-3 py-2 text-[13px] text-[#6b6f76] hover:bg-[#f9f9fb] transition-colors"
                       >
                         Edit keyword
                       </button>
@@ -194,7 +194,7 @@ function TriggerCard({
                     {def.hasJobTitles && (
                       <button
                         onClick={() => { setShowMenu(false); onEditJobTitles(); }}
-                        className="flex w-full items-center px-3 py-2 text-[13px] text-zinc-700 hover:bg-zinc-50 transition-colors"
+                        className="flex w-full items-center px-3 py-2 text-[13px] text-[#6b6f76] hover:bg-[#f9f9fb] transition-colors"
                       >
                         Edit job titles
                       </button>
@@ -210,7 +210,7 @@ function TriggerCard({
                   <button
                     onClick={() => { setShowMenu(false); onEnable(); }}
                     disabled={enabling}
-                    className="flex w-full items-center px-3 py-2 text-[13px] text-zinc-700 hover:bg-zinc-50 transition-colors disabled:opacity-50"
+                    className="flex w-full items-center px-3 py-2 text-[13px] text-[#6b6f76] hover:bg-[#f9f9fb] transition-colors disabled:opacity-50"
                   >
                     Enable
                   </button>
@@ -225,13 +225,13 @@ function TriggerCard({
       {isEnabled && (jobTitles.length > 0 || keyword) && (
         <div className="mt-3 flex flex-wrap gap-1.5">
           {jobTitles.slice(0, 3).map((t, i) => (
-            <span key={i} className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-600">{t}</span>
+            <span key={i} className="rounded-full bg-[#f5f5f7] px-2 py-0.5 text-[11px] font-medium text-[#6b6f76]">{t}</span>
           ))}
           {jobTitles.length > 3 && (
-            <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-500">+{jobTitles.length - 3} more</span>
+            <span className="rounded-full bg-[#f5f5f7] px-2 py-0.5 text-[11px] font-medium text-[#6b6f76]">+{jobTitles.length - 3} more</span>
           )}
           {keyword && (
-            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-600">
+            <span className="rounded-full bg-[#eef0ff] px-2 py-0.5 text-[11px] font-medium text-[#5e6ad2]">
               &ldquo;{keyword}&rdquo;
             </span>
           )}
@@ -359,21 +359,21 @@ export default function TriggersPage() {
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-3xl px-4 py-6">
           {/* Header */}
-          <p className="text-[15px] text-zinc-500 leading-relaxed">
+          <p className="text-[13px] text-[#6b6f76] leading-relaxed">
             Triggers monitor your tracked companies and people for real-time signals like new LinkedIn posts and job listings.
           </p>
 
           {/* Tabs */}
           <div className="mt-4">
-            <div className="inline-flex rounded-lg bg-zinc-100 p-0.5">
+            <div className="inline-flex border-b border-[#e6e6e9]">
               {(["triggers", "jobs"] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`px-3 py-1.5 text-[13px] font-medium capitalize transition-colors ${
+                  className={`px-3 py-2 text-[13px] font-medium capitalize transition-colors ${
                     activeTab === tab
-                      ? "rounded-md bg-white text-zinc-900 shadow-sm"
-                      : "rounded-md text-zinc-500 hover:text-zinc-700"
+                      ? "text-[#1b1b1f] border-b-2 border-[#1b1b1f]"
+                      : "text-[#8b8d94] hover:text-[#6b6f76]"
                   }`}
                 >
                   {tab}
@@ -441,7 +441,7 @@ export default function TriggersPage() {
                 </div>
               ) : jobs.length === 0 ? (
                 <div className="flex items-center justify-center py-16">
-                  <p className="text-[14px] text-zinc-400">No jobs yet</p>
+                  <p className="text-[14px] text-[#8b8d94]">No jobs yet</p>
                 </div>
               ) : (
                 <>
@@ -451,7 +451,7 @@ export default function TriggersPage() {
                       <button
                         onClick={runAllJobs}
                         disabled={runningAll}
-                        className="flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-[13px] font-medium text-zinc-700 transition-all hover:bg-zinc-50 disabled:opacity-50"
+                        className="flex items-center gap-1.5 rounded-md border border-[#e6e6e9] bg-white px-3 py-1.5 text-[13px] font-medium text-[#6b6f76] transition-all hover:bg-[#f5f5f7] disabled:opacity-50"
                       >
                         {runningAll ? (
                           <>
@@ -469,23 +469,23 @@ export default function TriggersPage() {
                       </button>
                     </div>
                   )}
-                  <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
+                  <div className="overflow-hidden rounded-lg border border-[#e6e6e9] bg-white">
                     <table className="w-full text-[13px]">
                       <thead>
-                        <tr className="border-b border-zinc-100 bg-zinc-50">
-                          <th className="px-4 py-3 text-left text-[12px] font-medium text-zinc-400">Type</th>
-                          <th className="px-4 py-3 text-left text-[12px] font-medium text-zinc-400">Target</th>
-                          <th className="px-4 py-3 text-left text-[12px] font-medium text-zinc-400">Status</th>
+                        <tr className="border-b border-[#ededf0] bg-[#f9f9fb]">
+                          <th className="px-4 py-3 text-left text-[12px] font-medium text-[#8b8d94]">Type</th>
+                          <th className="px-4 py-3 text-left text-[12px] font-medium text-[#8b8d94]">Target</th>
+                          <th className="px-4 py-3 text-left text-[12px] font-medium text-[#8b8d94]">Status</th>
                           <th className="px-4 py-3" />
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-zinc-100">
+                      <tbody className="divide-y divide-[#ededf0]">
                         {jobs.map((job) => (
-                          <tr key={job._id} className="hover:bg-zinc-50/80">
-                            <td className="px-4 py-3 text-zinc-700">
+                          <tr key={job._id} className="hover:bg-[#f9f9fb]">
+                            <td className="px-4 py-3 text-[#6b6f76]">
                               {job.jobType === "LinkedinPost" ? "LinkedIn" : "Job Listing"}
                             </td>
-                            <td className="max-w-[200px] truncate px-4 py-3 text-zinc-400">
+                            <td className="max-w-[200px] truncate px-4 py-3 text-[#8b8d94]">
                               {job.jobType === "LinkedinPost"
                                 ? (job.linkedinUrl?.replace("https://www.linkedin.com/in/", "") ?? "—")
                                 : (job.domain ?? "—")}
@@ -498,10 +498,10 @@ export default function TriggersPage() {
                                 </div>
                               ) : (
                                 <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                                  job.status === "completed" ? "bg-emerald-50 text-emerald-700"
+                                  job.status === "completed" ? "bg-[#ecfdf5] text-[#059669]"
                                   : job.status === "failed" ? "bg-red-50 text-red-700"
-                                  : job.status === "processing" ? "bg-blue-50 text-blue-700"
-                                  : "bg-yellow-50 text-yellow-700"
+                                  : job.status === "processing" ? "bg-[#eef0ff] text-[#5e6ad2]"
+                                  : "bg-[#fffbeb] text-[#d97706]"
                                 }`}>
                                   {job.status}
                                 </span>
@@ -512,7 +512,7 @@ export default function TriggersPage() {
                                 <button
                                   onClick={() => runJob(job._id)}
                                   disabled={runningJobs.has(job._id)}
-                                  className="rounded-lg border border-zinc-200 px-2.5 py-1 text-[11px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50 disabled:opacity-40"
+                                  className="rounded-md border border-[#e6e6e9] px-2.5 py-1 text-[11px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f9f9fb] disabled:opacity-40"
                                 >
                                   Run
                                 </button>
@@ -533,16 +533,16 @@ export default function TriggersPage() {
       {/* ── Job Titles modal (edit on existing trigger) ── */}
       {jobTitlesModal && (
         <div
-          className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 pt-[18vh] backdrop-blur-[2px]"
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 p-4 pt-[18vh] backdrop-blur-[2px]"
           onClick={() => setJobTitlesModal(null)}
         >
-          <div className="w-full max-w-md rounded-xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-md rounded-lg bg-white shadow-lg" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 pt-6 pb-4">
               <div>
-                <h2 className="text-[17px] font-bold text-zinc-900">Job Title Filter</h2>
-                <p className="mt-0.5 text-[12px] text-zinc-400">Only signal jobs matching these titles</p>
+                <h2 className="text-[17px] font-bold text-[#1b1b1f]">Job Title Filter</h2>
+                <p className="mt-0.5 text-[12px] text-[#8b8d94]">Only signal jobs matching these titles</p>
               </div>
-              <button onClick={() => setJobTitlesModal(null)} className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 hover:bg-zinc-100 transition-colors">
+              <button onClick={() => setJobTitlesModal(null)} className="flex h-8 w-8 items-center justify-center rounded-full text-[#8b8d94] hover:bg-[#f5f5f7] transition-colors">
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
@@ -552,16 +552,16 @@ export default function TriggersPage() {
                 onChange={setJobTitlesInput}
                 placeholder="Software Engineer, Product Manager…"
               />
-              <p className="text-[12px] text-zinc-400">Press Enter or comma to add · Backspace to remove last · Leave empty to track all titles</p>
+              <p className="text-[12px] text-[#8b8d94]">Press Enter or comma to add · Backspace to remove last · Leave empty to track all titles</p>
               <div className="flex justify-end gap-2 pt-1">
-                <button onClick={() => setJobTitlesModal(null)} className="rounded-lg border border-zinc-200 px-4 py-2 text-[13px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50">Cancel</button>
+                <button onClick={() => setJobTitlesModal(null)} className="rounded-md border border-[#e6e6e9] px-4 py-2 text-[13px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f9f9fb]">Cancel</button>
                 <button
                   onClick={async () => {
                     const trigger = triggers.find((t) => t._id === jobTitlesModal!.triggerId);
                     if (trigger) await updateTrigger(trigger, { jobTitles: jobTitlesInput.length ? jobTitlesInput : null });
                     setJobTitlesModal(null);
                   }}
-                  className="rounded-lg bg-zinc-900 px-4 py-2 text-[13px] font-semibold text-white transition-opacity hover:opacity-90"
+                  className="rounded-md bg-[#1b1b1f] px-4 py-2 text-[13px] font-semibold text-white transition-opacity hover:opacity-90"
                 >
                   Save
                 </button>
@@ -574,31 +574,31 @@ export default function TriggersPage() {
       {/* ── Keyword modal ── */}
       {keywordModal && (
         <div
-          className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 pt-[18vh] backdrop-blur-[2px]"
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 p-4 pt-[18vh] backdrop-blur-[2px]"
           onClick={() => { setKeywordModal(null); setKeywordInput(""); }}
         >
-          <div className="w-full max-w-md rounded-xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-md rounded-lg bg-white shadow-lg" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 pt-6 pb-4">
               <div>
-                <h2 className="text-[17px] font-bold text-zinc-900">Keyword Filter</h2>
-                <p className="mt-0.5 text-[12px] text-zinc-400">Multi-word search across job descriptions</p>
+                <h2 className="text-[17px] font-bold text-[#1b1b1f]">Keyword Filter</h2>
+                <p className="mt-0.5 text-[12px] text-[#8b8d94]">Multi-word search across job descriptions</p>
               </div>
-              <button onClick={() => { setKeywordModal(null); setKeywordInput(""); }} className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 hover:bg-zinc-100 transition-colors">
+              <button onClick={() => { setKeywordModal(null); setKeywordInput(""); }} className="flex h-8 w-8 items-center justify-center rounded-full text-[#8b8d94] hover:bg-[#f5f5f7] transition-colors">
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
             <div className="px-6 pb-6 space-y-3">
               <input
-                className="w-full rounded-lg border border-zinc-200 bg-white px-4 py-3 text-[13px] placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none transition-colors"
+                className="w-full rounded-md border border-[#e6e6e9] bg-white px-4 py-3 text-[13px] placeholder:text-[#8b8d94] focus:border-zinc-400 focus:outline-none transition-colors"
                 type="text"
                 value={keywordInput}
                 onChange={(e) => setKeywordInput(e.target.value)}
                 placeholder="e.g. machine learning infrastructure (leave empty for all)"
                 autoFocus
               />
-              <p className="text-[12px] text-zinc-400">Leave blank to track all posts / jobs.</p>
+              <p className="text-[12px] text-[#8b8d94]">Leave blank to track all posts / jobs.</p>
               <div className="flex justify-end gap-2 pt-1">
-                <button onClick={() => { setKeywordModal(null); setKeywordInput(""); }} className="rounded-lg border border-zinc-200 px-4 py-2 text-[13px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50">Cancel</button>
+                <button onClick={() => { setKeywordModal(null); setKeywordInput(""); }} className="rounded-md border border-[#e6e6e9] px-4 py-2 text-[13px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f9f9fb]">Cancel</button>
                 <button
                   onClick={async () => {
                     const existing = getTriggerForType(keywordModal!.triggerType);
@@ -611,7 +611,7 @@ export default function TriggersPage() {
                     setKeywordModal(null); setKeywordInput("");
                   }}
                   disabled={enabling}
-                  className="rounded-lg bg-zinc-900 px-4 py-2 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+                  className="rounded-md bg-[#1b1b1f] px-4 py-2 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
                 >
                   {enabling ? "Saving…" : "Save"}
                 </button>
@@ -624,16 +624,16 @@ export default function TriggersPage() {
       {/* ── Enable Job Listing modal (configure filters before enabling) ── */}
       {enableModal && (
         <div
-          className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 pt-[12vh] backdrop-blur-[2px]"
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 p-4 pt-[12vh] backdrop-blur-[2px]"
           onClick={() => setEnableModal(null)}
         >
-          <div className="w-full max-w-md rounded-xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-md rounded-lg bg-white shadow-lg" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 pt-6 pb-5">
               <div>
-                <h2 className="text-[17px] font-bold text-zinc-900">Enable Job Listing</h2>
-                <p className="mt-0.5 text-[12px] text-zinc-400">Configure filters before activating</p>
+                <h2 className="text-[17px] font-bold text-[#1b1b1f]">Enable Job Listing</h2>
+                <p className="mt-0.5 text-[12px] text-[#8b8d94]">Configure filters before activating</p>
               </div>
-              <button onClick={() => setEnableModal(null)} className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 hover:bg-zinc-100 transition-colors">
+              <button onClick={() => setEnableModal(null)} className="flex h-8 w-8 items-center justify-center rounded-full text-[#8b8d94] hover:bg-[#f5f5f7] transition-colors">
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
@@ -641,30 +641,30 @@ export default function TriggersPage() {
             <div className="px-6 pb-6 space-y-5">
               {/* Job titles */}
               <div>
-                <label className="block text-[13px] font-semibold text-zinc-900 mb-1.5">Job Title Filter <span className="font-normal text-zinc-400">(optional)</span></label>
+                <label className="block text-[13px] font-semibold text-[#1b1b1f] mb-1.5">Job Title Filter <span className="font-normal text-[#8b8d94]">(optional)</span></label>
                 <JobTitlesInput
                   titles={enableJobTitles}
                   onChange={setEnableJobTitles}
                   placeholder="Software Engineer, Product Manager…"
                 />
-                <p className="mt-1.5 text-[12px] text-zinc-400">Press Enter or comma to add. Leave empty to track all titles.</p>
+                <p className="mt-1.5 text-[12px] text-[#8b8d94]">Press Enter or comma to add. Leave empty to track all titles.</p>
               </div>
 
               {/* Keyword */}
               <div>
-                <label className="block text-[13px] font-semibold text-zinc-900 mb-1.5">Keyword Filter <span className="font-normal text-zinc-400">(optional)</span></label>
+                <label className="block text-[13px] font-semibold text-[#1b1b1f] mb-1.5">Keyword Filter <span className="font-normal text-[#8b8d94]">(optional)</span></label>
                 <input
-                  className="w-full rounded-lg border border-zinc-200 bg-white px-4 py-3 text-[13px] placeholder:text-zinc-400 focus:border-zinc-400 focus:outline-none transition-colors"
+                  className="w-full rounded-md border border-[#e6e6e9] bg-white px-4 py-3 text-[13px] placeholder:text-[#8b8d94] focus:border-zinc-400 focus:outline-none transition-colors"
                   type="text"
                   value={enableKeyword}
                   onChange={(e) => setEnableKeyword(e.target.value)}
                   placeholder="e.g. machine learning (multi-word, searches descriptions)"
                 />
-                <p className="mt-1.5 text-[12px] text-zinc-400">Leave empty to match all job descriptions.</p>
+                <p className="mt-1.5 text-[12px] text-[#8b8d94]">Leave empty to match all job descriptions.</p>
               </div>
 
               <div className="flex justify-end gap-2 pt-1">
-                <button onClick={() => setEnableModal(null)} className="rounded-lg border border-zinc-200 px-4 py-2 text-[13px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50">Cancel</button>
+                <button onClick={() => setEnableModal(null)} className="rounded-md border border-[#e6e6e9] px-4 py-2 text-[13px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f9f9fb]">Cancel</button>
                 <button
                   onClick={async () => {
                     await enableTrigger(enableModal!.type, {
@@ -674,7 +674,7 @@ export default function TriggersPage() {
                     setEnableModal(null);
                   }}
                   disabled={enabling}
-                  className="rounded-lg bg-zinc-900 px-4 py-2 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+                  className="rounded-md bg-[#1b1b1f] px-4 py-2 text-[13px] font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
                 >
                   {enabling ? "Enabling…" : "Enable"}
                 </button>

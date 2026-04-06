@@ -13,7 +13,7 @@ function getApiBaseUrl(): string {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<main className="flex min-h-screen items-center justify-center bg-[#f0eeea]"><div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" /></main>}>
+    <Suspense fallback={<main className="flex min-h-screen items-center justify-center bg-[#f9f9fb]"><div className="h-5 w-5 animate-spin rounded-full border-2 border-[#e6e6e9] border-t-[#6b6f76]" /></main>}>
       <LoginInner />
     </Suspense>
   );
@@ -82,12 +82,12 @@ function LoginInner() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#f0eeea] px-4 py-10">
+    <main className="flex min-h-screen items-center justify-center bg-[#f9f9fb] px-4 py-10">
       {/* Card */}
-      <div className="flex w-full max-w-[380px] flex-col overflow-hidden rounded-[24px] shadow-xl">
+      <div className="flex w-full max-w-[380px] flex-col overflow-hidden rounded-2xl border border-[#e6e6e9] bg-white shadow-sm">
 
-        {/* Top 70% — GIF with logo overlay */}
-        <div className="relative" style={{ height: 340 }}>
+        {/* Top — GIF with logo overlay */}
+        <div className="relative" style={{ height: 320 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/bg.gif"
@@ -99,25 +99,25 @@ function LoginInner() {
           <img
             src="/logo.png"
             alt="sidr"
-            className="absolute left-4 top-4 h-16 w-16 object-contain drop-shadow-md"
+            className="absolute left-4 top-4 h-14 w-14 object-contain"
           />
         </div>
 
-        {/* Bottom 30% — white CTA area */}
-        <div className="flex flex-col items-center bg-white px-7 pt-6 pb-7">
+        {/* Bottom — white CTA area */}
+        <div className="flex flex-col items-center px-6 pt-5 pb-6">
           {inviteWorkspace ? (
             <>
-              <h2 className="mb-1 text-[17px] font-semibold text-zinc-900">
+              <h2 className="mb-1 text-[15px] font-semibold text-[#1b1b1f]">
                 Join {inviteWorkspace.name}
               </h2>
-              <p className="mb-5 text-[13px] text-zinc-400">
+              <p className="mb-5 text-[13px] text-[#8b8d94]">
                 Sign in with Google to accept the invitation.
               </p>
             </>
           ) : (
             <>
-              <h2 className="mb-1 text-[17px] font-semibold text-zinc-900">Welcome to sidr</h2>
-              <p className="mb-5 text-[13px] text-zinc-400">Sign in to continue to your workspace.</p>
+              <h2 className="mb-1 text-[15px] font-semibold text-[#1b1b1f]">Welcome to sidr</h2>
+              <p className="mb-5 text-[13px] text-[#8b8d94]">Sign in to continue to your workspace.</p>
             </>
           )}
 
@@ -126,11 +126,10 @@ function LoginInner() {
           <button
             onClick={() => void handleSignInWithGoogle()}
             disabled={loading}
-            className="flex w-full items-center justify-center gap-2.5 rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-[13px] font-medium text-zinc-800 transition hover:bg-zinc-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ borderRadius: 12 }}
+            className="flex w-full items-center justify-center gap-2.5 rounded-md border border-[#e6e6e9] bg-white px-4 py-2 text-[13px] font-medium text-[#1b1b1f] transition-colors hover:bg-[#f5f5f7] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? (
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-black/20 border-t-black/60" />
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#e6e6e9] border-t-[#6b6f76]" />
             ) : (
               <svg width="16" height="16" viewBox="0 0 18 18" fill="none">
                 <path d="M17.64 9.205c0-.639-.057-1.252-.164-1.841H9v3.481h4.844a4.14 4.14 0 01-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>

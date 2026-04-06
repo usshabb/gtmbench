@@ -59,6 +59,9 @@ interface EmailThread {
   to: string;
   date: string;
   snippet: string;
+  sourceUserEmail?: string;
+  sourceUserName?: string;
+  sourceUserPhoto?: string | null;
 }
 
 const localStorageTokenKey = "gtmbench-token";
@@ -303,7 +306,7 @@ function PersonDetailInner() {
   if (isLoading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#d4d4d8] border-t-[#6b6f76]" />
       </div>
     );
   }
@@ -311,8 +314,8 @@ function PersonDetailInner() {
   if (error || !person) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3">
-        <p className="text-sm text-zinc-500">{error || "Person not found"}</p>
-        <button onClick={() => router.back()} className="text-sm text-zinc-600 underline hover:text-zinc-900">Go back</button>
+        <p className="text-sm text-[#6b6f76]">{error || "Person not found"}</p>
+        <button onClick={() => router.back()} className="text-sm text-[#6b6f76] underline hover:text-[#1b1b1f]">Go back</button>
       </div>
     );
   }
@@ -382,18 +385,18 @@ function PersonDetailInner() {
     <div className="h-full overflow-y-auto bg-white">
       <div className="mx-auto max-w-3xl px-4 pt-6 pb-8">
         {/* Header card */}
-        <div className="relative flex items-center gap-4 rounded-xl border border-zinc-200 bg-white px-4 py-3 shadow-sm">
+        <div className="relative flex items-center gap-4 rounded-lg border border-[#e6e6e9] bg-white px-4 py-3">
           <LetterAvatar name={fullName} size="lg" src={photoUrl} />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-[16px] font-bold text-zinc-900">{fullName}</h1>
+              <h1 className="text-[16px] font-semibold text-[#1b1b1f]">{fullName}</h1>
               {person.enrichmentStatus !== "completed" && (
                 <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${person.enrichmentStatus === "failed" ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-700"}`}>
                   {person.enrichmentStatus}
                 </span>
               )}
             </div>
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[12px] text-zinc-400">
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[12px] text-[#8b8d94]">
               {title && company && <span>{title} at {company}</span>}
               {title && company && location && <span>·</span>}
               {location && <span>{location}</span>}
@@ -401,24 +404,24 @@ function PersonDetailInner() {
             {/* Pills */}
             <div className="mt-2 flex flex-wrap gap-2">
               {linkedinSlug && (
-                <a href={person.linkedinUrl} target="_blank" rel="noopener noreferrer" className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-0.5 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100 transition-colors">LinkedIn</a>
+                <a href={person.linkedinUrl} target="_blank" rel="noopener noreferrer" className="rounded-full border border-[#e6e6e9] bg-[#f9f9fb] px-3 py-0.5 text-[11px] font-medium text-[#6b6f76] hover:bg-[#ededf0] transition-colors">LinkedIn</a>
               )}
               {personEmail ? (
-                <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-0.5 text-[11px] font-medium text-zinc-600">{personEmail}</span>
+                <span className="rounded-full border border-[#e6e6e9] bg-[#f9f9fb] px-3 py-0.5 text-[11px] font-medium text-[#6b6f76]">{personEmail}</span>
               ) : (
                 <button
                   onClick={() => void handleFindEmail()}
                   disabled={enriching}
-                  className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-0.5 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100 transition-colors disabled:opacity-50"
+                  className="rounded-full border border-[#e6e6e9] bg-[#f9f9fb] px-3 py-0.5 text-[11px] font-medium text-[#6b6f76] hover:bg-[#ededf0] transition-colors disabled:opacity-50"
                 >
                   {enriching ? "Finding..." : "Find Email"}
                 </button>
               )}
               {data?.open_to_work && (
-                <span className="rounded-full bg-emerald-50 px-3 py-0.5 text-[11px] font-medium text-emerald-700">Open to work</span>
+                <span className="rounded-full bg-[#ecfdf5] px-3 py-0.5 text-[11px] font-medium text-[#059669]">Open to work</span>
               )}
               {data?.is_hiring && (
-                <span className="rounded-full bg-blue-50 px-3 py-0.5 text-[11px] font-medium text-blue-700">Hiring</span>
+                <span className="rounded-full bg-[#eef0ff] px-3 py-0.5 text-[11px] font-medium text-[#5e6ad2]">Hiring</span>
               )}
             </div>
           </div>
@@ -426,14 +429,14 @@ function PersonDetailInner() {
           <div className="relative self-start">
             <button
               onClick={() => setShowMenu((v) => !v)}
-              className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-400 transition-all hover:bg-zinc-100 hover:text-zinc-600"
+              className="flex h-7 w-7 items-center justify-center rounded-full text-[#8b8d94] transition-all hover:bg-[#ededf0] hover:text-[#6b6f76]"
             >
               <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" /></svg>
             </button>
             {showMenu && (
               <>
                 <div className="fixed inset-0 z-20" onClick={() => setShowMenu(false)} />
-                <div className="absolute right-0 top-8 z-30 w-36 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
+                <div className="absolute right-0 top-8 z-30 w-36 rounded-lg border border-[#e6e6e9] bg-white py-1 shadow-lg">
                   <button
                     onClick={() => { setShowMenu(false); handleRemove(); }}
                     disabled={isRemoving}
@@ -449,15 +452,15 @@ function PersonDetailInner() {
         </div>
 
         {/* Tabs */}
-        <div className="mt-4 flex gap-2">
+        <div className="mt-4 flex gap-0 border-b border-[#e6e6e9]">
           {tabs.map((tab) => (
             <button
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`rounded-lg px-4 py-1.5 text-[13px] font-medium transition-colors ${
+              className={`px-3 py-1.5 -mb-px text-[13px] font-medium transition-colors ${
                 activeTab === tab.key
-                  ? "bg-zinc-200 text-zinc-900"
-                  : "border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
+                  ? "text-[#1b1b1f] border-b-2 border-[#1b1b1f] bg-transparent"
+                  : "text-[#8b8d94] hover:text-[#6b6f76] bg-transparent border-none"
               }`}
             >
               {tab.label}
@@ -472,31 +475,31 @@ function PersonDetailInner() {
             {companyLead && (
               <Link
                 href={`/dashboard/companies/${companyLead._id}`}
-                className="mt-6 flex items-center gap-4 rounded-xl border border-zinc-200 bg-white px-5 py-4 transition-colors hover:border-zinc-200"
+                className="mt-6 flex items-center gap-4 rounded-lg border border-[#e6e6e9] bg-white px-5 py-4 transition-colors hover:border-[#e6e6e9]"
               >
                 <LetterAvatar name={companyName as string ?? "?"} size="md" rounded="lg" src={companyLogo} />
                 <div className="min-w-0 flex-1">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">Current Company</p>
-                  <p className="text-sm font-semibold text-zinc-900">{companyName}</p>
-                  {companyIndustry && <p className="text-xs text-zinc-500">{companyIndustry}</p>}
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-[#8b8d94]">Current Company</p>
+                  <p className="text-sm font-semibold text-[#1b1b1f]">{companyName}</p>
+                  {companyIndustry && <p className="text-xs text-[#6b6f76]">{companyIndustry}</p>}
                 </div>
               </Link>
             )}
 
             {/* Bio + Details card */}
             {(bio || infoItems.length > 0) && (
-              <div className="mt-6 rounded-xl border border-zinc-200 bg-white">
+              <div className="mt-6 rounded-lg border border-[#e6e6e9] bg-white">
                 {bio && (
-                  <div className={`px-5 py-4${infoItems.length > 0 ? " border-b border-zinc-200" : ""}`}>
-                    <p className="text-sm leading-relaxed text-zinc-600">{bio}</p>
+                  <div className={`px-5 py-4${infoItems.length > 0 ? " border-b border-[#e6e6e9]" : ""}`}>
+                    <p className="text-sm leading-relaxed text-[#6b6f76]">{bio}</p>
                   </div>
                 )}
                 {infoItems.length > 0 && (
                   <div className="px-4 py-3 flex flex-wrap gap-2">
                     {infoItems.map((item) => (
-                      <span key={item.label} className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[12px]">
-                        <span className="text-zinc-400">{item.label}</span>
-                        <span className="ml-1.5 font-semibold text-zinc-800">{item.value}</span>
+                      <span key={item.label} className="rounded-md border border-[#e6e6e9] bg-[#f9f9fb] px-3 py-1.5 text-[12px]">
+                        <span className="text-[#8b8d94]">{item.label}</span>
+                        <span className="ml-1.5 font-semibold text-[#1b1b1f]">{item.value}</span>
                       </span>
                     ))}
                   </div>
@@ -506,13 +509,13 @@ function PersonDetailInner() {
 
             {/* Skills */}
             {skills && skills.length > 0 && (
-              <div className="mt-6 rounded-xl border border-zinc-200 bg-white">
-                <div className="px-4 py-3 border-b border-zinc-200">
-                  <h2 className="text-[13px] font-semibold text-zinc-700">Skills</h2>
+              <div className="mt-6 rounded-lg border border-[#e6e6e9] bg-white">
+                <div className="px-4 py-3 border-b border-[#e6e6e9]">
+                  <h2 className="text-[13px] font-medium text-[#6b6f76]">Skills</h2>
                 </div>
                 <div className="px-4 py-3 flex flex-wrap gap-1.5">
                   {skills.slice(0, 15).map((skill) => (
-                    <span key={skill} className="rounded-md bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-600">{skill}</span>
+                    <span key={skill} className="rounded-md bg-[#f5f5f7] px-2.5 py-1 text-xs font-medium text-[#6b6f76]">{skill}</span>
                   ))}
                 </div>
               </div>
@@ -522,25 +525,25 @@ function PersonDetailInner() {
           <div>
             {/* Experience */}
             {experiences && experiences.length > 0 && (
-              <div className="mt-6 rounded-xl border border-zinc-200 bg-white">
-                <div className="px-4 py-3 border-b border-zinc-200">
-                  <h2 className="text-[13px] font-semibold text-zinc-700">Experience</h2>
+              <div className="mt-6 rounded-lg border border-[#e6e6e9] bg-white">
+                <div className="px-4 py-3 border-b border-[#e6e6e9]">
+                  <h2 className="text-[13px] font-medium text-[#6b6f76]">Experience</h2>
                 </div>
                 <div className="px-4 py-3">
                   <div className="relative">
                     {experiences.slice(0, 8).map((exp, i) => (
                       <div key={i} className="flex items-start gap-3 pb-3 last:pb-0">
                         <div className="flex flex-col items-center pt-1.5">
-                          <div className={`h-2 w-2 rounded-full shrink-0 ${exp.is_current ? "bg-emerald-400" : "bg-zinc-300"}`} />
-                          {i < Math.min((experiences?.length ?? 0), 8) - 1 && <div className="w-px flex-1 bg-zinc-200 mt-1" style={{ minHeight: 20 }} />}
+                          <div className={`h-2 w-2 rounded-full shrink-0 ${exp.is_current ? "bg-[#059669]" : "bg-[#d4d4d8]"}`} />
+                          {i < Math.min((experiences?.length ?? 0), 8) - 1 && <div className="w-px flex-1 bg-[#e6e6e9] mt-1" style={{ minHeight: 20 }} />}
                         </div>
                         <div className="flex flex-1 items-start justify-between min-w-0">
                           <div>
-                            <span className="text-[13px] font-medium text-zinc-800">{exp.title}</span>
-                            {exp.company_name && <span className="ml-1 text-[13px] text-zinc-500">at {exp.company_name}</span>}
-                            {exp.is_current && <span className="ml-1.5 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600">Current</span>}
+                            <span className="text-[13px] font-medium text-[#1b1b1f]">{exp.title}</span>
+                            {exp.company_name && <span className="ml-1 text-[13px] text-[#6b6f76]">at {exp.company_name}</span>}
+                            {exp.is_current && <span className="ml-1.5 rounded bg-[#ecfdf5] px-1.5 py-0.5 text-[10px] font-medium text-[#059669]">Current</span>}
                           </div>
-                          <span className="ml-2 shrink-0 text-[11px] text-zinc-400">
+                          <span className="ml-2 shrink-0 text-[11px] text-[#8b8d94]">
                             {exp.start_date?.slice(0, 4)}{exp.end_date ? ` – ${exp.end_date.slice(0, 4)}` : exp.start_date ? " – Present" : ""}
                           </span>
                         </div>
@@ -553,16 +556,16 @@ function PersonDetailInner() {
 
             {/* Education */}
             {education && education.length > 0 && (
-              <div className="mt-6 rounded-xl border border-zinc-200 bg-white">
-                <div className="px-4 py-3 border-b border-zinc-200">
-                  <h2 className="text-[13px] font-semibold text-zinc-700">Education</h2>
+              <div className="mt-6 rounded-lg border border-[#e6e6e9] bg-white">
+                <div className="px-4 py-3 border-b border-[#e6e6e9]">
+                  <h2 className="text-[13px] font-medium text-[#6b6f76]">Education</h2>
                 </div>
-                <div className="divide-y divide-zinc-100">
+                <div className="divide-y divide-[#ededf0]">
                   {education.slice(0, 4).map((edu, i) => (
                     <div key={i} className="px-4 py-3 text-sm">
-                      <span className="font-medium text-zinc-800">{edu.school_name}</span>
+                      <span className="font-medium text-[#1b1b1f]">{edu.school_name}</span>
                       {(edu.degree || edu.field_of_study_name) && (
-                        <span className="ml-1 text-zinc-500">— {[edu.degree, edu.field_of_study_name].filter(Boolean).join(", ")}</span>
+                        <span className="ml-1 text-[#6b6f76]">— {[edu.degree, edu.field_of_study_name].filter(Boolean).join(", ")}</span>
                       )}
                     </div>
                   ))}
@@ -572,7 +575,7 @@ function PersonDetailInner() {
 
             {(!experiences || experiences.length === 0) && (!education || education.length === 0) && (
               <div className="mt-6 flex flex-col items-center justify-center py-16 text-center">
-                <p className="text-[13px] text-zinc-400">No experience or education data available.</p>
+                <p className="text-[13px] text-[#8b8d94]">No experience or education data available.</p>
               </div>
             )}
           </div>
@@ -580,14 +583,14 @@ function PersonDetailInner() {
           /* Email tab */
           <div className="mt-6">
             {/* Email actions */}
-            <div className="rounded-xl border border-zinc-200 bg-white">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-200">
-                <h2 className="text-[13px] font-semibold text-zinc-700">Email</h2>
+            <div className="rounded-lg border border-[#e6e6e9] bg-white">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-[#e6e6e9]">
+                <h2 className="text-[13px] font-medium text-[#6b6f76]">Email</h2>
                 <div className="flex items-center gap-2">
                   {gmailConnected && (
                     <button
                       onClick={() => { setShowCompose(true); if (personEmail) setComposeTo(personEmail); }}
-                      className="flex items-center gap-1.5 rounded-[10px] border border-zinc-200 px-2.5 py-1 text-[12px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50"
+                      className="flex items-center gap-1.5 rounded-md border border-[#e6e6e9] px-2.5 py-1 text-[12px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f5f5f7]"
                     >
                       <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
                       Compose
@@ -596,7 +599,7 @@ function PersonDetailInner() {
                   {gmailConnected && personEmail && !emailsLoading && (
                     <button
                       onClick={() => loadEmails(personEmail)}
-                      className="text-[11px] text-zinc-400 hover:text-zinc-600"
+                      className="text-[11px] text-[#8b8d94] hover:text-[#6b6f76]"
                     >
                       Refresh
                     </button>
@@ -606,10 +609,10 @@ function PersonDetailInner() {
 
               {!gmailConnected && (
                 <div className="px-5 py-6 text-center">
-                  <p className="text-[13px] text-zinc-500 mb-3">Connect Gmail to see email history and send emails.</p>
+                  <p className="text-[13px] text-[#6b6f76] mb-3">Connect Gmail to see email history and send emails.</p>
                   <button
                     onClick={connectGmail}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-1.5 text-[13px] font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[#e6e6e9] px-3 py-1.5 text-[13px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f5f5f7]"
                   >
                     <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4-8 5-8-5V6l8 5 8-5v2z"/></svg>
                     Connect Gmail
@@ -619,13 +622,13 @@ function PersonDetailInner() {
 
               {gmailConnected && !personEmail && (
                 <div className="px-5 py-5">
-                  <p className="mb-1 text-[13px] font-medium text-zinc-700">No email address found.</p>
-                  <p className="mb-4 text-[12px] text-zinc-400">Find their email via Fiber, or add it manually.</p>
+                  <p className="mb-1 text-[13px] font-medium text-[#6b6f76]">No email address found.</p>
+                  <p className="mb-4 text-[12px] text-[#8b8d94]">Find their email via Fiber, or add it manually.</p>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => void handleFindEmail()}
                       disabled={enriching}
-                      className="flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
+                      className="flex items-center gap-1.5 rounded-lg bg-[#1b1b1f] px-3 py-1.5 text-[13px] font-medium text-white hover:bg-[#2c2c33] disabled:opacity-50"
                     >
                       {enriching && !showManualEmail ? (
                         <><div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />Finding email...</>
@@ -633,7 +636,7 @@ function PersonDetailInner() {
                     </button>
                     <button
                       onClick={() => { setShowManualEmail((v) => !v); setEnrichError(""); }}
-                      className="text-[12px] text-zinc-400 hover:text-zinc-600 underline"
+                      className="text-[12px] text-[#8b8d94] hover:text-[#6b6f76] underline"
                     >
                       Add manually
                     </button>
@@ -645,13 +648,13 @@ function PersonDetailInner() {
                         value={manualEmailInput}
                         onChange={(e) => setManualEmailInput(e.target.value)}
                         placeholder="e.g. name@company.com"
-                        className="flex-1 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px] text-zinc-800 outline-none focus:border-zinc-300 focus:bg-white"
+                        className="flex-1 rounded-lg border border-[#e6e6e9] bg-[#f9f9fb] px-3 py-2 text-[13px] text-[#1b1b1f] outline-none focus:border-[#5e6ad2] focus:ring-1 focus:ring-[#5e6ad2]/20 focus:bg-white"
                         onKeyDown={(e) => { if (e.key === "Enter") void handleSetManualEmail(); }}
                       />
                       <button
                         onClick={() => void handleSetManualEmail()}
                         disabled={enriching || !manualEmailInput.trim()}
-                        className="rounded-lg border border-zinc-200 px-3 py-2 text-[12px] font-medium text-zinc-600 hover:bg-zinc-50 disabled:opacity-50"
+                        className="rounded-lg border border-[#e6e6e9] px-3 py-2 text-[12px] font-medium text-[#6b6f76] hover:bg-[#f5f5f7] disabled:opacity-50"
                       >
                         {enriching && showManualEmail ? "Saving..." : "Save"}
                       </button>
@@ -663,31 +666,44 @@ function PersonDetailInner() {
 
               {gmailConnected && personEmail && emailsLoading && (
                 <div className="flex justify-center py-6">
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#d4d4d8] border-t-[#6b6f76]" />
                 </div>
               )}
 
               {gmailConnected && personEmail && !emailsLoading && emails.length === 0 && (
                 <div className="px-5 py-6 text-center">
-                  <p className="text-[13px] text-zinc-400">No emails found with this person.</p>
+                  <p className="text-[13px] text-[#8b8d94]">No email conversations with {personEmail} in your Gmail.</p>
                 </div>
               )}
 
               {emails.length > 0 && (
-                <div className="divide-y divide-zinc-100">
+                <div className="divide-y divide-[#ededf0]">
                   {emails.map((email) => (
                     <div key={email.id} className="px-4 py-3">
                       <div className="flex items-start justify-between gap-3">
-                        <p className="text-[13px] font-medium text-zinc-800 truncate">{email.subject}</p>
-                        <span className="shrink-0 text-[11px] text-zinc-400">
+                        <p className="text-[13px] font-medium text-[#1b1b1f] truncate">{email.subject}</p>
+                        <span className="shrink-0 text-[11px] text-[#8b8d94]">
                           {email.date ? new Date(email.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}
                         </span>
                       </div>
-                      <p className="mt-0.5 text-[11px] text-zinc-400 truncate">
+                      <p className="mt-0.5 text-[11px] text-[#8b8d94] truncate">
                         {email.from.includes(personEmail) ? `From: ${email.from}` : `To: ${email.to}`}
                       </p>
                       {email.snippet && (
-                        <p className="mt-1 text-[12px] leading-relaxed text-zinc-500 line-clamp-2">{email.snippet}</p>
+                        <p className="mt-1 text-[12px] leading-relaxed text-[#6b6f76] line-clamp-2">{email.snippet}</p>
+                      )}
+                      {email.sourceUserName && (
+                        <div className="mt-1.5 flex items-center gap-1.5">
+                          <span className="text-[10px] text-[#8b8d94]">Synced from</span>
+                          {email.sourceUserPhoto ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={email.sourceUserPhoto} alt="" className="h-3.5 w-3.5 rounded-full object-cover" />
+                          ) : (
+                            <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[#e6e6e9] text-[7px] font-medium text-[#6b6f76]">
+                              {email.sourceUserName.charAt(0).toUpperCase()}
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
                   ))}
@@ -699,24 +715,24 @@ function PersonDetailInner() {
 
         {/* Compose modal */}
         {showCompose && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-            <div className="w-full max-w-lg rounded-xl bg-white shadow-2xl">
-              <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
-                <h3 className="text-[14px] font-semibold text-zinc-900">New Email</h3>
-                <button onClick={() => { setShowCompose(false); setSendError(""); setSendSuccess(false); }} className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
+            <div className="w-full max-w-lg rounded-lg bg-white shadow-lg">
+              <div className="flex items-center justify-between border-b border-[#e6e6e9] px-5 py-4">
+                <h3 className="text-[14px] font-semibold text-[#1b1b1f]">New Email</h3>
+                <button onClick={() => { setShowCompose(false); setSendError(""); setSendSuccess(false); }} className="rounded-lg p-1.5 text-[#8b8d94] hover:bg-[#ededf0]">
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
               </div>
               <div className="px-5 py-4 space-y-3">
                 <div>
-                  <label className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">To</label>
+                  <label className="text-[11px] font-medium uppercase tracking-wide text-[#8b8d94]">To</label>
                   <div className="mt-1 flex items-center gap-2">
                     <input
                       type="email"
                       value={composeTo}
                       onChange={(e) => setComposeTo(e.target.value)}
                       placeholder={!composeTo ? "No email found" : ""}
-                      className="flex-1 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px] text-zinc-800 outline-none focus:border-zinc-300 focus:bg-white"
+                      className="flex-1 rounded-lg border border-[#e6e6e9] bg-[#f9f9fb] px-3 py-2 text-[13px] text-[#1b1b1f] outline-none focus:border-[#5e6ad2] focus:ring-1 focus:ring-[#5e6ad2]/20 focus:bg-white"
                     />
                     {!composeTo && (
                       <button
@@ -725,7 +741,7 @@ function PersonDetailInner() {
                           // After finding, personEmail will update via setPerson — set composeTo
                         }}
                         disabled={enriching}
-                        className="shrink-0 flex items-center gap-1.5 rounded-lg bg-zinc-900 px-3 py-2 text-[12px] font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
+                        className="shrink-0 flex items-center gap-1.5 rounded-lg bg-[#1b1b1f] px-3 py-2 text-[12px] font-medium text-white hover:bg-[#2c2c33] disabled:opacity-50"
                       >
                         {enriching ? (
                           <><div className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />Finding...</>
@@ -736,37 +752,37 @@ function PersonDetailInner() {
                   {enrichError && !composeTo && <p className="mt-1 text-[11px] text-red-500">{enrichError}</p>}
                 </div>
                 <div>
-                  <label className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">Subject</label>
+                  <label className="text-[11px] font-medium uppercase tracking-wide text-[#8b8d94]">Subject</label>
                   <input
                     type="text"
                     value={composeSubject}
                     onChange={(e) => setComposeSubject(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px] text-zinc-800 outline-none focus:border-zinc-300 focus:bg-white"
+                    className="mt-1 w-full rounded-lg border border-[#e6e6e9] bg-[#f9f9fb] px-3 py-2 text-[13px] text-[#1b1b1f] outline-none focus:border-[#5e6ad2] focus:ring-1 focus:ring-[#5e6ad2]/20 focus:bg-white"
                   />
                 </div>
                 <div>
-                  <label className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">Message</label>
+                  <label className="text-[11px] font-medium uppercase tracking-wide text-[#8b8d94]">Message</label>
                   <textarea
                     rows={6}
                     value={composeBody}
                     onChange={(e) => setComposeBody(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-[13px] text-zinc-800 outline-none focus:border-zinc-300 focus:bg-white resize-none"
+                    className="mt-1 w-full rounded-lg border border-[#e6e6e9] bg-[#f9f9fb] px-3 py-2 text-[13px] text-[#1b1b1f] outline-none focus:border-[#5e6ad2] focus:ring-1 focus:ring-[#5e6ad2]/20 focus:bg-white resize-none"
                   />
                 </div>
                 {sendError && <p className="text-[12px] text-red-500">{sendError}</p>}
-                {sendSuccess && <p className="text-[12px] text-emerald-600">Email sent!</p>}
+                {sendSuccess && <p className="text-[12px] text-[#059669]">Email sent!</p>}
               </div>
-              <div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-4">
+              <div className="flex justify-end gap-2 border-t border-[#e6e6e9] px-5 py-4">
                 <button
                   onClick={() => { setShowCompose(false); setSendError(""); }}
-                  className="rounded-lg px-4 py-2 text-[13px] text-zinc-500 hover:bg-zinc-50"
+                  className="rounded-lg px-4 py-2 text-[13px] text-[#6b6f76] hover:bg-[#f5f5f7]"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleSendEmail}
                   disabled={sending || !composeTo || !composeSubject || !composeBody}
-                  className="rounded-lg bg-zinc-900 px-4 py-2 text-[13px] font-medium text-white hover:bg-zinc-700 disabled:opacity-50"
+                  className="rounded-lg bg-[#1b1b1f] px-4 py-2 text-[13px] font-medium text-white hover:bg-[#2c2c33] disabled:opacity-50"
                 >
                   {sending ? "Sending..." : "Send"}
                 </button>

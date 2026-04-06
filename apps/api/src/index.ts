@@ -1730,10 +1730,11 @@ app.get("/buyer-profiles", async (_request, response) => {
 
 app.get("/buyer-profiles/:id", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const collection = await getBuyerProfilesCollection();
   let profile;
   try {
-    profile = await collection.findOne({ _id: new ObjectId(request.params.id), userEmail });
+    profile = await collection.findOne({ _id: new ObjectId(request.params.id), userEmail: { $in: memberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid profile ID" });
     return;
@@ -1757,7 +1758,8 @@ app.post("/buyer-profiles", async (request, response) => {
   const collection = await getBuyerProfilesCollection();
 
   // If this is the first profile, make it default
-  const existingCount = await collection.countDocuments({ userEmail });
+  const createProfileMemberEmails = await getWorkspaceMemberEmails(userEmail);
+  const existingCount = await collection.countDocuments({ userEmail: { $in: createProfileMemberEmails } });
   const isDefault = existingCount === 0;
 
   const insertResult = await collection.insertOne({
@@ -1783,9 +1785,10 @@ app.put("/buyer-profiles/:id", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
   const collection = await getBuyerProfilesCollection();
 
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   let existingProfile;
   try {
-    existingProfile = await collection.findOne({ _id: new ObjectId(request.params.id), userEmail });
+    existingProfile = await collection.findOne({ _id: new ObjectId(request.params.id), userEmail: { $in: memberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid profile ID" });
     return;
@@ -1800,7 +1803,7 @@ app.put("/buyer-profiles/:id", async (request, response) => {
   if (parsed.data.titles !== undefined) updateFields.titles = parsed.data.titles;
 
   await collection.updateOne(
-    { _id: new ObjectId(request.params.id), userEmail },
+    { _id: new ObjectId(request.params.id), userEmail: { $in: memberEmails } },
     { $set: updateFields },
   );
 
@@ -1814,7 +1817,8 @@ app.delete("/buyer-profiles/:id", async (request, response) => {
 
   let result;
   try {
-    result = await collection.deleteOne({ _id: new ObjectId(request.params.id), userEmail });
+    const deleteMemberEmails = await getWorkspaceMemberEmails(userEmail);
+    result = await collection.deleteOne({ _id: new ObjectId(request.params.id), userEmail: { $in: deleteMemberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid profile ID" });
     return;
@@ -1830,11 +1834,12 @@ app.delete("/buyer-profiles/:id", async (request, response) => {
 
 app.put("/buyer-profiles/:id/set-default", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const collection = await getBuyerProfilesCollection();
 
   let profile;
   try {
-    profile = await collection.findOne({ _id: new ObjectId(request.params.id), userEmail });
+    profile = await collection.findOne({ _id: new ObjectId(request.params.id), userEmail: { $in: memberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid profile ID" });
     return;
@@ -1844,8 +1849,8 @@ app.put("/buyer-profiles/:id/set-default", async (request, response) => {
     return;
   }
 
-  // Unset all defaults for this user, then set the selected one
-  await collection.updateMany({ userEmail }, { $set: { isDefault: false } });
+  // Unset all defaults for this workspace, then set the selected one
+  await collection.updateMany({ userEmail: { $in: memberEmails } }, { $set: { isDefault: false } });
   await collection.updateOne({ _id: new ObjectId(request.params.id) }, { $set: { isDefault: true } });
 
   const updated = await collection.findOne({ _id: new ObjectId(request.params.id) });
@@ -1882,7 +1887,7 @@ app.get("/companies/:id/buyers", async (request, response) => {
   }
 
   const cache = await getBuyerSearchResultsCollection();
-  const existing = await cache.findOne({ companyId: companyObjectId, buyerProfileId: profileObjectId, userEmail });
+  const existing = await cache.findOne({ companyId: companyObjectId, buyerProfileId: profileObjectId });
 
   if (!existing) {
     response.json({ result: null });
@@ -1925,9 +1930,10 @@ app.post("/companies/:id/find-buyers", async (request, response) => {
 
   // Get the buyer profile
   const profilesCollection = await getBuyerProfilesCollection();
+  const findBuyersProfileMemberEmails = await getWorkspaceMemberEmails(userEmail);
   let buyerProfile;
   try {
-    buyerProfile = await profilesCollection.findOne({ _id: new ObjectId(parsed.data.buyerProfileId), userEmail });
+    buyerProfile = await profilesCollection.findOne({ _id: new ObjectId(parsed.data.buyerProfileId), userEmail: { $in: findBuyersProfileMemberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid buyer profile ID" });
     return;
@@ -1958,17 +1964,16 @@ app.post("/companies/:id/find-buyers", async (request, response) => {
 
   if (cursor) {
     await cache.updateOne(
-      { companyId: companyObjectId, buyerProfileId: buyerProfileObjectId, userEmail },
+      { companyId: companyObjectId, buyerProfileId: buyerProfileObjectId },
       { $push: { buyers: { $each: newBuyers } }, $set: { nextCursor } },
     );
   } else {
     await cache.updateOne(
-      { companyId: companyObjectId, buyerProfileId: buyerProfileObjectId, userEmail },
+      { companyId: companyObjectId, buyerProfileId: buyerProfileObjectId },
       {
         $set: {
           companyId: companyObjectId,
           buyerProfileId: buyerProfileObjectId,
-          userEmail,
           buyers: newBuyers,
           fetchedAt: new Date().toISOString(),
           nextCursor,
@@ -2233,8 +2238,9 @@ app.post("/triggers", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
   const triggersCol = await getTriggersCollection();
 
-  // Check if trigger already exists for this user
-  const existing = await triggersCol.findOne({ userEmail, triggerType: parsed.data.triggerType });
+  // Check if trigger already exists for the workspace
+  const createTriggerMemberEmails = await getWorkspaceMemberEmails(userEmail);
+  const existing = await triggersCol.findOne({ userEmail: { $in: createTriggerMemberEmails }, triggerType: parsed.data.triggerType });
   if (existing) {
     response.status(409).json({ error: "Trigger already enabled", trigger: existing });
     return;
@@ -2255,9 +2261,9 @@ app.post("/triggers", async (request, response) => {
   let jobsCreated = 0;
 
   if (parsed.data.triggerType === "linkedin_content") {
-    // Create TriggerJob entries for all persons this user tracks
+    // Create TriggerJob entries for all persons the workspace tracks
     const personsCol = await getPersonsCollection();
-    const persons = await personsCol.find({ userEmails: userEmail }).toArray();
+    const persons = await personsCol.find({ userEmails: { $in: createTriggerMemberEmails } }).toArray();
     console.log(`[create-trigger] Found ${persons.length} persons for userEmail=${userEmail}`);
     for (const p of persons) {
       console.log(`[create-trigger]   person _id=${p._id} linkedinUrl=${p.linkedinUrl} userEmails=${JSON.stringify(p.userEmails)}`);
@@ -2381,11 +2387,12 @@ app.put("/triggers/:id", async (request, response) => {
   }
 
   const userEmail = response.locals.userEmail as string;
+  const triggerMemberEmails = await getWorkspaceMemberEmails(userEmail);
   const triggersCol = await getTriggersCollection();
 
   let trigger;
   try {
-    trigger = await triggersCol.findOne({ _id: new ObjectId(request.params.id), userEmail });
+    trigger = await triggersCol.findOne({ _id: new ObjectId(request.params.id), userEmail: { $in: triggerMemberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid trigger ID" });
     return;
@@ -2408,11 +2415,12 @@ app.put("/triggers/:id", async (request, response) => {
 
 app.delete("/triggers/:id", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const deleteTriggerMemberEmails = await getWorkspaceMemberEmails(userEmail);
   const triggersCol = await getTriggersCollection();
 
   let trigger;
   try {
-    trigger = await triggersCol.findOne({ _id: new ObjectId(request.params.id), userEmail });
+    trigger = await triggersCol.findOne({ _id: new ObjectId(request.params.id), userEmail: { $in: deleteTriggerMemberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid trigger ID" });
     return;
@@ -2440,12 +2448,13 @@ app.post("/triggers/trigger-processing", async (_request, response) => {
 /*  Trigger Jobs endpoints                                               */
 /* ------------------------------------------------------------------ */
 
-// List all trigger jobs for the current user
+// List all trigger jobs for the workspace
 app.get("/trigger-jobs", async (_request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const jobMemberEmails = await getWorkspaceMemberEmails(userEmail);
   const triggerJobsCol = await getTriggerJobsCollection();
-  const jobs = await triggerJobsCol.find({ userEmail }).sort({ createdAt: -1 }).limit(500).toArray();
-  console.log(`[get-trigger-jobs] Returning ${jobs.length} trigger jobs for userEmail=${userEmail}`);
+  const jobs = await triggerJobsCol.find({ userEmail: { $in: jobMemberEmails } }).sort({ createdAt: -1 }).limit(500).toArray();
+  console.log(`[get-trigger-jobs] Returning ${jobs.length} trigger jobs for workspace (userEmail=${userEmail})`);
   const linkedinJobs = jobs.filter(j => j.jobType === "LinkedinPost");
   const atsJobs = jobs.filter(j => j.jobType === "ATSJobs");
   console.log(`[get-trigger-jobs] Breakdown: ${linkedinJobs.length} LinkedinPost, ${atsJobs.length} ATSJobs`);
@@ -2554,6 +2563,7 @@ app.get("/signals", async (request, response) => {
 
 app.delete("/signals/:id", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const signalMemberEmails = await getWorkspaceMemberEmails(userEmail);
 
   let id: ObjectId;
   try {
@@ -2568,7 +2578,7 @@ app.delete("/signals/:id", async (request, response) => {
   // Soft-delete: mark as dismissed rather than removing the record
   const signalsCol = await getSignalsCollection();
   const atsResult = await signalsCol.updateOne(
-    { _id: id, userEmail },
+    { _id: id, userEmail: { $in: signalMemberEmails } },
     { $set: { dismissed: true, dismissedAt: now } },
   );
   if (atsResult.matchedCount > 0) {
@@ -2578,7 +2588,7 @@ app.delete("/signals/:id", async (request, response) => {
 
   const postsCol = await getLinkedinPostsForUserCollection();
   const postResult = await postsCol.updateOne(
-    { _id: id, userEmail },
+    { _id: id, userEmail: { $in: signalMemberEmails } },
     { $set: { dismissed: true, dismissedAt: now } },
   );
   if (postResult.matchedCount > 0) {
@@ -2591,6 +2601,7 @@ app.delete("/signals/:id", async (request, response) => {
 
 app.post("/signals/:id/restore", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const restoreMemberEmails = await getWorkspaceMemberEmails(userEmail);
 
   let id: ObjectId;
   try {
@@ -2602,7 +2613,7 @@ app.post("/signals/:id/restore", async (request, response) => {
 
   const signalsCol = await getSignalsCollection();
   const atsResult = await signalsCol.updateOne(
-    { _id: id, userEmail },
+    { _id: id, userEmail: { $in: restoreMemberEmails } },
     { $set: { dismissed: false }, $unset: { dismissedAt: "" } },
   );
   if (atsResult.matchedCount > 0) {
@@ -2612,7 +2623,7 @@ app.post("/signals/:id/restore", async (request, response) => {
 
   const postsCol = await getLinkedinPostsForUserCollection();
   const postResult = await postsCol.updateOne(
-    { _id: id, userEmail },
+    { _id: id, userEmail: { $in: restoreMemberEmails } },
     { $set: { dismissed: false }, $unset: { dismissedAt: "" } },
   );
   if (postResult.matchedCount > 0) {
@@ -2631,13 +2642,14 @@ app.post("/signals/backfill-linkedin", async (request, response) => {
   const triggersCol = await getTriggersCollection();
   const personsCol = await getPersonsCollection();
 
-  const trigger = await triggersCol.findOne({ userEmail, triggerType: "linkedin_content" });
+  const backfillMemberEmails = await getWorkspaceMemberEmails(userEmail);
+  const trigger = await triggersCol.findOne({ userEmail: { $in: backfillMemberEmails }, triggerType: "linkedin_content" });
 
   // Collect posts from new per-user collection
-  const newPosts = await postsCol.find({ userEmail }).toArray();
+  const newPosts = await postsCol.find({ userEmail: { $in: backfillMemberEmails } }).toArray();
 
-  // Also collect posts from legacy collection (filtered by persons the user tracks)
-  const userPersons = await personsCol.find({ userEmails: userEmail }).toArray();
+  // Also collect posts from legacy collection (filtered by persons the workspace tracks)
+  const userPersons = await personsCol.find({ userEmails: { $in: backfillMemberEmails } }).toArray();
   const legacyPosts = await legacyCol.find({ personId: { $in: userPersons.map((p) => p._id!) } }).toArray();
 
   // Merge, deduplicating by postId (prefer new collection records)
@@ -2732,9 +2744,10 @@ app.post("/skills", async (request, response) => {
   }
 
   const userEmail = response.locals.userEmail as string;
+  const skillMemberEmails = await getWorkspaceMemberEmails(userEmail);
   const skillsCol = await getSkillsCollection();
 
-  const existing = await skillsCol.findOne({ userEmail, skillType: parsed.data.skillType });
+  const existing = await skillsCol.findOne({ userEmail: { $in: skillMemberEmails }, skillType: parsed.data.skillType });
   if (existing) {
     // Re-enable if disabled
     if (!existing.enabled) {
@@ -2766,11 +2779,12 @@ app.post("/skills", async (request, response) => {
 // PUT toggle a skill
 app.put("/skills/:id", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const skillMemberEmails = await getWorkspaceMemberEmails(userEmail);
   const skillsCol = await getSkillsCollection();
 
   let skill;
   try {
-    skill = await skillsCol.findOne({ _id: new ObjectId(request.params.id), userEmail });
+    skill = await skillsCol.findOne({ _id: new ObjectId(request.params.id), userEmail: { $in: skillMemberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid skill ID" });
     return;
@@ -2793,11 +2807,12 @@ app.put("/skills/:id", async (request, response) => {
 // DELETE disable a skill
 app.delete("/skills/:id", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
+  const deleteSkillMemberEmails = await getWorkspaceMemberEmails(userEmail);
   const skillsCol = await getSkillsCollection();
 
   let skill;
   try {
-    skill = await skillsCol.findOne({ _id: new ObjectId(request.params.id), userEmail });
+    skill = await skillsCol.findOne({ _id: new ObjectId(request.params.id), userEmail: { $in: deleteSkillMemberEmails } });
   } catch {
     response.status(400).json({ error: "Invalid skill ID" });
     return;
@@ -3263,8 +3278,18 @@ app.get("/persons/:id/emails", async (request, response) => {
     return;
   }
 
-  const tokenRecord = await googleTokensCol.findOne({ userEmail });
-  if (!tokenRecord) {
+  // Search across all workspace members' connected Gmail accounts
+  const usersCol = await getUsersCollection();
+  const memberUserRecords = await usersCol.find({ email: { $in: memberEmails } }).toArray();
+  const sharingEnabledEmails = new Set<string>();
+  const selfUser = memberUserRecords.find((m) => m.email === userEmail);
+  if (selfUser?.gmailConnected !== false) sharingEnabledEmails.add(userEmail);
+  for (const m of memberUserRecords) {
+    if (m.email !== userEmail && m.shareWithWorkspace !== false && m.gmailConnected !== false) sharingEnabledEmails.add(m.email);
+  }
+
+  const allTokens = await googleTokensCol.find({ userEmail: { $in: [...sharingEnabledEmails] } }).toArray();
+  if (allTokens.length === 0) {
     response.status(403).json({ error: "Gmail not connected" });
     return;
   }
@@ -3276,7 +3301,39 @@ app.get("/persons/:id/emails", async (request, response) => {
   }
 
   try {
-    const emails = await getEmailsWithPerson(tokenRecord.accessToken, tokenRecord.refreshToken, personEmail);
+    const memberNameMap = new Map(memberUserRecords.map((u) => [u.email, u.fullName ?? u.email]));
+    const memberPhotoMap = new Map(memberUserRecords.map((u) => [u.email, u.profilePhotoUrl ?? null]));
+
+    // Fetch emails from all connected accounts in parallel
+    const allResults = await Promise.all(
+      allTokens.map(async (tokenRecord) => {
+        try {
+          const emails = await getEmailsWithPerson(tokenRecord.accessToken, tokenRecord.refreshToken, personEmail);
+          return emails.map((e) => ({
+            ...e,
+            sourceUserEmail: tokenRecord.userEmail,
+            sourceUserName: memberNameMap.get(tokenRecord.userEmail) ?? tokenRecord.userEmail,
+            sourceUserPhoto: memberPhotoMap.get(tokenRecord.userEmail) ?? null,
+          }));
+        } catch {
+          return [];
+        }
+      }),
+    );
+
+    // Merge and sort by date descending, dedup by thread ID
+    const merged = allResults.flat();
+    merged.sort((a, b) => new Date(b.date as string).getTime() - new Date(a.date as string).getTime());
+
+    // Deduplicate threads by id (same thread may appear in multiple accounts)
+    const seen = new Set<string>();
+    const emails = merged.filter((e) => {
+      const id = e.id as string;
+      if (seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+
     response.json({ emails });
   } catch (err) {
     console.error("[gmail-threads] Failed:", err);

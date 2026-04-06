@@ -41,18 +41,18 @@ function SkillCard({
   const [showMenu, setShowMenu] = useState(false);
 
   return (
-    <div className="group relative flex flex-col rounded-xl border border-zinc-200 bg-white px-4 py-3 transition-all hover:border-zinc-300 hover:shadow-sm">
+    <div className="group relative flex flex-col rounded-lg border border-[#e6e6e9] bg-white px-3.5 py-2.5 transition-all hover:border-[#d4d4d8]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h3 className="text-[14px] font-semibold text-zinc-900">{skill.name}</h3>
+            <h3 className="text-[13px] font-medium text-[#1b1b1f]">{skill.name}</h3>
             {enabled && (
-              <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-600">
+              <span className="shrink-0 rounded-full bg-[#ecfdf5] px-2 py-0.5 text-[10px] font-medium text-[#059669]">
                 Enabled
               </span>
             )}
           </div>
-          <p className="mt-1.5 text-[13px] leading-relaxed text-zinc-400 line-clamp-2">
+          <p className="mt-1.5 text-[12px] leading-relaxed text-[#8b8d94] line-clamp-2">
             {skill.description}
           </p>
         </div>
@@ -61,18 +61,18 @@ function SkillCard({
         <div className="relative z-10 shrink-0">
           <button
             onClick={() => setShowMenu((v) => !v)}
-            className="flex h-7 w-7 items-center justify-center rounded-full text-zinc-400 transition-all hover:bg-zinc-100 hover:text-zinc-600"
+            className="flex h-7 w-7 items-center justify-center rounded-full text-[#8b8d94] transition-all hover:bg-[#f5f5f7] hover:text-[#6b6f76]"
           >
             <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" /></svg>
           </button>
           {showMenu && (
             <>
               <div className="fixed inset-0 z-20" onClick={() => setShowMenu(false)} />
-              <div className="absolute right-0 top-8 z-30 w-40 rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
+              <div className="absolute right-0 top-8 z-30 w-40 rounded-md border border-[#e6e6e9] bg-white py-1 shadow-lg">
                 <button
                   onClick={() => { setShowMenu(false); onToggle(); }}
                   disabled={isToggling}
-                  className="flex w-full items-center px-3 py-2 text-[13px] text-zinc-700 hover:bg-zinc-50 transition-colors disabled:opacity-50"
+                  className="flex w-full items-center px-3 py-2 text-[13px] text-[#6b6f76] hover:bg-[#f9f9fb] transition-colors disabled:opacity-50"
                 >
                   {enabled ? "Disable" : "Enable"}
                 </button>
@@ -84,7 +84,7 @@ function SkillCard({
 
       {/* Applies to */}
       <div className="mt-3 flex items-center gap-2">
-        <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] font-medium text-zinc-500">
+        <span className="rounded-full bg-[#f5f5f7] px-2 py-0.5 text-[11px] font-medium text-[#6b6f76]">
           {skill.appliesTo}
         </span>
       </div>
@@ -162,17 +162,17 @@ export default function SkillsPage() {
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-3xl px-4 py-6">
           {/* Header */}
-          <p className="text-[15px] text-zinc-500 leading-relaxed">
+          <p className="text-[13px] text-[#6b6f76] leading-relaxed">
             Extend what sidr can do with reusable skills. Skills run automatically on your records when enabled.
           </p>
 
           {/* Filter tabs + Create */}
           <div className="mt-4 flex items-center justify-between">
-            <div className="inline-flex rounded-lg bg-zinc-100 p-0.5">
+            <div className="inline-flex border-b border-[#e6e6e9]">
               {["All", "Enabled", "Disabled"].map((tab) => (
                 <button
                   key={tab}
-                  className="rounded-md bg-white text-zinc-900 shadow-sm px-3 py-1.5 text-[13px] font-medium transition-colors"
+                  className="text-[#1b1b1f] border-b-2 border-[#1b1b1f] px-3 py-2 text-[13px] font-medium transition-colors"
                 >
                   {tab}
                 </button>
@@ -207,7 +207,7 @@ export default function SkillsPage() {
 
             {!isLoading && AVAILABLE_SKILLS.length === 0 && (
               <div className="flex items-center justify-center py-16">
-                <p className="text-[14px] text-zinc-400">No skills available yet</p>
+                <p className="text-[14px] text-[#8b8d94]">No skills available yet</p>
               </div>
             )}
           </div>
