@@ -841,7 +841,7 @@ export default function DashboardLayout({
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-white">
+    <div className="flex h-screen bg-white">
       <Sidebar userProfile={userProfile} onLogout={handleLogout} onGlobalAction={setGlobalAction} recordCounts={recordCounts} />
       <main className="flex-1 overflow-y-auto">
         {children}
