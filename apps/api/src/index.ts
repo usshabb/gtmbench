@@ -1170,21 +1170,38 @@ app.delete("/companies/:id", async (request, response) => {
   const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const companiesCollection = await getCompaniesCollection();
 
-  let result;
+  let companyObjectId: ObjectId;
   try {
-    result = await companiesCollection.updateOne(
-      { _id: new ObjectId(request.params.id), userEmails: { $in: memberEmails } },
-      { $pull: { userEmails: { $in: memberEmails } } },
-    );
+    companyObjectId = new ObjectId(request.params.id);
   } catch {
     response.status(400).json({ error: "Invalid company ID" });
     return;
   }
 
-  if (result.matchedCount === 0) {
+  const company = await companiesCollection.findOne({
+    _id: companyObjectId,
+    userEmails: { $in: memberEmails },
+  });
+
+  if (!company) {
     response.status(404).json({ error: "Company not found" });
     return;
   }
+
+  await companiesCollection.updateOne(
+    { _id: companyObjectId },
+    { $pull: { userEmails: { $in: memberEmails } } },
+  );
+
+  // Cascade: remove user from all persons linked to this company
+  const personsCollection = await getPersonsCollection();
+  await personsCollection.updateMany(
+    {
+      $or: [{ companyId: companyObjectId }, { companyDomain: company.domain }],
+      userEmails: { $in: memberEmails },
+    },
+    { $pull: { userEmails: { $in: memberEmails } } },
+  );
 
   response.json({ success: true });
 });
