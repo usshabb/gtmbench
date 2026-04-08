@@ -242,6 +242,115 @@ function ChangeBuyerProfileModal({
 }
 
 /* ------------------------------------------------------------------ */
+/*  Delete Company Modal                                               */
+/* ------------------------------------------------------------------ */
+
+function DeleteCompanyModal({
+  companyId,
+  companyName,
+  apiBaseUrl,
+  authToken,
+  onClose,
+  onConfirm,
+}: {
+  companyId: string;
+  companyName: string;
+  apiBaseUrl: string;
+  authToken: string;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const [persons, setPersons] = useState<{ _id: string; name: string; title?: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [confirming, setConfirming] = useState(false);
+
+  useEffect(() => {
+    apiFetch(`${apiBaseUrl}/companies/${companyId}/persons`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then((r) => r.json())
+      .then((data: unknown) => {
+        const arr = Array.isArray(data) ? data : [];
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        setPersons(arr.map((p: any) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const fiber = (p.enrichmentData as any)?.output?.data?.[0] ?? null;
+          const name = fiber?.preferred_name ?? fiber?.full_name ?? p.linkedinUrl ?? "Unknown";
+          const title = fiber?.current_job?.title as string | undefined;
+          return { _id: p._id, name, title };
+        }));
+      })
+      .catch(() => setPersons([]))
+      .finally(() => setLoading(false));
+  }, [companyId, apiBaseUrl, authToken]);
+
+  async function handleConfirm() {
+    setConfirming(true);
+    try {
+      await onConfirm();
+    } finally {
+      setConfirming(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[500] flex items-start justify-center bg-black/30 p-4 pt-[18vh] backdrop-blur-[2px]" onClick={onClose}>
+      <div className="w-full max-w-sm rounded-lg bg-white shadow-lg" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 pt-5 pb-3">
+          <div>
+            <h2 className="text-[15px] font-semibold text-[#1b1b1f]">Delete Company</h2>
+            <p className="mt-0.5 text-[12px] text-[#8b8d94] truncate max-w-[220px]">{companyName}</p>
+          </div>
+          <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-md text-[#8b8d94] hover:bg-[#ededf0] transition-colors">
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        <div className="px-5 pb-4">
+          {loading ? (
+            <div className="space-y-2 py-1">
+              {[1, 2].map((i) => <div key={i} className="h-9 rounded-md bg-[#f5f5f7] animate-pulse" />)}
+            </div>
+          ) : persons.length > 0 ? (
+            <>
+              <p className="mb-2 text-[12px] text-[#8b8d94]">
+                This will also delete {persons.length} linked {persons.length === 1 ? "person" : "people"}:
+              </p>
+              <div className="max-h-48 overflow-y-auto space-y-1.5">
+                {persons.map((p) => (
+                  <div key={p._id} className="flex items-center gap-2.5 rounded-md border border-[#e6e6e9] bg-[#f9f9fb] px-3 py-2">
+                    <svg className="h-3.5 w-3.5 shrink-0 text-[#8b8d94]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" /></svg>
+                    <div className="min-w-0">
+                      <p className="truncate text-[13px] font-medium text-[#1b1b1f]">{p.name}</p>
+                      {p.title && <p className="truncate text-[11px] text-[#8b8d94]">{p.title}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className="text-[12px] text-[#8b8d94]">No linked people will be affected.</p>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end gap-2 px-5 pb-4">
+          <button onClick={onClose} className="rounded-md border border-[#e6e6e9] px-3 py-1.5 text-[13px] font-medium text-[#6b6f76] hover:bg-[#f5f5f7] transition-colors">
+            Cancel
+          </button>
+          <button
+            onClick={handleConfirm}
+            disabled={confirming || loading}
+            className="rounded-md bg-red-600 px-3 py-1.5 text-[13px] font-medium text-white hover:bg-red-700 disabled:opacity-50 transition-colors"
+          >
+            {confirming ? "Deleting…" : "Delete"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Company Card                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -257,9 +366,10 @@ function CompanyCard({
   onBuyerProfileUpdated,
   apiBaseUrl,
   authToken,
+  trackedPersonCount,
 }: {
   company: CompanyRecord;
-  onRemove: (id: string) => void;
+  onRemove: (id: string) => Promise<void>;
   onDetectATS: (id: string) => void;
   atsInfo?: { detectionStatus?: string; atsName?: string | null; careerPageUrl?: string | null };
   enabledSkills: SkillRecord[];
@@ -269,10 +379,12 @@ function CompanyCard({
   onBuyerProfileUpdated: (companyId: string, buyerProfileId: string | null) => void;
   apiBaseUrl: string;
   authToken: string;
+  trackedPersonCount: number | null;
 }) {
   const [showSkillsModal, setShowSkillsModal] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [showBuyerProfileModal, setShowBuyerProfileModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
 
@@ -322,9 +434,11 @@ function CompanyCard({
               {buyerProfile.name}
             </span>
           )}
-          {employeesStr && (
+          {(employeesStr || (trackedPersonCount !== null && trackedPersonCount > 0)) && (
             <span className="rounded-md border border-[#e6e6e9] bg-[#f5f5f7] px-2.5 py-0.5 text-[12px] font-medium text-[#6b6f76]">
-              {employeesStr} People
+              {trackedPersonCount !== null && trackedPersonCount > 0
+                ? `${trackedPersonCount} tracked`
+                : `${employeesStr} People`}
             </span>
           )}
           {fundingStr && (
@@ -357,32 +471,32 @@ function CompanyCard({
             >
               <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="12" cy="19" r="1.5" /></svg>
             </button>
-            {showMenu && menuPos && (
-              <>
-                <div className="fixed inset-0 z-[150]" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(false); }} />
-                <div
-                  className="fixed z-[200] w-44 rounded-md border border-[#e6e6e9] bg-white py-1 shadow-sm"
-                  style={{ top: menuPos.top, right: menuPos.right }}
-                >
-                  <button
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(false); setShowBuyerProfileModal(true); }}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-[#1b1b1f] hover:bg-[#f5f5f7] transition-colors"
-                  >
-                    <svg className="h-3.5 w-3.5 text-[#6b6f76]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                    Buyer Profile
-                  </button>
-                  <button
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(false); if (company._id) onRemove(company._id); }}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-red-600 hover:bg-red-50 transition-colors"
-                  >
-                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                    Delete
-                  </button>
-                </div>
-              </>
-            )}
           </div>
         </div>
+        {showMenu && menuPos && (
+          <>
+            <div className="fixed inset-0 z-[150]" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(false); }} />
+            <div
+              className="fixed z-[200] w-44 rounded-md border border-[#e6e6e9] bg-white py-1 shadow-sm"
+              style={{ top: menuPos.top, right: menuPos.right }}
+            >
+              <button
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(false); setShowBuyerProfileModal(true); }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-[#1b1b1f] hover:bg-[#f5f5f7] transition-colors"
+              >
+                <svg className="h-3.5 w-3.5 text-[#6b6f76]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                Buyer Profile
+              </button>
+              <button
+                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMenu(false); setShowDeleteModal(true); }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-red-600 hover:bg-red-50 transition-colors"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                Delete
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       {showSkillsModal && company._id && (
@@ -413,6 +527,19 @@ function CompanyCard({
               onBuyerProfileUpdated(company._id!, profileId);
               setShowBuyerProfileModal(false);
             }
+          }}
+        />
+      )}
+      {showDeleteModal && company._id && (
+        <DeleteCompanyModal
+          companyId={company._id}
+          companyName={name}
+          apiBaseUrl={apiBaseUrl}
+          authToken={authToken}
+          onClose={() => setShowDeleteModal(false)}
+          onConfirm={async () => {
+            await onRemove(company._id!);
+            setShowDeleteModal(false);
           }}
         />
       )}
@@ -457,6 +584,7 @@ export default function CompaniesPage() {
   const [isDetectingATS, setIsDetectingATS] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [buyerProfiles, setBuyerProfiles] = useState<BuyerProfile[]>([]);
+  const [personCounts, setPersonCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
     const storedToken = window.localStorage.getItem(localStorageTokenKey);
@@ -495,6 +623,12 @@ export default function CompaniesPage() {
               .then(async (res) => {
                 const data = (await safeJson(res)) as { ats?: { detectionStatus?: string; atsName?: string | null; careerPageUrl?: string | null } | null };
                 if (data.ats && company._id) setATSData((prev) => ({ ...prev, [company._id!]: data.ats! }));
+              })
+              .catch(() => {});
+            void apiFetch(`${apiBaseUrl}/companies/${company._id}/persons`, { headers: { Authorization: `Bearer ${authToken}` } })
+              .then(async (res) => {
+                const data = (await safeJson(res)) as { persons?: unknown[] };
+                if (company._id) setPersonCounts((prev) => ({ ...prev, [company._id!]: (data.persons ?? []).length }));
               })
               .catch(() => {});
           }
@@ -624,6 +758,7 @@ export default function CompaniesPage() {
                 onBuyerProfileUpdated={handleBuyerProfileUpdated}
                 apiBaseUrl={apiBaseUrl}
                 authToken={authToken}
+                trackedPersonCount={company._id ? (personCounts[company._id] ?? null) : null}
               />
             ))}
             {filteredCompanies.length === 0 && companies.length > 0 && (

@@ -111,14 +111,16 @@ function BuyersTab({
   companyId,
   apiBaseUrl,
   authToken,
-  existingPersonSlugs,
+  existingPersonMap,
   onPersonAdded,
+  onPersonRemoved,
 }: {
   companyId: string;
   apiBaseUrl: string;
   authToken: string;
-  existingPersonSlugs: Set<string>;
+  existingPersonMap: Map<string, string>;
   onPersonAdded?: () => void;
+  onPersonRemoved?: () => void;
 }) {
   const [profiles, setProfiles] = useState<BuyerProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string>("");
@@ -131,7 +133,9 @@ function BuyersTab({
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [addingSlug, setAddingSlug] = useState<string | null>(null);
-  const [addedSlugs, setAddedSlugs] = useState<Set<string>>(new Set());
+  const [addedPersonIds, setAddedPersonIds] = useState<Map<string, string>>(new Map());
+  const [removingSlug, setRemovingSlug] = useState<string | null>(null);
+  const [removedSlugs, setRemovedSlugs] = useState<Set<string>>(new Set());
   const [addError, setAddError] = useState("");
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
 
@@ -255,13 +259,43 @@ function BuyersTab({
         if (response.status !== 409) throw new Error(data.error ?? "Could not add person");
       }
 
-      setAddedSlugs((prev) => new Set(prev).add(person.primary_slug));
+      const data = (await safeJson(response)) as { person?: { _id?: string } };
+      const personId = data?.person?._id;
+      setAddedPersonIds((prev) => {
+        const next = new Map(prev);
+        if (personId) next.set(person.primary_slug, personId);
+        return next;
+      });
+      setRemovedSlugs((prev) => { const next = new Set(prev); next.delete(person.primary_slug); return next; });
       dispatchDataChanged();
       onPersonAdded?.();
     } catch (err) {
       setAddError(err instanceof Error ? err.message : "Could not add person");
     } finally {
       setAddingSlug(null);
+    }
+  }
+
+  async function handleRemovePerson(slug: string) {
+    const personId = existingPersonMap.get(slug) ?? addedPersonIds.get(slug);
+    if (!personId) return;
+    setRemovingSlug(slug);
+    try {
+      const res = await apiFetch(`${apiBaseUrl}/persons/${personId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+      if (!res.ok) {
+        const data = (await safeJson(res)) as { error?: string };
+        throw new Error(data.error ?? "Could not remove person");
+      }
+      setRemovedSlugs((prev) => new Set(prev).add(slug));
+      dispatchDataChanged();
+      onPersonRemoved?.();
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : "Could not remove person");
+    } finally {
+      setRemovingSlug(null);
     }
   }
 
@@ -397,8 +431,9 @@ function BuyersTab({
           ) : (
             <div className="rounded-lg border border-[#e6e6e9] bg-white divide-y divide-[#e6e6e9]">
               {buyers.map((person) => {
-                const isAdded = addedSlugs.has(person.primary_slug) || existingPersonSlugs.has(person.primary_slug);
+                const isAdded = (addedPersonIds.has(person.primary_slug) || existingPersonMap.has(person.primary_slug)) && !removedSlugs.has(person.primary_slug);
                 const isAdding = addingSlug === person.primary_slug;
+                const isRemoving = removingSlug === person.primary_slug;
                 return (
                   <div
                     key={person.primary_slug}
@@ -415,12 +450,26 @@ function BuyersTab({
                     </div>
 
                     {isAdded ? (
-                      <span className="flex items-center gap-1 rounded-md bg-[#f5f5f7] px-2.5 py-1 text-[12px] font-medium text-[#6b6f76]">
-                        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                        </svg>
-                        Added
-                      </span>
+                      <button
+                        onClick={() => handleRemovePerson(person.primary_slug)}
+                        disabled={isRemoving}
+                        className="group/remove flex shrink-0 items-center gap-1 rounded-md bg-[#f5f5f7] px-2.5 py-1 text-[12px] font-medium text-[#6b6f76] transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-60"
+                      >
+                        {isRemoving ? (
+                          <div className="h-3 w-3 animate-spin rounded-full border-2 border-[#d4d4d8] border-t-[#6b6f76]" />
+                        ) : (
+                          <>
+                            <svg className="h-3 w-3 group-hover/remove:hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                            </svg>
+                            <svg className="hidden h-3 w-3 group-hover/remove:block" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                            <span className="group-hover/remove:hidden">Added</span>
+                            <span className="hidden group-hover/remove:inline">Remove</span>
+                          </>
+                        )}
+                      </button>
                     ) : (
                       <button
                         onClick={() => handleAddPerson(person)}
@@ -596,13 +645,13 @@ export default function CompanyDetailPage() {
   const [showMenu, setShowMenu] = useState(false);
   const [activeMetric, setActiveMetric] = useState(0);
 
-  const existingPersonSlugs = useMemo(() => {
-    const slugs = new Set<string>();
+  const existingPersonMap = useMemo(() => {
+    const map = new Map<string, string>();
     persons.forEach((p) => {
       const slug = p.linkedinUrl?.split("/in/")?.[1]?.replace(/\/$/, "");
-      if (slug) slugs.add(slug);
+      if (slug && p._id) map.set(slug, p._id);
     });
-    return slugs;
+    return map;
   }, [persons]);
 
   async function handleRemove() {
@@ -1000,7 +1049,7 @@ export default function CompanyDetailPage() {
           </div>
         ) : activeTab === "buyers" ? (
           <div className="mt-6">
-            <BuyersTab companyId={id} apiBaseUrl={apiBaseUrl} authToken={authToken} existingPersonSlugs={existingPersonSlugs} onPersonAdded={refreshPersons} />
+            <BuyersTab companyId={id} apiBaseUrl={apiBaseUrl} authToken={authToken} existingPersonMap={existingPersonMap} onPersonAdded={refreshPersons} onPersonRemoved={refreshPersons} />
           </div>
         ) : activeTab === "open_roles" ? (
           <div className="mt-6">
