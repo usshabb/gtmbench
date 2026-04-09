@@ -1,5 +1,8 @@
+"use client";
+
 /* Shared dashboard components */
 
+import { useState } from "react";
 import * as AvatarPrimitive from "@radix-ui/react-avatar";
 
 const AVATAR_COLORS = [
@@ -74,6 +77,30 @@ export function LetterAvatar({
         {initials}
       </AvatarPrimitive.Fallback>
     </AvatarPrimitive.Root>
+  );
+}
+
+/**
+ * Image that falls back to children when src fails to load.
+ */
+export function FallbackImg({
+  src,
+  alt,
+  className,
+  style,
+  children,
+}: {
+  src: string | null | undefined;
+  alt?: string;
+  className?: string;
+  style?: React.CSSProperties;
+  children: React.ReactNode;
+}) {
+  const [err, setErr] = useState(false);
+  if (!src || err) return <>{children}</>;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={src} alt={alt ?? ""} className={className} style={style} onError={() => setErr(true)} />
   );
 }
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { LetterAvatar, safeJson, apiFetch } from "./components";
+import { LetterAvatar, safeJson, apiFetch, FallbackImg } from "./components";
 
 const localStorageTokenKey = "gtmbench-token";
 const INITIAL_DAYS = 10;
@@ -315,14 +315,11 @@ function PersonChip({ name, photoUrl }: { name: string; photoUrl?: string | null
   return (
     <span className="group inline-flex items-center rounded-full border border-[#e6e6e9] bg-white transition-all duration-200">
       <span className="flex h-6 w-6 shrink-0 overflow-hidden rounded-full bg-[#f5f5f7]">
-        {photoUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={photoUrl} alt={name} className="h-full w-full object-cover" />
-        ) : (
+        <FallbackImg src={photoUrl} alt={name} className="h-full w-full object-cover">
           <span className="flex h-full w-full items-center justify-center text-[10px] font-medium text-[#6b6f76]">
             {name.charAt(0).toUpperCase()}
           </span>
-        )}
+        </FallbackImg>
       </span>
       <span className="max-w-0 overflow-hidden whitespace-nowrap text-[13px] font-medium text-[#1b1b1f] transition-all duration-200 group-hover:max-w-[8rem] group-hover:pl-1.5 group-hover:pr-0.5">
         {name}
@@ -616,6 +613,7 @@ function EmailComposeModal({
   error,
   apiBaseUrl,
   authToken,
+  signature,
 }: {
   modal: EmailModal;
   onChange: (m: EmailModal) => void;
@@ -625,9 +623,75 @@ function EmailComposeModal({
   error: string;
   apiBaseUrl: string;
   authToken: string;
+  signature: string;
 }) {
   const [findingEmail, setFindingEmail] = useState(false);
   const [findError, setFindError] = useState("");
+  const [templates, setTemplates] = useState<{ _id: string; title: string; body: string }[]>([]);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const dataFetched = useRef(false);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (!authToken || dataFetched.current) return;
+    dataFetched.current = true;
+    void apiFetch(`${apiBaseUrl}/email-templates`, { headers: { Authorization: `Bearer ${authToken}` } })
+      .then(async (res) => {
+        const data = (await res.json()) as { templates: { _id: string; title: string; body: string }[] };
+        setTemplates(data.templates ?? []);
+      })
+      .catch(() => {});
+  }, [authToken, apiBaseUrl]);
+
+  const pendingResolveRef = useRef<{ subject: string; body: string } | null>(null);
+
+  function applyTemplate(tmpl: { title: string; body: string }) {
+    const resolved = tmpl.body
+      .replace(/\{\{email\}\}/g, modal.to || "");
+    onChange({ ...modal, subject: tmpl.title, body: resolved });
+    pendingResolveRef.current = { subject: tmpl.title, body: resolved };
+    setShowTemplatePicker(false);
+    if (modal.personId) {
+      void apiFetch(`${apiBaseUrl}/persons/${modal.personId}`, { headers: { Authorization: `Bearer ${authToken}` } })
+        .then(async (res) => {
+          const data = (await res.json()) as { person?: { enrichmentData?: Record<string, unknown>; companyDomain?: string } };
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const raw = data.person?.enrichmentData as any;
+          const fiber = raw?.output?.data?.[0] as Record<string, unknown> | undefined;
+          const pending = pendingResolveRef.current;
+          if (!fiber || !pending) return;
+          const firstName = (fiber.first_name as string) ?? "";
+          const fullName = [fiber.first_name, fiber.last_name].filter(Boolean).join(" ") || (fiber.name as string) || "";
+          const website = data.person?.companyDomain ?? "";
+          onChange({
+            ...modal,
+            subject: pending.subject,
+            body: pending.body
+              .replace(/\{\{first_name\}\}/g, firstName)
+              .replace(/\{\{full_name\}\}/g, fullName)
+              .replace(/\{\{website\}\}/g, website)
+              .replace(/\{\{ats_name\}\}/g, ""),
+          });
+          pendingResolveRef.current = null;
+        })
+        .catch(() => {});
+    }
+  }
+
+  function execFormat(prefix: string, suffix: string) {
+    const ta = bodyRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const text = modal.body;
+    const selected = text.slice(start, end);
+    const newText = text.slice(0, start) + prefix + selected + suffix + text.slice(end);
+    onChange({ ...modal, body: newText });
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(start + prefix.length, end + prefix.length);
+    });
+  }
 
   async function handleFindEmail() {
     if (!modal.personId || !authToken) return;
@@ -651,35 +715,65 @@ function EmailComposeModal({
       setFindingEmail(false);
     }
   }
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[14vh]"
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[8vh]"
       onClick={() => !sending && onClose()}
     >
       <div
-        className="w-full max-w-lg overflow-hidden rounded-lg bg-white shadow-xl"
+        className="flex w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
+        style={{ maxHeight: "calc(100vh - 16vh)" }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-[#e3e8ee] px-5 py-4">
-          <h2 className="text-[13px] font-medium text-[#1a1f36]">Compose Email</h2>
-          <button
-            onClick={onClose}
-            className="rounded-lg p-1 text-[#a3acb9] transition-colors hover:bg-[#f7fafc] hover:text-[#4f566b]"
-          >
-            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+        <div className="flex items-center justify-between border-b border-[#e3e8ee] px-5 py-3.5">
+          <h2 className="text-[14px] font-semibold text-[#1a1f36]">New Message</h2>
+          <div className="flex items-center gap-1">
+            <div className="relative">
+              <button
+                onClick={() => setShowTemplatePicker((p) => !p)}
+                className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-[#6b6f76] hover:bg-[#f5f5f7] transition-colors"
+              >
+                Use template
+              </button>
+              {showTemplatePicker && (
+                <div className="absolute right-0 top-full mt-1 w-64 rounded-lg border border-[#e3e8ee] bg-white shadow-lg z-20 overflow-hidden max-h-64 overflow-y-auto">
+                  {templates.length === 0 ? (
+                    <p className="px-3 py-3 text-[12px] text-[#a3acb9]">No templates yet</p>
+                  ) : (
+                    templates.map((t) => (
+                      <button
+                        key={t._id}
+                        onClick={() => applyTemplate(t)}
+                        className="flex w-full flex-col px-3 py-2 text-left hover:bg-[#f7fafc] transition-colors"
+                      >
+                        <span className="text-[12px] font-medium text-[#1a1f36]">{t.title}</span>
+                        <span className="text-[11px] text-[#a3acb9] line-clamp-1 font-mono">{t.body}</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={onClose}
+              className="rounded-md p-1.5 text-[#a3acb9] transition-colors hover:bg-[#f5f5f7] hover:text-[#4f566b]"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Fields */}
         <div className="flex flex-col divide-y divide-[#f0f3f8]">
           {/* To */}
-          <div className="flex items-center gap-3 px-5 py-3">
-            <span className="w-14 shrink-0 text-[12px] font-medium text-[#a3acb9]">To:</span>
+          <div className="flex items-center gap-3 px-5 py-2.5">
+            <span className="w-12 shrink-0 text-[13px] text-[#a3acb9]">To</span>
             <input
-              className="flex-1 text-[14px] text-[#1a1f36] placeholder:text-[#c2c7cf] focus:outline-none"
+              className="flex-1 text-[13px] text-[#1a1f36] placeholder:text-[#c2c7cf] focus:outline-none"
               value={modal.to}
               onChange={(e) => onChange({ ...modal, to: e.target.value, personId: null })}
               placeholder="recipient@company.com"
@@ -689,7 +783,7 @@ function EmailComposeModal({
               <button
                 onClick={handleFindEmail}
                 disabled={findingEmail}
-                className="shrink-0 flex items-center gap-1.5 rounded-lg bg-[#5469d4] px-3 py-1.5 text-[12px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                className="shrink-0 flex items-center gap-1.5 rounded-md bg-[#1b1b1f] px-3 py-1.5 text-[12px] font-medium text-white hover:bg-[#2c2c33] disabled:opacity-50"
               >
                 {findingEmail ? (
                   <><div className="h-3 w-3 animate-spin rounded-full border-2 border-white/40 border-t-white" />Finding...</>
@@ -704,63 +798,96 @@ function EmailComposeModal({
           )}
 
           {/* Subject */}
-          <div className="flex items-center gap-3 px-5 py-3">
-            <span className="w-14 shrink-0 text-[12px] font-medium text-[#a3acb9]">Subject:</span>
+          <div className="flex items-center gap-3 px-5 py-2.5">
+            <span className="w-12 shrink-0 text-[13px] text-[#a3acb9]">Subject</span>
             <input
-              className="flex-1 text-[14px] text-[#1a1f36] placeholder:text-[#c2c7cf] focus:outline-none"
+              className="flex-1 text-[13px] text-[#1a1f36] placeholder:text-[#c2c7cf] focus:outline-none"
               value={modal.subject}
               onChange={(e) => onChange({ ...modal, subject: e.target.value })}
               placeholder="Subject"
             />
           </div>
-
-          {/* Body */}
-          <div className="px-5 py-3">
-            <textarea
-              className="w-full resize-none text-[14px] text-[#1a1f36] placeholder:text-[#c2c7cf] focus:outline-none"
-              rows={7}
-              value={modal.body}
-              onChange={(e) => onChange({ ...modal, body: e.target.value })}
-              placeholder="Write your message..."
-              autoFocus={!!modal.to}
-            />
-          </div>
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-between border-t border-[#e3e8ee] bg-[#f7fafc] px-5 py-3">
-          {error ? (
-            <p className="text-[12px] text-red-600">{error}</p>
-          ) : (
-            <span />
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-5 py-3">
+          <textarea
+            ref={bodyRef}
+            className="w-full resize-none text-[13px] leading-relaxed text-[#1a1f36] placeholder:text-[#c2c7cf] focus:outline-none"
+            rows={12}
+            value={modal.body}
+            onChange={(e) => onChange({ ...modal, body: e.target.value })}
+            placeholder="Write your message..."
+            autoFocus={!!modal.to}
+          />
+          {/* Signature preview */}
+          {signature && (
+            <div className="mt-2 border-t border-[#f0f3f8] pt-2">
+              <p className="whitespace-pre-wrap text-[13px] text-[#8b8d94] leading-relaxed">{signature}</p>
+            </div>
           )}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={onClose}
-              disabled={sending}
-              className="rounded-lg border border-[#d9dce1] bg-white px-4 py-1.5 text-[13px] font-medium text-[#4f566b] shadow-[0px_1px_1px_rgba(0,0,0,0.06)] transition-colors hover:bg-[#f7fafc] disabled:opacity-50"
-            >
-              Cancel
+        </div>
+
+        {/* Formatting toolbar + footer */}
+        <div className="border-t border-[#e3e8ee]">
+          {/* Format bar */}
+          <div className="flex items-center gap-0.5 px-4 py-2 border-b border-[#f0f3f8]">
+            <button type="button" onClick={() => execFormat("**", "**")} title="Bold" className="rounded p-1.5 text-[#6b6f76] hover:bg-[#f5f5f7] hover:text-[#1a1f36] transition-colors">
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M15.6 10.79c.97-.67 1.65-1.77 1.65-2.79 0-2.26-1.75-4-4-4H7v14h7.04c2.09 0 3.71-1.7 3.71-3.79 0-1.52-.86-2.82-2.15-3.42zM10 6.5h3c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-3v-3zm3.5 9H10v-3h3.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5z"/></svg>
             </button>
-            <button
-              onClick={onSend}
-              disabled={sending || !modal.to.trim()}
-              className="flex items-center gap-1.5 rounded-lg bg-[#5469d4] px-4 py-1.5 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-            >
-              {sending ? (
-                <>
-                  <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-                  Sending...
-                </>
-              ) : (
-                <>
-                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
-                  </svg>
-                  Send
-                </>
-              )}
+            <button type="button" onClick={() => execFormat("*", "*")} title="Italic" className="rounded p-1.5 text-[#6b6f76] hover:bg-[#f5f5f7] hover:text-[#1a1f36] transition-colors">
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4v3h2.21l-3.42 8H6v3h8v-3h-2.21l3.42-8H18V4z"/></svg>
             </button>
+            <button type="button" onClick={() => execFormat("<u>", "</u>")} title="Underline" className="rounded p-1.5 text-[#6b6f76] hover:bg-[#f5f5f7] hover:text-[#1a1f36] transition-colors">
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12 17c3.31 0 6-2.69 6-6V3h-2.5v8c0 1.93-1.57 3.5-3.5 3.5S8.5 12.93 8.5 11V3H6v8c0 3.31 2.69 6 6 6zm-7 2v2h14v-2H5z"/></svg>
+            </button>
+            <button type="button" onClick={() => execFormat("~~", "~~")} title="Strikethrough" className="rounded p-1.5 text-[#6b6f76] hover:bg-[#f5f5f7] hover:text-[#1a1f36] transition-colors">
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M10 19h4v-3h-4v3zM5 4v3h5v3h4V7h5V4H5zM3 14h18v-2H3v2z"/></svg>
+            </button>
+            <div className="mx-1.5 h-4 w-px bg-[#e3e8ee]" />
+            <button type="button" onClick={() => execFormat("\n- ", "")} title="Bullet list" className="rounded p-1.5 text-[#6b6f76] hover:bg-[#f5f5f7] hover:text-[#1a1f36] transition-colors">
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M4 10.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0-6c-.83 0-1.5.67-1.5 1.5S3.17 7.5 4 7.5 5.5 6.83 5.5 6 4.83 4.5 4 4.5zm0 12c-.83 0-1.5.68-1.5 1.5s.68 1.5 1.5 1.5 1.5-.68 1.5-1.5-.67-1.5-1.5-1.5zM7 19h14v-2H7v2zm0-6h14v-2H7v2zm0-8v2h14V5H7z"/></svg>
+            </button>
+            <button type="button" onClick={() => { const url = prompt("Enter URL:"); if (url) execFormat("[", `](${url})`); }} title="Insert link" className="rounded p-1.5 text-[#6b6f76] hover:bg-[#f5f5f7] hover:text-[#1a1f36] transition-colors">
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
+            </button>
+          </div>
+
+          {/* Send row */}
+          <div className="flex items-center justify-between px-5 py-3">
+            {error ? (
+              <p className="text-[12px] text-red-600">{error}</p>
+            ) : (
+              <span />
+            )}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onClose}
+                disabled={sending}
+                className="rounded-md px-3.5 py-1.5 text-[13px] font-medium text-[#6b6f76] hover:bg-[#f5f5f7] transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={onSend}
+                disabled={sending || !modal.to.trim()}
+                className="flex items-center gap-1.5 rounded-md bg-[#1b1b1f] px-4 py-1.5 text-[13px] font-medium text-white hover:bg-[#2c2c33] disabled:opacity-50 transition-colors"
+              >
+                {sending ? (
+                  <>
+                    <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+                    </svg>
+                    Send
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -798,6 +925,15 @@ export default function SignalsPage() {
   const [emailModal, setEmailModal] = useState<EmailModal | null>(null);
   const [emailSending, setEmailSending] = useState(false);
   const [emailError, setEmailError] = useState("");
+  const [emailSignature, setEmailSignature] = useState("");
+  const sigFetched = useRef(false);
+  useEffect(() => {
+    if (!token || sigFetched.current) return;
+    sigFetched.current = true;
+    void apiFetch(`${apiBaseUrl}/email-signature`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(async (res) => { const d = (await res.json()) as { signature: string }; setEmailSignature(d.signature ?? ""); })
+      .catch(() => {});
+  }, [token, apiBaseUrl]);
 
   // Buyer picker for ATS cards
   const [buyerPickerSignal, setBuyerPickerSignal] = useState<ATSJobSignal | null>(null);
@@ -1025,7 +1161,7 @@ export default function SignalsPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ to, subject, body }),
+        body: JSON.stringify({ to, subject, body: emailSignature ? `${body}\n\n${emailSignature}` : body }),
       });
       const data = (await safeJson(res)) as { success?: boolean; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Failed to send");
@@ -1239,6 +1375,7 @@ export default function SignalsPage() {
           error={emailError}
           apiBaseUrl={apiBaseUrl}
           authToken={token}
+          signature={emailSignature}
         />
       )}
     </div>

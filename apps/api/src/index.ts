@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 import express from "express";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
-import { getBuyerProfilesCollection, getBuyerSearchResultsCollection, getCompanyATSCollection, getCompaniesCollection, getGoogleTokensCollection, getInvitesCollection, getJobsCollection, getLegacyLinkedinContentForPersonCollection, getLinkedinPostsForUserCollection, getPersonsCollection, getSignalsCollection, getSkillsCollection, getTriggerJobsCollection, getTriggersCollection, getUsersCollection, getWorkspacesCollection } from "./db.js";
+import { getBuyerProfilesCollection, getBuyerSearchResultsCollection, getCompanyATSCollection, getCompaniesCollection, getEmailSignaturesCollection, getEmailTemplatesCollection, getGoogleTokensCollection, getInvitesCollection, getJobsCollection, getLegacyLinkedinContentForPersonCollection, getLinkedinPostsForUserCollection, getPersonsCollection, getSignalsCollection, getSkillsCollection, getTriggerJobsCollection, getTriggersCollection, getUsersCollection, getWorkspacesCollection } from "./db.js";
 import { env } from "./env.js";
 import { getEmailFromToken, signToken } from "./auth.js";
 import { enrichCompanyByLinkedinId, enrichDomainWithFiber, enrichPersonByEmailWithFiber, enrichPersonWithFiber, findEmailWithContactDetails, findPersonEmailWithFiber, searchBuyersWithFiber } from "./fiber.js";
@@ -2990,6 +2990,92 @@ app.delete("/skills/:id", async (request, response) => {
   );
 
   response.json({ success: true });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Email Templates CRUD                                                */
+/* ------------------------------------------------------------------ */
+
+app.get("/email-templates", async (_request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+  const col = await getEmailTemplatesCollection();
+  const templates = await col.find({ userEmail: { $in: memberEmails } }).sort({ updatedAt: -1 }).toArray();
+  response.json({ templates });
+});
+
+app.post("/email-templates", async (request, response) => {
+  const { title, body } = request.body as { title?: string; body?: string };
+  if (!title?.trim() || !body?.trim()) {
+    response.status(400).json({ error: "Title and body are required" });
+    return;
+  }
+  const userEmail = response.locals.userEmail as string;
+  const col = await getEmailTemplatesCollection();
+  const now = new Date().toISOString();
+  const result = await col.insertOne({ userEmail, title: title.trim(), body: body.trim(), createdAt: now, updatedAt: now });
+  const template = await col.findOne({ _id: result.insertedId });
+  response.status(201).json({ template });
+});
+
+app.put("/email-templates/:id", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+  const col = await getEmailTemplatesCollection();
+  let template;
+  try {
+    template = await col.findOne({ _id: new ObjectId(request.params.id), userEmail: { $in: memberEmails } });
+  } catch {
+    response.status(400).json({ error: "Invalid template ID" });
+    return;
+  }
+  if (!template) { response.status(404).json({ error: "Template not found" }); return; }
+
+  const { title, body } = request.body as { title?: string; body?: string };
+  const updates: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+  if (title?.trim()) updates.title = title.trim();
+  if (body?.trim()) updates.body = body.trim();
+
+  await col.updateOne({ _id: template._id }, { $set: updates });
+  const updated = await col.findOne({ _id: template._id });
+  response.json({ template: updated });
+});
+
+app.delete("/email-templates/:id", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+  const col = await getEmailTemplatesCollection();
+  let template;
+  try {
+    template = await col.findOne({ _id: new ObjectId(request.params.id), userEmail: { $in: memberEmails } });
+  } catch {
+    response.status(400).json({ error: "Invalid template ID" });
+    return;
+  }
+  if (!template) { response.status(404).json({ error: "Template not found" }); return; }
+  await col.deleteOne({ _id: template._id });
+  response.json({ success: true });
+});
+
+// GET /email-signature - get user's signature
+app.get("/email-signature", async (_request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const col = await getEmailSignaturesCollection();
+  const sig = await col.findOne({ userEmail });
+  response.json({ signature: sig?.body ?? "" });
+});
+
+// PUT /email-signature - upsert user's signature
+app.put("/email-signature", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const { body } = request.body as { body?: string };
+  const col = await getEmailSignaturesCollection();
+  await col.updateOne(
+    { userEmail },
+    { $set: { body: body ?? "", updatedAt: new Date().toISOString() } },
+    { upsert: true }
+  );
+  response.json({ ok: true });
 });
 
 /* ------------------------------------------------------------------ */

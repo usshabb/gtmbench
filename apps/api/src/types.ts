@@ -264,3 +264,19 @@ export interface CompanyATSRecord {
   detectionError?: string;
   rawData?: Record<string, unknown>;
 }
+
+export interface EmailTemplateRecord {
+  _id?: ObjectId;
+  userEmail: string;
+  title: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EmailSignatureRecord {
+  _id?: ObjectId;
+  userEmail: string;
+  body: string;
+  updatedAt: string;
+}
