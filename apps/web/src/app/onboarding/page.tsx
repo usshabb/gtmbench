@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { apiFetch } from "../dashboard/components";
+import { apiFetch, FallbackImg } from "../dashboard/components";
 
 const localStorageTokenKey = "gtmbench-token";
 const localStorageInviteKey = "gtmbench-invite-token";
@@ -402,14 +402,11 @@ function OnboardingInner() {
               {workspaceMode === "invite" && existingWorkspace && (
                 <div className="flex flex-col gap-4">
                   <div className="flex items-center gap-3 rounded-md border border-[#bbf7d0] bg-[#ecfdf5] p-3">
-                    {existingWorkspace.logoUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={existingWorkspace.logoUrl} alt="" className="h-10 w-10 rounded-lg object-contain" />
-                    ) : (
+                    <FallbackImg src={existingWorkspace.logoUrl} className="h-10 w-10 rounded-lg object-contain">
                       <div className="flex h-9 w-9 items-center justify-center rounded-md bg-[#d1fae5] text-[12px] font-medium text-[#059669]">
                         {existingWorkspace.name.charAt(0).toUpperCase()}
                       </div>
-                    )}
+                    </FallbackImg>
                     <div>
                       <p className="text-[13px] font-medium text-[#1b1b1f]">{existingWorkspace.name}</p>
                       <p className="text-[12px] text-[#6b6f76]">You&apos;ve been invited to join this workspace</p>
@@ -429,14 +426,11 @@ function OnboardingInner() {
               {workspaceMode === "join" && existingWorkspace && (
                 <div className="flex flex-col gap-4">
                   <div className="flex items-center gap-3 rounded-md border border-[#e6e6e9] p-3">
-                    {existingWorkspace.logoUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={existingWorkspace.logoUrl} alt="" className="h-10 w-10 rounded-lg object-contain" />
-                    ) : (
+                    <FallbackImg src={existingWorkspace.logoUrl} className="h-10 w-10 rounded-lg object-contain">
                       <div className="flex h-9 w-9 items-center justify-center rounded-md bg-[#f5f5f7] text-[12px] font-medium text-[#8b8d94]">
                         {existingWorkspace.name.charAt(0).toUpperCase()}
                       </div>
-                    )}
+                    </FallbackImg>
                     <div>
                       <p className="text-[13px] font-medium text-[#1b1b1f]">{existingWorkspace.name}</p>
                       <p className="text-[12px] text-[#8b8d94]">{existingWorkspace.domain}</p>

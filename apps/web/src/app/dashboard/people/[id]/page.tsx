@@ -1,9 +1,15 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { LetterAvatar, safeJson, dispatchDataChanged, apiFetch } from "../../components";
+import { LetterAvatar, safeJson, dispatchDataChanged, apiFetch, FallbackImg } from "../../components";
+
+interface EmailTemplate {
+  _id: string;
+  title: string;
+  body: string;
+}
 
 interface PersonRecord {
   _id?: string;
@@ -114,6 +120,72 @@ function PersonDetailInner() {
   const [enrichError, setEnrichError] = useState("");
   const [showManualEmail, setShowManualEmail] = useState(false);
   const [manualEmailInput, setManualEmailInput] = useState("");
+
+  // Template picker state
+  const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([]);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [emailSignature, setEmailSignature] = useState("");
+  const templatesFetched = useRef(false);
+  const composeBodyRef = useRef<HTMLTextAreaElement>(null);
+
+  const fetchTemplates = useCallback(async () => {
+    if (!authToken || templatesFetched.current) return;
+    templatesFetched.current = true;
+    try {
+      const [tRes, sRes] = await Promise.all([
+        apiFetch(`${apiBaseUrl}/email-templates`, { headers: { Authorization: `Bearer ${authToken}` } }),
+        apiFetch(`${apiBaseUrl}/email-signature`, { headers: { Authorization: `Bearer ${authToken}` } }),
+      ]);
+      const tData = (await tRes.json()) as { templates: EmailTemplate[] };
+      setEmailTemplates(tData.templates ?? []);
+      const sData = (await sRes.json()) as { signature: string };
+      setEmailSignature(sData.signature ?? "");
+    } catch { /* ignore */ }
+  }, [apiBaseUrl, authToken]);
+
+  function execComposeFormat(prefix: string, suffix: string) {
+    const ta = composeBodyRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    const text = composeBody;
+    const selected = text.slice(start, end);
+    const newText = text.slice(0, start) + prefix + selected + suffix + text.slice(end);
+    setComposeBody(newText);
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(start + prefix.length, end + prefix.length);
+    });
+  }
+
+  function resolveTemplate(tmpl: EmailTemplate) {
+    const d = person ? getFiberData(person) : null;
+    const firstName = (d?.first_name as string) ?? "";
+    const name = d ? getFullName(d, person?.linkedinUrl ?? "") : "";
+    const email = composeTo || "";
+    const website = person?.companyDomain ?? "";
+    // Replace all tokens except ats_name (resolved async)
+    const resolved = tmpl.body
+      .replace(/\{\{first_name\}\}/g, firstName)
+      .replace(/\{\{full_name\}\}/g, name)
+      .replace(/\{\{email\}\}/g, email)
+      .replace(/\{\{website\}\}/g, website);
+    setComposeSubject(tmpl.title);
+    setComposeBody(resolved);
+    setShowTemplatePicker(false);
+    // Resolve ats_name async if template uses it
+    if (companyLead?._id && resolved.includes("{{ats_name}}")) {
+      void apiFetch(`${apiBaseUrl}/companies/${companyLead._id}/ats`, { headers: { Authorization: `Bearer ${authToken}` } })
+        .then(async (res) => {
+          const data = (await res.json()) as { ats: { atsName?: string } | null };
+          const atsVal = data.ats?.atsName ?? "";
+          setComposeBody((prev) => prev.replace(/\{\{ats_name\}\}/g, atsVal));
+        })
+        .catch(() => {
+          setComposeBody((prev) => prev.replace(/\{\{ats_name\}\}/g, ""));
+        });
+    }
+  }
 
   async function handleRemove() {
     if (!authToken || !id) return;
@@ -232,7 +304,7 @@ function PersonDetailInner() {
       const res = await apiFetch(`${apiBaseUrl}/persons/${id}/emails`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ to: composeTo, subject: composeSubject, body: composeBody }),
+        body: JSON.stringify({ to: composeTo, subject: composeSubject, body: emailSignature ? `${composeBody}\n\n${emailSignature}` : composeBody }),
       });
       if (!res.ok) {
         const data = (await safeJson(res)) as { error?: string };
@@ -695,14 +767,11 @@ function PersonDetailInner() {
                       {email.sourceUserName && (
                         <div className="mt-1.5 flex items-center gap-1.5">
                           <span className="text-[10px] text-[#8b8d94]">Synced from</span>
-                          {email.sourceUserPhoto ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={email.sourceUserPhoto} alt="" className="h-3.5 w-3.5 rounded-full object-cover" />
-                          ) : (
+                          <FallbackImg src={email.sourceUserPhoto} className="h-3.5 w-3.5 rounded-full object-cover">
                             <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[#e6e6e9] text-[7px] font-medium text-[#6b6f76]">
                               {email.sourceUserName.charAt(0).toUpperCase()}
                             </span>
-                          )}
+                          </FallbackImg>
                         </div>
                       )}
                     </div>
@@ -715,77 +784,149 @@ function PersonDetailInner() {
 
         {/* Compose modal */}
         {showCompose && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-            <div className="w-full max-w-lg rounded-lg bg-white shadow-lg">
-              <div className="flex items-center justify-between border-b border-[#e6e6e9] px-5 py-4">
-                <h3 className="text-[14px] font-semibold text-[#1b1b1f]">New Email</h3>
-                <button onClick={() => { setShowCompose(false); setSendError(""); setSendSuccess(false); }} className="rounded-lg p-1.5 text-[#8b8d94] hover:bg-[#ededf0]">
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                </button>
-              </div>
-              <div className="px-5 py-4 space-y-3">
-                <div>
-                  <label className="text-[11px] font-medium uppercase tracking-wide text-[#8b8d94]">To</label>
-                  <div className="mt-1 flex items-center gap-2">
-                    <input
-                      type="email"
-                      value={composeTo}
-                      onChange={(e) => setComposeTo(e.target.value)}
-                      placeholder={!composeTo ? "No email found" : ""}
-                      className="flex-1 rounded-lg border border-[#e6e6e9] bg-[#f9f9fb] px-3 py-2 text-[13px] text-[#1b1b1f] outline-none focus:border-[#5e6ad2] focus:ring-1 focus:ring-[#5e6ad2]/20 focus:bg-white"
-                    />
-                    {!composeTo && (
-                      <button
-                        onClick={async () => {
-                          await handleFindEmail();
-                          // After finding, personEmail will update via setPerson — set composeTo
-                        }}
-                        disabled={enriching}
-                        className="shrink-0 flex items-center gap-1.5 rounded-lg bg-[#1b1b1f] px-3 py-2 text-[12px] font-medium text-white hover:bg-[#2c2c33] disabled:opacity-50"
-                      >
-                        {enriching ? (
-                          <><div className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />Finding...</>
-                        ) : "Find Email"}
-                      </button>
+          <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-4 pt-[8vh]" onClick={() => { if (!sending) { setShowCompose(false); setSendError(""); } }}>
+            <div className="flex w-full max-w-2xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl" style={{ maxHeight: "calc(100vh - 16vh)" }} onClick={(e) => e.stopPropagation()}>
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-[#e6e6e9] px-5 py-3.5">
+                <h3 className="text-[14px] font-semibold text-[#1b1b1f]">New Message</h3>
+                <div className="flex items-center gap-1">
+                  <div className="relative">
+                    <button
+                      onClick={() => { void fetchTemplates(); setShowTemplatePicker((p) => !p); }}
+                      className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-[#6b6f76] hover:bg-[#f5f5f7] transition-colors"
+                    >
+                      Use template
+                    </button>
+                    {showTemplatePicker && (
+                      <div className="absolute right-0 top-full mt-1 w-64 rounded-lg border border-[#e6e6e9] bg-white shadow-lg z-20 overflow-hidden max-h-64 overflow-y-auto">
+                        {emailTemplates.length === 0 ? (
+                          <p className="px-3 py-3 text-[12px] text-[#8b8d94]">No templates yet</p>
+                        ) : (
+                          emailTemplates.map((t) => (
+                            <button
+                              key={t._id}
+                              onClick={() => resolveTemplate(t)}
+                              className="flex w-full flex-col px-3 py-2 text-left hover:bg-[#f9f9fb] transition-colors"
+                            >
+                              <span className="text-[12px] font-medium text-[#1b1b1f]">{t.title}</span>
+                              <span className="text-[11px] text-[#8b8d94] line-clamp-1 font-mono">{t.body}</span>
+                            </button>
+                          ))
+                        )}
+                      </div>
                     )}
                   </div>
-                  {enrichError && !composeTo && <p className="mt-1 text-[11px] text-red-500">{enrichError}</p>}
+                  <button onClick={() => { setShowCompose(false); setSendError(""); setSendSuccess(false); setShowTemplatePicker(false); }} className="rounded-md p-1.5 text-[#8b8d94] hover:bg-[#f5f5f7]">
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
                 </div>
-                <div>
-                  <label className="text-[11px] font-medium uppercase tracking-wide text-[#8b8d94]">Subject</label>
+              </div>
+
+              {/* Fields */}
+              <div className="flex flex-col divide-y divide-[#f0f3f8]">
+                <div className="flex items-center gap-3 px-5 py-2.5">
+                  <span className="w-12 shrink-0 text-[13px] text-[#8b8d94]">To</span>
+                  <input
+                    type="email"
+                    value={composeTo}
+                    onChange={(e) => setComposeTo(e.target.value)}
+                    placeholder={!composeTo ? "No email found" : ""}
+                    className="flex-1 text-[13px] text-[#1b1b1f] placeholder:text-[#b4b5ba] focus:outline-none"
+                    autoFocus={!composeTo}
+                  />
+                  {!composeTo && (
+                    <button
+                      onClick={async () => { await handleFindEmail(); }}
+                      disabled={enriching}
+                      className="shrink-0 flex items-center gap-1.5 rounded-md bg-[#1b1b1f] px-3 py-1.5 text-[12px] font-medium text-white hover:bg-[#2c2c33] disabled:opacity-50"
+                    >
+                      {enriching ? (
+                        <><div className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />Finding...</>
+                      ) : "Find Email"}
+                    </button>
+                  )}
+                </div>
+                {enrichError && !composeTo && (
+                  <div className="px-5 -mt-1 pb-1"><p className="text-[11px] text-red-500">{enrichError}</p></div>
+                )}
+                <div className="flex items-center gap-3 px-5 py-2.5">
+                  <span className="w-12 shrink-0 text-[13px] text-[#8b8d94]">Subject</span>
                   <input
                     type="text"
                     value={composeSubject}
                     onChange={(e) => setComposeSubject(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-[#e6e6e9] bg-[#f9f9fb] px-3 py-2 text-[13px] text-[#1b1b1f] outline-none focus:border-[#5e6ad2] focus:ring-1 focus:ring-[#5e6ad2]/20 focus:bg-white"
+                    placeholder="Subject"
+                    className="flex-1 text-[13px] text-[#1b1b1f] placeholder:text-[#b4b5ba] focus:outline-none"
                   />
                 </div>
-                <div>
-                  <label className="text-[11px] font-medium uppercase tracking-wide text-[#8b8d94]">Message</label>
-                  <textarea
-                    rows={6}
-                    value={composeBody}
-                    onChange={(e) => setComposeBody(e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-[#e6e6e9] bg-[#f9f9fb] px-3 py-2 text-[13px] text-[#1b1b1f] outline-none focus:border-[#5e6ad2] focus:ring-1 focus:ring-[#5e6ad2]/20 focus:bg-white resize-none"
-                  />
-                </div>
-                {sendError && <p className="text-[12px] text-red-500">{sendError}</p>}
-                {sendSuccess && <p className="text-[12px] text-[#059669]">Email sent!</p>}
               </div>
-              <div className="flex justify-end gap-2 border-t border-[#e6e6e9] px-5 py-4">
-                <button
-                  onClick={() => { setShowCompose(false); setSendError(""); }}
-                  className="rounded-lg px-4 py-2 text-[13px] text-[#6b6f76] hover:bg-[#f5f5f7]"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSendEmail}
-                  disabled={sending || !composeTo || !composeSubject || !composeBody}
-                  className="rounded-lg bg-[#1b1b1f] px-4 py-2 text-[13px] font-medium text-white hover:bg-[#2c2c33] disabled:opacity-50"
-                >
-                  {sending ? "Sending..." : "Send"}
-                </button>
+
+              {/* Body */}
+              <div className="flex-1 overflow-y-auto px-5 py-3">
+                <textarea
+                  ref={composeBodyRef}
+                  rows={12}
+                  value={composeBody}
+                  onChange={(e) => setComposeBody(e.target.value)}
+                  placeholder="Write your message..."
+                  className="w-full resize-none text-[13px] leading-relaxed text-[#1b1b1f] placeholder:text-[#b4b5ba] focus:outline-none"
+                  autoFocus={!!composeTo}
+                />
+                {emailSignature && (
+                  <div className="mt-2 border-t border-[#f0f3f8] pt-2">
+                    <p className="whitespace-pre-wrap text-[13px] text-[#8b8d94] leading-relaxed">{emailSignature}</p>
+                  </div>
+                )}
+              </div>
+
+              {sendError && <div className="px-5"><p className="text-[12px] text-red-500">{sendError}</p></div>}
+              {sendSuccess && <div className="px-5"><p className="text-[12px] text-[#059669]">Email sent!</p></div>}
+
+              {/* Formatting toolbar + footer */}
+              <div className="border-t border-[#e6e6e9]">
+                <div className="flex items-center gap-0.5 px-4 py-2 border-b border-[#f0f3f8]">
+                  <button type="button" onClick={() => execComposeFormat("**", "**")} title="Bold" className="rounded p-1.5 text-[#6b6f76] hover:bg-[#f5f5f7] hover:text-[#1b1b1f] transition-colors">
+                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M15.6 10.79c.97-.67 1.65-1.77 1.65-2.79 0-2.26-1.75-4-4-4H7v14h7.04c2.09 0 3.71-1.7 3.71-3.79 0-1.52-.86-2.82-2.15-3.42zM10 6.5h3c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-3v-3zm3.5 9H10v-3h3.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5z"/></svg>
+                  </button>
+                  <button type="button" onClick={() => execComposeFormat("*", "*")} title="Italic" className="rounded p-1.5 text-[#6b6f76] hover:bg-[#f5f5f7] hover:text-[#1b1b1f] transition-colors">
+                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4v3h2.21l-3.42 8H6v3h8v-3h-2.21l3.42-8H18V4z"/></svg>
+                  </button>
+                  <button type="button" onClick={() => execComposeFormat("<u>", "</u>")} title="Underline" className="rounded p-1.5 text-[#6b6f76] hover:bg-[#f5f5f7] hover:text-[#1b1b1f] transition-colors">
+                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12 17c3.31 0 6-2.69 6-6V3h-2.5v8c0 1.93-1.57 3.5-3.5 3.5S8.5 12.93 8.5 11V3H6v8c0 3.31 2.69 6 6 6zm-7 2v2h14v-2H5z"/></svg>
+                  </button>
+                  <button type="button" onClick={() => execComposeFormat("~~", "~~")} title="Strikethrough" className="rounded p-1.5 text-[#6b6f76] hover:bg-[#f5f5f7] hover:text-[#1b1b1f] transition-colors">
+                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M10 19h4v-3h-4v3zM5 4v3h5v3h4V7h5V4H5zM3 14h18v-2H3v2z"/></svg>
+                  </button>
+                  <div className="mx-1.5 h-4 w-px bg-[#e6e6e9]" />
+                  <button type="button" onClick={() => execComposeFormat("\n- ", "")} title="Bullet list" className="rounded p-1.5 text-[#6b6f76] hover:bg-[#f5f5f7] hover:text-[#1b1b1f] transition-colors">
+                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M4 10.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0-6c-.83 0-1.5.67-1.5 1.5S3.17 7.5 4 7.5 5.5 6.83 5.5 6 4.83 4.5 4 4.5zm0 12c-.83 0-1.5.68-1.5 1.5s.68 1.5 1.5 1.5 1.5-.68 1.5-1.5-.67-1.5-1.5-1.5zM7 19h14v-2H7v2zm0-6h14v-2H7v2zm0-8v2h14V5H7z"/></svg>
+                  </button>
+                  <button type="button" onClick={() => { const url = prompt("Enter URL:"); if (url) execComposeFormat("[", `](${url})`); }} title="Insert link" className="rounded p-1.5 text-[#6b6f76] hover:bg-[#f5f5f7] hover:text-[#1b1b1f] transition-colors">
+                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
+                  </button>
+                </div>
+                <div className="flex items-center justify-between px-5 py-3">
+                  <span />
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => { setShowCompose(false); setSendError(""); }}
+                      className="rounded-md px-3.5 py-1.5 text-[13px] font-medium text-[#6b6f76] hover:bg-[#f5f5f7] transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleSendEmail}
+                      disabled={sending || !composeTo || !composeSubject || !composeBody}
+                      className="flex items-center gap-1.5 rounded-md bg-[#1b1b1f] px-4 py-1.5 text-[13px] font-medium text-white hover:bg-[#2c2c33] disabled:opacity-50 transition-colors"
+                    >
+                      {sending ? (
+                        <><div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />Sending...</>
+                      ) : (
+                        <><svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" /></svg>Send</>
+                      )}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
