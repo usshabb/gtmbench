@@ -202,10 +202,10 @@ function ProfileSettingsInner() {
   }
 
   return (
-    <div className="mx-auto max-w-xl px-6 py-8">
+    <div className="mx-auto max-w-xl px-8 py-8">
       <div className="mb-6">
-        <h1 className="text-lg font-semibold text-[#1b1b1f]">Profile</h1>
-        <p className="text-[13px] text-[#6b6f76]">Manage your personal information.</p>
+        <h1 className="text-[17px] font-semibold text-[#1b1b1f]">Profile</h1>
+        <p className="mt-0.5 text-[13px] text-[#6b6f76]">Manage your personal information.</p>
       </div>
 
       <form onSubmit={handleSave} className="space-y-6">

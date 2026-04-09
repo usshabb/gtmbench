@@ -1,6 +1,6 @@
 import { Collection, MongoClient } from "mongodb";
 import { env } from "./env.js";
-import { BuyerProfileRecord, BuyerSearchResultRecord, CompanyATSRecord, CompanyRecord, GoogleTokenRecord, InviteRecord, JobRecord, LinkedinPostForUserRecord, PersonRecord, SignalRecord, SkillRecord, TriggerJobRecord, TriggerRecord, UserRecord, WorkspaceRecord } from "./types.js";
+import { BuyerProfileRecord, BuyerSearchResultRecord, CompanyATSRecord, CompanyRecord, EmailSignatureRecord, EmailTemplateRecord, GoogleTokenRecord, InviteRecord, JobRecord, LinkedinPostForUserRecord, PersonRecord, SignalRecord, SkillRecord, TriggerJobRecord, TriggerRecord, UserRecord, WorkspaceRecord } from "./types.js";
 
 const mongoClient = new MongoClient(env.MONGODB_URL);
 
@@ -19,6 +19,8 @@ let googleTokensCollection: Collection<GoogleTokenRecord> | null = null;
 let workspacesCollection: Collection<WorkspaceRecord> | null = null;
 let usersCollection: Collection<UserRecord> | null = null;
 let invitesCollection: Collection<InviteRecord> | null = null;
+let emailTemplatesCollection: Collection<EmailTemplateRecord> | null = null;
+let emailSignaturesCollection: Collection<EmailSignatureRecord> | null = null;
 
 export async function getCompaniesCollection(): Promise<Collection<CompanyRecord>> {
   if (companiesCollection) return companiesCollection;
@@ -278,4 +280,30 @@ export async function getSkillsCollection(): Promise<Collection<SkillRecord>> {
   await skillsCollection.createIndex({ userEmail: 1, skillType: 1 }, { unique: true });
 
   return skillsCollection;
+}
+
+export async function getEmailTemplatesCollection(): Promise<Collection<EmailTemplateRecord>> {
+  if (emailTemplatesCollection) return emailTemplatesCollection;
+
+  await mongoClient.connect();
+  const database = mongoClient.db(env.MONGODB_DB_NAME);
+
+  emailTemplatesCollection = database.collection<EmailTemplateRecord>("emailTemplates");
+
+  await emailTemplatesCollection.createIndex({ userEmail: 1 });
+
+  return emailTemplatesCollection;
+}
+
+export async function getEmailSignaturesCollection(): Promise<Collection<EmailSignatureRecord>> {
+  if (emailSignaturesCollection) return emailSignaturesCollection;
+
+  await mongoClient.connect();
+  const database = mongoClient.db(env.MONGODB_DB_NAME);
+
+  emailSignaturesCollection = database.collection<EmailSignatureRecord>("emailSignatures");
+
+  await emailSignaturesCollection.createIndex({ userEmail: 1 }, { unique: true });
+
+  return emailSignaturesCollection;
 }

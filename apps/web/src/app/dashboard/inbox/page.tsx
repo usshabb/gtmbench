@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LetterAvatar, safeJson, apiFetch } from "../components";
+import { LetterAvatar, safeJson, apiFetch, FallbackImg } from "../components";
 
 const localStorageTokenKey = "gtmbench-token";
 
@@ -39,6 +39,12 @@ type FilterItem =
   | { type: "person"; email: string; name: string }
   | { type: "company"; domain: string; name: string }
   | { type: "source"; email: string; name: string };
+
+interface EmailTemplate {
+  _id: string;
+  title: string;
+  body: string;
+}
 
 interface ThreadMessage {
   id: string;
@@ -133,14 +139,11 @@ function ThreadRow({
           <div className="mt-1 flex items-center gap-1 group/source">
             <span className="text-[10px] text-[#8b8d94]">Synced from</span>
             <div className="relative">
-              {sourceUser.profilePhotoUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={sourceUser.profilePhotoUrl} alt="" className="h-3.5 w-3.5 rounded-full object-cover" />
-              ) : (
+              <FallbackImg src={sourceUser.profilePhotoUrl} className="h-3.5 w-3.5 rounded-full object-cover">
                 <div className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[#e6e6e9] text-[7px] font-semibold text-[#6b6f76]">
                   {sourceUser.name.charAt(0).toUpperCase()}
                 </div>
-              )}
+              </FallbackImg>
               <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover/source:block">
                 <div className="whitespace-nowrap rounded bg-[#1b1b1f] px-2 py-1 text-[10px] text-white">
                   {sourceUser.name.split(" ")[0]}
@@ -255,6 +258,43 @@ function InboxInner() {
   const [mentionAnchorPos, setMentionAnchorPos] = useState(0);
   const replyRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Template picker
+  const [emailTemplates, setEmailTemplates] = useState<EmailTemplate[]>([]);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [emailSignature, setEmailSignature] = useState("");
+  const templatesFetched = useRef(false);
+
+  const fetchTemplates = useCallback(async () => {
+    if (!authToken || templatesFetched.current) return;
+    templatesFetched.current = true;
+    try {
+      const [tRes, sRes] = await Promise.all([
+        apiFetch(`${apiBaseUrl}/email-templates`, { headers: { Authorization: `Bearer ${authToken}` } }),
+        apiFetch(`${apiBaseUrl}/email-signature`, { headers: { Authorization: `Bearer ${authToken}` } }),
+      ]);
+      const tData = (await tRes.json()) as { templates: EmailTemplate[] };
+      setEmailTemplates(tData.templates ?? []);
+      const sData = (await sRes.json()) as { signature: string };
+      setEmailSignature(sData.signature ?? "");
+    } catch { /* ignore */ }
+  }, [apiBaseUrl, authToken]);
+
+  function resolveTemplateForReply(tmpl: EmailTemplate) {
+    if (!selectedThread) return;
+    const firstName = selectedThread.personName?.split(" ")[0] ?? "";
+    const fullName = selectedThread.personName ?? "";
+    const email = selectedThread.personEmail ?? "";
+    const domain = selectedThread.personEmail?.split("@")[1] ?? "";
+    const resolved = tmpl.body
+      .replace(/\{\{first_name\}\}/g, firstName)
+      .replace(/\{\{full_name\}\}/g, fullName)
+      .replace(/\{\{email\}\}/g, email)
+      .replace(/\{\{website\}\}/g, domain)
+      .replace(/\{\{ats_name\}\}/g, "");
+    setReplyBody(resolved);
+    setShowTemplatePicker(false);
+  }
 
   const checkedRef = useRef(false);
 
@@ -414,7 +454,7 @@ function InboxInner() {
         body: JSON.stringify({
           to: selectedThread.personEmail,
           subject: selectedThread.subject,
-          body: replyBody,
+          body: emailSignature ? `${replyBody}\n\n${emailSignature}` : replyBody,
           sourceUserEmail: selectedThread.sourceUserEmail,
           inReplyTo: lastMsg?.messageId,
         }),
@@ -849,14 +889,11 @@ function InboxInner() {
                                 )}
                               </div>
                               <div className="flex items-center gap-2 min-w-0">
-                                {u.profilePhotoUrl ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img src={u.profilePhotoUrl} alt="" className="h-5 w-5 rounded-full object-cover" />
-                                ) : (
+                                <FallbackImg src={u.profilePhotoUrl} className="h-5 w-5 rounded-full object-cover">
                                   <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[#e6e6e9] text-[9px] font-semibold text-[#6b6f76]">
                                     {u.name.charAt(0).toUpperCase()}
                                   </div>
-                                )}
+                                </FallbackImg>
                                 <div className="min-w-0">
                                   <p className="truncate text-[12px] font-medium text-[#1b1b1f]">{u.name}</p>
                                 </div>
@@ -1036,7 +1073,34 @@ function InboxInner() {
               </div>
 
               {/* Send bar */}
-              <div className="mt-2 flex items-center justify-end gap-3">
+              <div className="mt-2 flex items-center justify-between">
+                <div className="relative">
+                  <button
+                    onClick={() => { void fetchTemplates(); setShowTemplatePicker((p) => !p); }}
+                    className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-[#6b6f76] hover:bg-[#f5f5f7] transition-colors"
+                  >
+                    Use template
+                  </button>
+                  {showTemplatePicker && (
+                    <div className="absolute left-0 bottom-full mb-1 w-64 rounded-lg border border-[#e6e6e9] bg-white shadow-lg z-20 overflow-hidden">
+                      {emailTemplates.length === 0 ? (
+                        <p className="px-3 py-3 text-[12px] text-[#8b8d94]">No templates yet</p>
+                      ) : (
+                        emailTemplates.map((t) => (
+                          <button
+                            key={t._id}
+                            onClick={() => resolveTemplateForReply(t)}
+                            className="flex w-full flex-col px-3 py-2 text-left hover:bg-[#f9f9fb] transition-colors"
+                          >
+                            <span className="text-[12px] font-medium text-[#1b1b1f]">{t.title}</span>
+                            <span className="text-[11px] text-[#8b8d94] line-clamp-1 font-mono">{t.body}</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
                 <span className="text-[11px] text-[#8b8d94]">
                   <kbd className="rounded bg-[#f5f5f7] px-1 py-0.5 font-mono text-[10px] text-[#6b6f76]">⌘↵</kbd> to send
                 </span>
@@ -1054,6 +1118,7 @@ function InboxInner() {
                   )}
                   Send
                 </button>
+                </div>
               </div>
             </div>
           </>

@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { LetterAvatar, safeJson, apiFetch } from "../components";
+import { LetterAvatar, safeJson, apiFetch, FallbackImg } from "../components";
 
 const localStorageTokenKey = "gtmbench-token";
 
@@ -155,14 +155,11 @@ function MeetingCard({ event, multiUser, connectedUsers }: { event: CalendarEven
         <div className="mt-2 flex items-center gap-1 group/source">
           <span className="text-[10px] text-[#8b8d94]">Synced from</span>
           <div className="relative">
-            {sourceUser.profilePhotoUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={sourceUser.profilePhotoUrl} alt="" className="h-3.5 w-3.5 rounded-full object-cover" />
-            ) : (
+            <FallbackImg src={sourceUser.profilePhotoUrl} className="h-3.5 w-3.5 rounded-full object-cover">
               <div className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[#e6e6e9] text-[7px] font-bold text-[#6b6f76]">
                 {sourceUser.name.charAt(0).toUpperCase()}
               </div>
-            )}
+            </FallbackImg>
             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover/source:block">
               <div className="whitespace-nowrap rounded bg-[#1b1b1f] px-2 py-1 text-[10px] text-white shadow-lg">
                 {sourceUser.name.split(" ")[0]}
