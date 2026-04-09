@@ -1141,7 +1141,7 @@ app.patch("/companies/:id/buyer-profile", async (request, response) => {
     return;
   }
 
-  const profileObjectId = buyerProfileId ? new ObjectId(buyerProfileId) : null;
+  const profileObjectId = buyerProfileId ? new ObjectId(buyerProfileId) : undefined;
 
   const companiesCol = await getCompaniesCollection();
   const company = await companiesCol.findOne({ _id: companyObjectId, userEmails: { $in: memberEmails } });
@@ -1838,7 +1838,7 @@ app.patch("/persons/:id/buyer-profile", async (request, response) => {
     return;
   }
 
-  const profileObjectId = buyerProfileId ? new ObjectId(buyerProfileId) : null;
+  const profileObjectId = buyerProfileId ? new ObjectId(buyerProfileId) : undefined;
   const personsCol = await getPersonsCollection();
   const result = await personsCol.updateOne(
     { _id: personObjectId, userEmails: { $in: memberEmails } },
