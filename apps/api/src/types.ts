@@ -78,6 +78,7 @@ export interface PersonRecord {
   userEmails: string[];
   linkedinUrl: string;
   workEmail?: string;       // top-level for fast querying, mirrored from enrichmentData
+  availableEmails?: { email: string; type: "work" | "personal" }[];  // all found emails, work first
   companyDomain?: string;
   companyId?: ObjectId;
   buyerProfileId?: ObjectId;

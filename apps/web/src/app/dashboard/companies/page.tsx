@@ -571,6 +571,8 @@ function SkeletonCard() {
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
 
+const PAGE_SIZE = 25;
+
 export default function CompaniesPage() {
   const router = useRouter();
   const apiBaseUrl = useMemo(() => getApiBaseUrl(), []);
@@ -585,6 +587,8 @@ export default function CompaniesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [buyerProfiles, setBuyerProfiles] = useState<BuyerProfile[]>([]);
   const [personCounts, setPersonCounts] = useState<Record<string, number>>({});
+  const [displayCount, setDisplayCount] = useState(PAGE_SIZE);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const storedToken = window.localStorage.getItem(localStorageTokenKey);
@@ -647,6 +651,23 @@ export default function CompaniesPage() {
     window.addEventListener(DATA_CHANGED_EVENT, handler);
     return () => window.removeEventListener(DATA_CHANGED_EVENT, handler);
   }, [fetchCompanies]);
+
+  // Reset display count whenever search changes
+  useEffect(() => {
+    setDisplayCount(PAGE_SIZE);
+  }, [searchQuery]);
+
+  // Infinite scroll sentinel
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) setDisplayCount((p) => p + PAGE_SIZE); },
+      { rootMargin: "300px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   async function handleRemoveCompany(id: string) {
     try {
@@ -744,7 +765,7 @@ export default function CompaniesPage() {
           </div>
         ) : (
           <div className="space-y-2">
-            {filteredCompanies.map((company) => (
+            {filteredCompanies.slice(0, displayCount).map((company) => (
               <CompanyCard
                 key={company._id ?? company.domain}
                 company={company}
@@ -769,6 +790,13 @@ export default function CompaniesPage() {
             {companies.length === 0 && (
               <div className="flex h-64 items-center justify-center">
                 <p className="text-[14px] text-[#8b8d94]">No companies yet</p>
+              </div>
+            )}
+            {/* Sentinel for infinite scroll */}
+            <div ref={sentinelRef} />
+            {displayCount < filteredCompanies.length && (
+              <div className="flex justify-center py-4">
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#e6e6e9] border-t-[#6b6f76]" />
               </div>
             )}
           </div>

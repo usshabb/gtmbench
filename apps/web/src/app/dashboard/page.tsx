@@ -99,6 +99,7 @@ interface PersonInfo {
   linkedinUrl: string;
   fullName?: string | null;
   workEmail?: string;
+  availableEmails?: { email: string; type: string }[];
   companyDomain?: string;
 }
 
@@ -111,6 +112,7 @@ interface EmailModal {
   subject: string;
   body: string;
   personId: string | null;
+  availableEmails?: { email: string; type: string }[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -601,6 +603,407 @@ function ATSCard({
 }
 
 /* ------------------------------------------------------------------ */
+/*  Find Times — shared types + helpers                                 */
+/* ------------------------------------------------------------------ */
+
+interface CalendarEventSlim {
+  start: string;
+  end: string;
+  allDay: boolean;
+}
+
+interface AvailableSlot {
+  start: string;
+  end: string;
+}
+
+function toLocalDateKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function formatSlotText(slot: AvailableSlot): string {
+  const start = new Date(slot.start);
+  const end = new Date(slot.end);
+  const dateStr = start.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+  const startTime = start.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const endTime = end.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  return `${dateStr} · ${startTime} – ${endTime}`;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Week calendar for Find Times                                        */
+/* ------------------------------------------------------------------ */
+
+function FindTimesWeekCalendar({
+  selectedDates,
+  onToggleDate,
+  authToken,
+  apiBaseUrl,
+}: {
+  selectedDates: string[];
+  onToggleDate: (date: string) => void;
+  authToken: string;
+  apiBaseUrl: string;
+}) {
+  const [weekStart, setWeekStart] = useState<Date>(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    const diff = (d.getDay() + 6) % 7;
+    d.setDate(d.getDate() - diff);
+    return d;
+  });
+  const [weekEvents, setWeekEvents] = useState<CalendarEventSlim[]>([]);
+  const [weekLoading, setWeekLoading] = useState(false);
+  const todayKey = toLocalDateKey(new Date());
+
+  useEffect(() => {
+    if (!authToken) return;
+    const end = new Date(weekStart);
+    end.setDate(end.getDate() + 6);
+    end.setHours(23, 59, 59);
+    setWeekLoading(true);
+    void apiFetch(
+      `${apiBaseUrl}/calendar/events?timeMin=${encodeURIComponent(weekStart.toISOString())}&timeMax=${encodeURIComponent(end.toISOString())}`,
+      { headers: { Authorization: `Bearer ${authToken}` } },
+    )
+      .then(async (res) => {
+        if (res.ok) {
+          const data = (await res.json()) as { events: CalendarEventSlim[] };
+          setWeekEvents(data.events ?? []);
+        }
+      })
+      .catch(() => {})
+      .finally(() => setWeekLoading(false));
+  }, [weekStart, authToken, apiBaseUrl]);
+
+  const weekDays = useMemo(
+    () => Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(weekStart);
+      d.setDate(d.getDate() + i);
+      return d;
+    }),
+    [weekStart],
+  );
+
+  const eventsByDay = useMemo(() => {
+    const map = new Map<string, CalendarEventSlim[]>();
+    for (const e of weekEvents) {
+      if (e.allDay) continue;
+      const key = toLocalDateKey(new Date(e.start));
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(e);
+    }
+    return map;
+  }, [weekEvents]);
+
+  const weekEnd = useMemo(() => {
+    const d = new Date(weekStart);
+    d.setDate(d.getDate() + 6);
+    return d;
+  }, [weekStart]);
+
+  const weekLabel = useMemo(() => {
+    if (weekStart.getMonth() === weekEnd.getMonth()) {
+      return `${weekStart.toLocaleDateString("en-US", { month: "short" })} ${weekStart.getDate()} – ${weekEnd.getDate()}, ${weekStart.getFullYear()}`;
+    }
+    return `${weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${weekEnd.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+  }, [weekStart, weekEnd]);
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-[#e3e8ee] bg-white">
+      <div className="p-2.5">
+        <div className="mb-2 flex items-center justify-between">
+          <button
+            onClick={() => setWeekStart((p) => { const d = new Date(p); d.setDate(d.getDate() - 7); return d; })}
+            className="rounded p-0.5 text-[#8b8d94] transition-colors hover:text-[#1b1b1f]"
+          >
+            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <span className="text-[10px] font-semibold text-[#1b1b1f]">{weekLabel}</span>
+          <button
+            onClick={() => setWeekStart((p) => { const d = new Date(p); d.setDate(d.getDate() + 7); return d; })}
+            className="rounded p-0.5 text-[#8b8d94] transition-colors hover:text-[#1b1b1f]"
+          >
+            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        </div>
+        {weekLoading ? (
+          <div className="flex justify-center py-4">
+            <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#e3e8ee] border-t-[#6b6f76]" />
+          </div>
+        ) : (
+          <div className="grid grid-cols-7 gap-0.5">
+            {weekDays.map((day) => {
+              const dateKey = toLocalDateKey(day);
+              const isPast = dateKey < todayKey;
+              const isSelected = selectedDates.includes(dateKey);
+              const isToday = dateKey === todayKey;
+              const dayEvts = (eventsByDay.get(dateKey) ?? []).sort(
+                (a, b) => new Date(a.start).getTime() - new Date(b.start).getTime(),
+              );
+              const shown = dayEvts.slice(0, 3);
+              const extra = dayEvts.length - 3;
+              const dayAbbr = day.toLocaleDateString("en-US", { weekday: "short" }).slice(0, 2);
+              return (
+                <button
+                  key={dateKey}
+                  disabled={isPast}
+                  onClick={() => onToggleDate(dateKey)}
+                  className={[
+                    "flex flex-col items-center gap-0.5 rounded-md px-0.5 py-1.5 transition-colors w-full",
+                    isPast ? "cursor-not-allowed opacity-40" : "cursor-pointer",
+                    isSelected ? "bg-[#1b1b1f]"
+                      : isToday ? "bg-[#f0f0f5] hover:bg-[#e8e8ed]"
+                      : !isPast ? "hover:bg-[#f5f5f7]" : "",
+                  ].join(" ")}
+                >
+                  <span className={["text-[8px] font-medium leading-none", isSelected ? "text-white/70" : "text-[#8b8d94]"].join(" ")}>
+                    {dayAbbr}
+                  </span>
+                  <span className={["text-[11px] font-bold leading-none mb-0.5", isSelected ? "text-white" : "text-[#1b1b1f]"].join(" ")}>
+                    {day.getDate()}
+                  </span>
+                  {shown.map((e, i) => (
+                    <div key={i} className={["w-full rounded px-0.5 py-px text-[7px] font-medium leading-tight text-center truncate", isSelected ? "bg-white/20 text-white" : "bg-[#e8e8ed] text-[#6b6f76]"].join(" ")}>
+                      {new Date(e.start).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true }).replace(":00", "").toLowerCase()}
+                    </div>
+                  ))}
+                  {extra > 0 && <span className={["text-[7px] leading-none", isSelected ? "text-white/50" : "text-[#8b8d94]"].join(" ")}>+{extra}</span>}
+                  {dayEvts.length === 0 && !isPast && <span className={["text-[7px] leading-none", isSelected ? "text-white/60" : "text-green-600"].join(" ")}>free</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Find Times panel (inline in email modal)                            */
+/* ------------------------------------------------------------------ */
+
+function FindTimesPanel({
+  authToken,
+  apiBaseUrl,
+  onInsert,
+  onClose,
+}: {
+  authToken: string;
+  apiBaseUrl: string;
+  onInsert: (text: string) => void;
+  onClose: () => void;
+}) {
+  const [duration, setDuration] = useState(30);
+  const [numSlots, setNumSlots] = useState(3);
+  const [mode, setMode] = useState<"auto" | "specific">("auto");
+  const [selectedDates, setSelectedDates] = useState<string[]>([]);
+  const [results, setResults] = useState<AvailableSlot[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [stage, setStage] = useState<"config" | "results">("config");
+
+  function toggleDate(dateKey: string) {
+    setSelectedDates((prev) =>
+      prev.includes(dateKey) ? prev.filter((d) => d !== dateKey) : [...prev, dateKey]
+    );
+  }
+
+  async function handleFind() {
+    setLoading(true);
+    setResults(null);
+    setStage("results");
+    try {
+      let datesToCheck: string[];
+      if (mode === "specific" && selectedDates.length > 0) {
+        datesToCheck = [...selectedDates].sort();
+      } else {
+        datesToCheck = [];
+        const d = new Date();
+        d.setHours(0, 0, 0, 0);
+        while (datesToCheck.length < 21) {
+          const dow = d.getDay();
+          if (dow !== 0 && dow !== 6) datesToCheck.push(toLocalDateKey(d));
+          d.setDate(d.getDate() + 1);
+        }
+      }
+      if (datesToCheck.length === 0) { setResults([]); return; }
+
+      const timeMin = new Date(datesToCheck[0] + "T00:00:00").toISOString();
+      const timeMax = new Date(datesToCheck[datesToCheck.length - 1] + "T23:59:59").toISOString();
+      let busyEvents: CalendarEventSlim[] = [];
+      try {
+        const res = await apiFetch(
+          `${apiBaseUrl}/calendar/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`,
+          { headers: { Authorization: `Bearer ${authToken}` } }
+        );
+        if (res.ok) {
+          const data = (await res.json()) as { events: CalendarEventSlim[] };
+          busyEvents = data.events ?? [];
+        }
+      } catch { /* use empty busy list */ }
+
+      const busyByDay = new Map<string, { start: number; end: number }[]>();
+      for (const e of busyEvents) {
+        if (e.allDay) continue;
+        const key = toLocalDateKey(new Date(e.start));
+        if (!busyByDay.has(key)) busyByDay.set(key, []);
+        busyByDay.get(key)!.push({ start: new Date(e.start).getTime(), end: new Date(e.end).getTime() });
+      }
+
+      const SLOT_MS = duration * 60 * 1000;
+      const ROUND_MS = 15 * 60 * 1000;
+      const todayKey = toLocalDateKey(new Date());
+      const now = Date.now();
+      const found: AvailableSlot[] = [];
+      const isSingleDay = mode === "specific" && selectedDates.length === 1;
+
+      if (isSingleDay) {
+        const dateKey = datesToCheck[0];
+        const [y, mo, d] = dateKey.split("-").map(Number);
+        const dayStart = new Date(y, mo - 1, d, 9, 0, 0).getTime();
+        const dayEnd = new Date(y, mo - 1, d, 18, 0, 0).getTime();
+        let cursor = dateKey === todayKey ? Math.max(dayStart, Math.ceil(now / ROUND_MS) * ROUND_MS) : dayStart;
+        const busy = (busyByDay.get(dateKey) ?? []).sort((a, b) => a.start - b.start);
+        while (cursor + SLOT_MS <= dayEnd && found.length < numSlots) {
+          const conflict = busy.find((b) => b.start < cursor + SLOT_MS && b.end > cursor);
+          if (!conflict) { found.push({ start: new Date(cursor).toISOString(), end: new Date(cursor + SLOT_MS).toISOString() }); cursor += SLOT_MS; }
+          else { cursor = Math.ceil(conflict.end / ROUND_MS) * ROUND_MS; }
+        }
+      } else {
+        for (const dateKey of datesToCheck) {
+          if (found.length >= numSlots) break;
+          const [y, mo, d] = dateKey.split("-").map(Number);
+          const dayStart = new Date(y, mo - 1, d, 9, 0, 0).getTime();
+          const dayEnd = new Date(y, mo - 1, d, 18, 0, 0).getTime();
+          let cursor = dateKey === todayKey ? Math.max(dayStart, Math.ceil(now / ROUND_MS) * ROUND_MS) : dayStart;
+          const busy = (busyByDay.get(dateKey) ?? []).sort((a, b) => a.start - b.start);
+          while (cursor + SLOT_MS <= dayEnd) {
+            const conflict = busy.find((b) => b.start < cursor + SLOT_MS && b.end > cursor);
+            if (!conflict) { found.push({ start: new Date(cursor).toISOString(), end: new Date(cursor + SLOT_MS).toISOString() }); break; }
+            cursor = Math.ceil(conflict.end / ROUND_MS) * ROUND_MS;
+          }
+        }
+      }
+      setResults(found);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleInsert() {
+    if (!results || results.length === 0) return;
+    const lines = results.map((s, i) => `Option ${i + 1}: ${formatSlotText(s)}`).join("\n");
+    onInsert(`Here are some times that work for me:\n\n${lines}`);
+  }
+
+  const selectCls = "w-full rounded-md border border-[#e3e8ee] bg-white px-2.5 py-1.5 text-[12px] font-medium text-[#1a1f36] focus:outline-none focus:ring-1 focus:ring-[#1b1b1f] appearance-none cursor-pointer";
+
+  return (
+    <div className="border-t border-[#e3e8ee] bg-[#f7fafc]">
+      {/* Panel header */}
+      <div className="flex items-center justify-between px-4 py-2 border-b border-[#e3e8ee]">
+        <div className="flex items-center gap-1.5">
+          {stage === "results" && (
+            <button onClick={() => setStage("config")} className="rounded p-0.5 text-[#8b8d94] hover:text-[#1b1b1f] transition-colors">
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+          )}
+          <span className="text-[12px] font-semibold text-[#1a1f36]">
+            {stage === "config" ? "Find Available Times" : "Available Times"}
+          </span>
+        </div>
+        <button onClick={onClose} className="rounded p-0.5 text-[#a3acb9] hover:text-[#4f566b] transition-colors">
+          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      <div className="px-4 py-3 space-y-3">
+        {stage === "config" ? (
+          <>
+            <div className="flex gap-2.5">
+              <div className="flex-1">
+                <p className="mb-1 text-[11px] font-medium text-[#6b6f76]">Duration</p>
+                <div className="relative">
+                  <select value={duration} onChange={(e) => setDuration(Number(e.target.value))} className={selectCls}>
+                    {[{ label: "15 min", value: 15 }, { label: "30 min", value: 30 }, { label: "1 hour", value: 60 }, { label: "90 min", value: 90 }, { label: "2 hours", value: 120 }].map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                  <svg className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-[#8b8d94]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                </div>
+              </div>
+              <div className="flex-1">
+                <p className="mb-1 text-[11px] font-medium text-[#6b6f76]">Slots</p>
+                <div className="relative">
+                  <select value={numSlots} onChange={(e) => setNumSlots(Number(e.target.value))} className={selectCls}>
+                    {[1, 2, 3, 4, 5, 6].map((n) => <option key={n} value={n}>{n} slot{n !== 1 ? "s" : ""}</option>)}
+                  </select>
+                  <svg className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-[#8b8d94]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-1.5 text-[11px] font-medium text-[#6b6f76]">Time range</p>
+              <div className="flex gap-1.5">
+                <button onClick={() => { setMode("auto"); setSelectedDates([]); }} className={["flex-1 rounded-md border py-1.5 text-[11px] font-medium transition-colors", mode === "auto" ? "border-[#1b1b1f] bg-[#1b1b1f] text-white" : "border-[#e3e8ee] bg-white text-[#6b6f76] hover:bg-[#f5f5f7]"].join(" ")}>
+                  Next available
+                </button>
+                <button onClick={() => setMode("specific")} className={["flex-1 rounded-md border py-1.5 text-[11px] font-medium transition-colors", mode === "specific" ? "border-[#1b1b1f] bg-[#1b1b1f] text-white" : "border-[#e3e8ee] bg-white text-[#6b6f76] hover:bg-[#f5f5f7]"].join(" ")}>
+                  Pick dates
+                </button>
+              </div>
+              {mode === "specific" && (
+                <div className="mt-2">
+                  <FindTimesWeekCalendar selectedDates={selectedDates} onToggleDate={toggleDate} authToken={authToken} apiBaseUrl={apiBaseUrl} />
+                  {selectedDates.length > 0 && (
+                    <p className="mt-1.5 text-[10px] text-[#8b8d94]">{selectedDates.length} date{selectedDates.length !== 1 ? "s" : ""} selected</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <button onClick={() => void handleFind()} disabled={mode === "specific" && selectedDates.length === 0} className="w-full rounded-lg bg-[#1b1b1f] py-2 text-[12px] font-semibold text-white transition-colors hover:bg-[#2d2d33] disabled:cursor-not-allowed disabled:opacity-40">
+              Next
+            </button>
+          </>
+        ) : loading ? (
+          <div className="flex flex-col items-center justify-center gap-2 py-6">
+            <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#e3e8ee] border-t-[#1b1b1f]" />
+            <p className="text-[11px] text-[#a3acb9]">Finding slots…</p>
+          </div>
+        ) : results !== null && results.length === 0 ? (
+          <p className="py-4 text-center text-[12px] text-[#a3acb9]">No open slots found.</p>
+        ) : results !== null ? (
+          <>
+            <div className="space-y-1.5">
+              {results.map((slot, i) => (
+                <div key={i} className="rounded-lg border border-[#e3e8ee] bg-white px-3 py-2">
+                  <p className="text-[9px] font-semibold uppercase tracking-wide text-[#a3acb9]">Option {i + 1}</p>
+                  <p className="mt-0.5 text-[12px] font-medium text-[#1a1f36]">{formatSlotText(slot)}</p>
+                </div>
+              ))}
+            </div>
+            <button onClick={handleInsert} className="w-full rounded-lg bg-[#1b1b1f] py-2 text-[12px] font-semibold text-white transition-colors hover:bg-[#2d2d33]">
+              Insert into email
+            </button>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Email compose modal                                                 */
 /* ------------------------------------------------------------------ */
 
@@ -629,8 +1032,17 @@ function EmailComposeModal({
   const [findError, setFindError] = useState("");
   const [templates, setTemplates] = useState<{ _id: string; title: string; body: string }[]>([]);
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [showFindTimes, setShowFindTimes] = useState(false);
   const dataFetched = useRef(false);
-  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const quillRef = useRef<any>(null);
+  const quillContainerRef = useRef<HTMLDivElement>(null);
+  const skipSyncRef = useRef(false);
+  // Always-current refs so Quill callbacks never close over stale state
+  const modalRef = useRef(modal);
+  modalRef.current = modal;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
 
   useEffect(() => {
     if (!authToken || dataFetched.current) return;
@@ -642,6 +1054,51 @@ function EmailComposeModal({
       })
       .catch(() => {});
   }, [authToken, apiBaseUrl]);
+
+  // Initialise Quill once the container is in the DOM
+  useEffect(() => {
+    if (!quillContainerRef.current || quillRef.current) return;
+    void (async () => {
+      const { default: Quill } = await import("quill");
+      if (!quillContainerRef.current || quillRef.current) return;
+      const quill = new Quill(quillContainerRef.current, {
+        theme: "snow",
+        placeholder: "Write your message…",
+        modules: {
+          toolbar: [
+            ["bold", "italic", "underline", "strike"],
+            [{ list: "bullet" }, { list: "ordered" }],
+            ["link", "clean"],
+          ],
+        },
+      });
+      quillRef.current = quill;
+      // Seed with any initial body content
+      if (modal.body) {
+        quill.clipboard.dangerouslyPasteHTML(modal.body);
+        quill.setSelection(quill.getLength(), 0);
+      }
+      if (modal.to) quill.focus();
+      quill.on("text-change", () => {
+        skipSyncRef.current = true;
+        const html = quill.root.innerHTML;
+        onChangeRef.current({ ...modalRef.current, body: html === "<p><br></p>" ? "" : html });
+      });
+    })();
+    return () => { quillRef.current = null; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Sync external body changes (template apply, find-times insert) into Quill
+  useEffect(() => {
+    if (!quillRef.current) return;
+    if (skipSyncRef.current) { skipSyncRef.current = false; return; }
+    const current = quillRef.current.root.innerHTML;
+    const normalised = current === "<p><br></p>" ? "" : current;
+    if (modal.body !== normalised) {
+      quillRef.current.clipboard.dangerouslyPasteHTML(modal.body || "");
+    }
+  }, [modal.body]);
 
   const pendingResolveRef = useRef<{ subject: string; body: string } | null>(null);
 
@@ -678,21 +1135,6 @@ function EmailComposeModal({
     }
   }
 
-  function execFormat(prefix: string, suffix: string) {
-    const ta = bodyRef.current;
-    if (!ta) return;
-    const start = ta.selectionStart;
-    const end = ta.selectionEnd;
-    const text = modal.body;
-    const selected = text.slice(start, end);
-    const newText = text.slice(0, start) + prefix + selected + suffix + text.slice(end);
-    onChange({ ...modal, body: newText });
-    requestAnimationFrame(() => {
-      ta.focus();
-      ta.setSelectionRange(start + prefix.length, end + prefix.length);
-    });
-  }
-
   async function handleFindEmail() {
     if (!modal.personId || !authToken) return;
     setFindingEmail(true);
@@ -702,10 +1144,11 @@ function EmailComposeModal({
         method: "POST",
         headers: { Authorization: `Bearer ${authToken}` },
       });
-      const data = (await res.json()) as { email?: string | null; error?: string };
+      const data = (await res.json()) as { email?: string | null; emails?: { email: string; type: string }[]; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Failed");
+      const allEmails = data.emails ?? (data.email ? [{ email: data.email, type: "work" }] : []);
       if (data.email) {
-        onChange({ ...modal, to: data.email });
+        onChange({ ...modal, to: data.email, availableEmails: allEmails });
       } else {
         setFindError("No email found");
       }
@@ -730,6 +1173,16 @@ function EmailComposeModal({
         <div className="flex items-center justify-between border-b border-[#e3e8ee] px-5 py-3.5">
           <h2 className="text-[14px] font-semibold text-[#1a1f36]">New Message</h2>
           <div className="flex items-center gap-1">
+            <button
+              onClick={() => setShowFindTimes((p) => !p)}
+              className={["flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-colors", showFindTimes ? "bg-[#1b1b1f] text-white" : "text-[#6b6f76] hover:bg-[#f5f5f7]"].join(" ")}
+              title="Find available times"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              Find Times
+            </button>
             <div className="relative">
               <button
                 onClick={() => setShowTemplatePicker((p) => !p)}
@@ -772,13 +1225,35 @@ function EmailComposeModal({
           {/* To */}
           <div className="flex items-center gap-3 px-5 py-2.5">
             <span className="w-12 shrink-0 text-[13px] text-[#a3acb9]">To</span>
-            <input
-              className="flex-1 text-[13px] text-[#1a1f36] placeholder:text-[#c2c7cf] focus:outline-none"
-              value={modal.to}
-              onChange={(e) => onChange({ ...modal, to: e.target.value, personId: null })}
-              placeholder="recipient@company.com"
-              autoFocus={!modal.to}
-            />
+            {(modal.availableEmails?.length ?? 0) > 1 ? (
+              /* Multiple emails — show dropdown, work email selected by default */
+              <div className="relative flex-1">
+                <select
+                  value={modal.to}
+                  onChange={(e) => onChange({ ...modal, to: e.target.value })}
+                  className="w-full appearance-none bg-transparent text-[13px] text-[#1a1f36] focus:outline-none pr-5 cursor-pointer"
+                >
+                  {modal.availableEmails!
+                    .sort((a, b) => (a.type === "work" ? -1 : 1) - (b.type === "work" ? -1 : 1))
+                    .map((e) => (
+                      <option key={e.email} value={e.email}>
+                        {e.email}{e.type === "work" ? " (work)" : " (personal)"}
+                      </option>
+                    ))}
+                </select>
+                <svg className="pointer-events-none absolute right-0 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#a3acb9]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+            ) : (
+              <input
+                className="flex-1 text-[13px] text-[#1a1f36] placeholder:text-[#c2c7cf] focus:outline-none"
+                value={modal.to}
+                onChange={(e) => onChange({ ...modal, to: e.target.value, personId: null })}
+                placeholder="recipient@company.com"
+                autoFocus={!modal.to}
+              />
+            )}
             {!modal.to && modal.personId && (
               <button
                 onClick={handleFindEmail}
@@ -809,50 +1284,35 @@ function EmailComposeModal({
           </div>
         </div>
 
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto px-5 py-3">
-          <textarea
-            ref={bodyRef}
-            className="w-full resize-none text-[13px] leading-relaxed text-[#1a1f36] placeholder:text-[#c2c7cf] focus:outline-none"
-            rows={12}
-            value={modal.body}
-            onChange={(e) => onChange({ ...modal, body: e.target.value })}
-            placeholder="Write your message..."
-            autoFocus={!!modal.to}
-          />
-          {/* Signature preview */}
+        {/* Quill rich-text body */}
+        <div className="email-quill-editor border-b border-[#f0f3f8]">
+          <div ref={quillContainerRef} />
           {signature && (
-            <div className="mt-2 border-t border-[#f0f3f8] pt-2">
+            <div className="border-t border-[#f0f3f8] px-5 py-2">
               <p className="whitespace-pre-wrap text-[13px] text-[#8b8d94] leading-relaxed">{signature}</p>
             </div>
           )}
         </div>
 
-        {/* Formatting toolbar + footer */}
-        <div className="border-t border-[#e3e8ee]">
-          {/* Format bar */}
-          <div className="flex items-center gap-0.5 px-4 py-2 border-b border-[#f0f3f8]">
-            <button type="button" onClick={() => execFormat("**", "**")} title="Bold" className="rounded p-1.5 text-[#6b6f76] hover:bg-[#f5f5f7] hover:text-[#1a1f36] transition-colors">
-              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M15.6 10.79c.97-.67 1.65-1.77 1.65-2.79 0-2.26-1.75-4-4-4H7v14h7.04c2.09 0 3.71-1.7 3.71-3.79 0-1.52-.86-2.82-2.15-3.42zM10 6.5h3c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5h-3v-3zm3.5 9H10v-3h3.5c.83 0 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5z"/></svg>
-            </button>
-            <button type="button" onClick={() => execFormat("*", "*")} title="Italic" className="rounded p-1.5 text-[#6b6f76] hover:bg-[#f5f5f7] hover:text-[#1a1f36] transition-colors">
-              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M10 4v3h2.21l-3.42 8H6v3h8v-3h-2.21l3.42-8H18V4z"/></svg>
-            </button>
-            <button type="button" onClick={() => execFormat("<u>", "</u>")} title="Underline" className="rounded p-1.5 text-[#6b6f76] hover:bg-[#f5f5f7] hover:text-[#1a1f36] transition-colors">
-              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12 17c3.31 0 6-2.69 6-6V3h-2.5v8c0 1.93-1.57 3.5-3.5 3.5S8.5 12.93 8.5 11V3H6v8c0 3.31 2.69 6 6 6zm-7 2v2h14v-2H5z"/></svg>
-            </button>
-            <button type="button" onClick={() => execFormat("~~", "~~")} title="Strikethrough" className="rounded p-1.5 text-[#6b6f76] hover:bg-[#f5f5f7] hover:text-[#1a1f36] transition-colors">
-              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M10 19h4v-3h-4v3zM5 4v3h5v3h4V7h5V4H5zM3 14h18v-2H3v2z"/></svg>
-            </button>
-            <div className="mx-1.5 h-4 w-px bg-[#e3e8ee]" />
-            <button type="button" onClick={() => execFormat("\n- ", "")} title="Bullet list" className="rounded p-1.5 text-[#6b6f76] hover:bg-[#f5f5f7] hover:text-[#1a1f36] transition-colors">
-              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M4 10.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zm0-6c-.83 0-1.5.67-1.5 1.5S3.17 7.5 4 7.5 5.5 6.83 5.5 6 4.83 4.5 4 4.5zm0 12c-.83 0-1.5.68-1.5 1.5s.68 1.5 1.5 1.5 1.5-.68 1.5-1.5-.67-1.5-1.5-1.5zM7 19h14v-2H7v2zm0-6h14v-2H7v2zm0-8v2h14V5H7z"/></svg>
-            </button>
-            <button type="button" onClick={() => { const url = prompt("Enter URL:"); if (url) execFormat("[", `](${url})`); }} title="Insert link" className="rounded p-1.5 text-[#6b6f76] hover:bg-[#f5f5f7] hover:text-[#1a1f36] transition-colors">
-              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="currentColor"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
-            </button>
-          </div>
+        {/* Find Times panel */}
+        {showFindTimes && (
+          <FindTimesPanel
+            authToken={authToken}
+            apiBaseUrl={apiBaseUrl}
+            onClose={() => setShowFindTimes(false)}
+            onInsert={(text) => {
+              if (quillRef.current) {
+                const len = quillRef.current.getLength();
+                quillRef.current.insertText(len - 1, "\n\n" + text, "user");
+                quillRef.current.setSelection(quillRef.current.getLength(), 0);
+              }
+              setShowFindTimes(false);
+            }}
+          />
+        )}
 
+        {/* Footer */}
+        <div className="border-t border-[#e3e8ee]">
           {/* Send row */}
           <div className="flex items-center justify-between px-5 py-3">
             {error ? (
@@ -1099,12 +1559,14 @@ export default function SignalsPage() {
   function openEmailForLinkedin(signal: LinkedinSignal) {
     const url = (signal.personLinkedinUrl ?? "").toLowerCase().replace(/\/$/, "");
     const person = personByLinkedinUrl.get(url);
+    const emails = person?.availableEmails ?? (person?.workEmail ? [{ email: person.workEmail, type: "work" }] : []);
     setEmailError("");
     setEmailModal({
       to: person?.workEmail ?? "",
       subject: `Following up re: your recent post`,
       body: "",
       personId: person?._id ?? null,
+      availableEmails: emails,
     });
   }
 
@@ -1115,6 +1577,7 @@ export default function SignalsPage() {
   function openEmailForBuyer(person: PersonInfo, signal: ATSJobSignal) {
     const domain = signal.data.companyDomain ?? signal.companyDomain;
     const firstJob = signal.data.jobs[0];
+    const emails = person.availableEmails ?? (person.workEmail ? [{ email: person.workEmail, type: "work" }] : []);
     setBuyerPickerSignal(null);
     setEmailError("");
     setEmailModal({
@@ -1124,6 +1587,7 @@ export default function SignalsPage() {
         : `Following up on ${domain ?? ""}`,
       body: "",
       personId: person._id,
+      availableEmails: emails,
     });
   }
 
