@@ -227,15 +227,20 @@ export async function enrichPersonByEmailWithFiber(email: string): Promise<Fiber
  * Find a person's contact details using Fiber contact-details/sync API.
  * Returns the first work email found, or personal email as fallback.
  */
+export interface ContactEmail {
+  email: string;
+  type: "work" | "personal";
+}
+
 export async function findEmailWithContactDetails(
   linkedinUrl: string,
-): Promise<{ email: string | null; phones: string[] }> {
+): Promise<{ email: string | null; emails: ContactEmail[]; phones: string[] }> {
   const requestBody = {
     apiKey: env.FIBER_API_KEY,
     linkedinUrl,
     enrichmentType: {
       getWorkEmails: true,
-      getPersonalEmails: false,
+      getPersonalEmails: true,
       getPhoneNumbers: false,
     },
     exhaustive: false,
@@ -257,26 +262,36 @@ export async function findEmailWithContactDetails(
 
     if (!response.ok) {
       console.warn("[fiber] contact-details/sync failed:", JSON.stringify(responseBody));
-      return { email: null, phones: [] };
+      return { email: null, emails: [], phones: [] };
     }
 
     // Response shape: { output: { profile: { emails: [{ email, type, status }], phoneNumbers: [...] } } }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data = responseBody as any;
-    const emailEntries = (data?.output?.profile?.emails ?? []) as { email: string; type: string; status?: string }[];
+    const rawEntries = (data?.output?.profile?.emails ?? []) as { email: string; type: string; status?: string }[];
 
-    // Prefer work emails with valid status, then any work email, then personal
-    const workEmail = emailEntries.find((e) => e.type === "work" && e.status === "valid")?.email
-      ?? emailEntries.find((e) => e.type === "work")?.email
-      ?? emailEntries.find((e) => e.type === "personal")?.email
-      ?? null;
+    // Deduplicate and normalise type to work | personal
+    const seen = new Set<string>();
+    const emails: ContactEmail[] = [];
+    // Work emails first (valid status prioritised), then personal
+    const sorted = [
+      ...rawEntries.filter((e) => e.type === "work" && e.status === "valid"),
+      ...rawEntries.filter((e) => e.type === "work" && e.status !== "valid"),
+      ...rawEntries.filter((e) => e.type !== "work"),
+    ];
+    for (const entry of sorted) {
+      if (!entry.email || seen.has(entry.email)) continue;
+      seen.add(entry.email);
+      emails.push({ email: entry.email, type: entry.type === "work" ? "work" : "personal" });
+    }
 
-    console.log("[fiber] contact-details/sync found email: %s (from %d entries)", workEmail ?? "none", emailEntries.length);
+    const bestEmail = emails[0]?.email ?? null;
+    console.log("[fiber] contact-details/sync found %d email(s), best: %s", emails.length, bestEmail ?? "none");
 
-    return { email: workEmail, phones: [] };
+    return { email: bestEmail, emails, phones: [] };
   } catch (error) {
     console.error("[fiber] findEmailWithContactDetails error:", error instanceof Error ? error.message : error);
-    return { email: null, phones: [] };
+    return { email: null, emails: [], phones: [] };
   }
 }
 

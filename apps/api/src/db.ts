@@ -1,6 +1,6 @@
 import { Collection, MongoClient } from "mongodb";
 import { env } from "./env.js";
-import { BuyerProfileRecord, BuyerSearchResultRecord, CompanyATSRecord, CompanyRecord, EmailSignatureRecord, EmailTemplateRecord, GoogleTokenRecord, InviteRecord, JobRecord, LinkedinPostForUserRecord, PersonRecord, SignalRecord, SkillRecord, TriggerJobRecord, TriggerRecord, UserRecord, WorkspaceRecord } from "./types.js";
+import { BuyerProfileRecord, BuyerSearchResultRecord, CompanyATSRecord, CompanyRecord, EmailSignatureRecord, EmailTemplateRecord, GoogleTokenRecord, InviteRecord, JobRecord, LinkedinPostForUserRecord, PersonRecord, SignalRecord, SkillRecord, ThreadCommentRecord, TriggerJobRecord, TriggerRecord, UserRecord, WorkspaceRecord } from "./types.js";
 
 const mongoClient = new MongoClient(env.MONGODB_URL);
 
@@ -21,6 +21,7 @@ let usersCollection: Collection<UserRecord> | null = null;
 let invitesCollection: Collection<InviteRecord> | null = null;
 let emailTemplatesCollection: Collection<EmailTemplateRecord> | null = null;
 let emailSignaturesCollection: Collection<EmailSignatureRecord> | null = null;
+let threadCommentsCollection: Collection<ThreadCommentRecord> | null = null;
 
 export async function getCompaniesCollection(): Promise<Collection<CompanyRecord>> {
   if (companiesCollection) return companiesCollection;
@@ -306,4 +307,17 @@ export async function getEmailSignaturesCollection(): Promise<Collection<EmailSi
   await emailSignaturesCollection.createIndex({ userEmail: 1 }, { unique: true });
 
   return emailSignaturesCollection;
+}
+
+export async function getThreadCommentsCollection(): Promise<Collection<ThreadCommentRecord>> {
+  if (threadCommentsCollection) return threadCommentsCollection;
+
+  await mongoClient.connect();
+  const database = mongoClient.db(env.MONGODB_DB_NAME);
+
+  threadCommentsCollection = database.collection<ThreadCommentRecord>("threadComments");
+
+  await threadCommentsCollection.createIndex({ threadId: 1, createdAt: 1 });
+
+  return threadCommentsCollection;
 }

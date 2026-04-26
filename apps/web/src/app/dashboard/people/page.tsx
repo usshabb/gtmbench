@@ -321,6 +321,8 @@ function SkeletonCard() {
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
 
+const PAGE_SIZE = 25;
+
 export default function PeoplePage() {
   const router = useRouter();
   const apiBaseUrl = useMemo(() => getApiBaseUrl(), []);
@@ -331,6 +333,8 @@ export default function PeoplePage() {
   const [message, setMessage] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [buyerProfiles, setBuyerProfiles] = useState<BuyerProfile[]>([]);
+  const [displayCount, setDisplayCount] = useState(PAGE_SIZE);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const storedToken = window.localStorage.getItem(localStorageTokenKey);
@@ -375,6 +379,23 @@ export default function PeoplePage() {
     window.addEventListener(DATA_CHANGED_EVENT, handler);
     return () => window.removeEventListener(DATA_CHANGED_EVENT, handler);
   }, [fetchPersons]);
+
+  // Reset display count whenever search changes
+  useEffect(() => {
+    setDisplayCount(PAGE_SIZE);
+  }, [searchQuery]);
+
+  // Infinite scroll sentinel
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) setDisplayCount((p) => p + PAGE_SIZE); },
+      { rootMargin: "300px" }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   function handleBuyerProfileUpdated(personId: string, buyerProfileId: string | null) {
     setPersons((prev) => prev.map((p) => p._id === personId ? { ...p, buyerProfileId } : p));
@@ -462,7 +483,7 @@ export default function PeoplePage() {
             </div>
           ) : (
             <div className="space-y-2">
-              {filteredPersons.map((person) => (
+              {filteredPersons.slice(0, displayCount).map((person) => (
                 <PersonCard
                   key={person._id ?? person.linkedinUrl}
                   person={person}
@@ -482,6 +503,13 @@ export default function PeoplePage() {
               {persons.length === 0 && (
                 <div className="flex h-64 items-center justify-center">
                   <p className="text-[14px] text-[#8b8d94]">No people yet</p>
+                </div>
+              )}
+              {/* Sentinel for infinite scroll */}
+              <div ref={sentinelRef} />
+              {displayCount < filteredPersons.length && (
+                <div className="flex justify-center py-4">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#e6e6e9] border-t-[#6b6f76]" />
                 </div>
               )}
             </div>

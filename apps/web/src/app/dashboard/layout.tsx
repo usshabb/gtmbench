@@ -21,29 +21,50 @@ interface UserProfile {
   profilePhotoUrl?: string | null;
 }
 
-const MI = ({ name }: { name: string }) => (
-  <span className="material-symbols-outlined">{name}</span>
+/* Lucide-style SVG icons (stroke-width 1.75, 16×16) */
+const LucideIcon = ({ children }: { children: React.ReactNode }) => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">{children}</svg>
 );
 
-const navItems = [
-  { label: "Home", href: "/dashboard", icon: <MI name="home" /> },
-  { label: "Inbox", href: "/dashboard/inbox", icon: <MI name="inbox" /> },
-  { label: "Buyer Profile", href: "/dashboard/buyer-profiles", icon: <MI name="badge" /> },
-  { label: "Skills", href: "/dashboard/skills", icon: <MI name="category_search" /> },
-  { label: "Triggers", href: "/dashboard/triggers", icon: <MI name="bolt" /> },
-  { label: "Meetings", href: "/dashboard/calendar", icon: <MI name="calendar_month" /> },
+const icons = {
+  home: <LucideIcon><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></LucideIcon>,
+  building: <LucideIcon><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v8h4"/><path d="M18 9h2a2 2 0 0 1 2 2v11h-4"/><path d="M10 6h4M10 10h4M10 14h4M10 18h4"/></LucideIcon>,
+  user: <LucideIcon><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></LucideIcon>,
+  target: <LucideIcon><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5.5"/><circle cx="12" cy="12" r="2"/></LucideIcon>,
+  inbox: <LucideIcon><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></LucideIcon>,
+  calendar: <LucideIcon><path d="M8 2v4M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></LucideIcon>,
+  wand: <LucideIcon><path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8l1.4 1.4M17.8 6.2l1.4-1.4"/><path d="M15 9a3 3 0 0 0-3 3"/><path d="m5 21 8-8"/><path d="m5 15 4-4"/></LucideIcon>,
+  bolt: <LucideIcon><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></LucideIcon>,
+  settings: <LucideIcon><path d="M20 7h-9"/><path d="M14 17H5"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></LucideIcon>,
+  chevronLeft: <LucideIcon><path d="M15 18l-6-6 6-6"/></LucideIcon>,
+  person: <LucideIcon><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></LucideIcon>,
+  draft: <LucideIcon><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/></LucideIcon>,
+  group: <LucideIcon><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></LucideIcon>,
+  corporate: <LucideIcon><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v8h4"/><path d="M18 9h2a2 2 0 0 1 2 2v11h-4"/></LucideIcon>,
+  logout: <LucideIcon><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></LucideIcon>,
+  search: <LucideIcon><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></LucideIcon>,
+};
+
+const primaryNavItems = [
+  { label: "Home", href: "/dashboard", icon: icons.home, exact: true },
+  { label: "Inbox", href: "/dashboard/inbox", icon: icons.inbox, hasDot: true },
+  { label: "Meetings", href: "/dashboard/calendar", icon: icons.calendar },
+  { label: "Companies", href: "/dashboard/companies", icon: icons.building, countKey: "Companies" },
+  { label: "People", href: "/dashboard/people", icon: icons.user, countKey: "People" },
+];
+
+const workspaceNavItems = [
+  { label: "Buyer Profiles", href: "/dashboard/buyer-profiles", icon: icons.target },
+  { label: "Skills", href: "/dashboard/skills", icon: icons.wand },
+  { label: "Triggers", href: "/dashboard/triggers", icon: icons.bolt },
+  { label: "Settings", href: "/dashboard/settings/profile", icon: icons.settings },
 ];
 
 const settingsSubItems = [
-  { label: "Profile", href: "/dashboard/settings/profile", icon: <MI name="person" /> },
-  { label: "Email templates", href: "/dashboard/settings/email-templates", icon: <MI name="draft" /> },
-  { label: "General", href: "/dashboard/settings/workspace", icon: <MI name="corporate_fare" /> },
-  { label: "Members", href: "/dashboard/settings/members", icon: <MI name="group" /> },
-];
-
-const recordNavItems = [
-  { label: "Companies", href: "/dashboard/companies", icon: <MI name="corporate_fare" /> },
-  { label: "People", href: "/dashboard/people", icon: <MI name="article_person" /> },
+  { label: "Profile", href: "/dashboard/settings/profile", icon: icons.person },
+  { label: "Email templates", href: "/dashboard/settings/email-templates", icon: icons.draft },
+  { label: "General", href: "/dashboard/settings/workspace", icon: icons.corporate },
+  { label: "Members", href: "/dashboard/settings/members", icon: icons.group },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -567,6 +588,52 @@ function GlobalActionModal({
 /*  Sidebar Component                                                  */
 /* ------------------------------------------------------------------ */
 
+function NavItem({
+  label,
+  icon,
+  isActive,
+  onClick,
+  count,
+  hasDot,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  isActive: boolean;
+  onClick: () => void;
+  count?: number;
+  hasDot?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`group relative flex w-full items-center cursor-pointer gap-[9px] rounded-[6px] mx-[2px] text-[13px] font-medium tracking-[-0.005em] transition-all duration-100 ${
+        isActive
+          ? "bg-white text-[#1b1b1f] shadow-[0_0_0_1px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.04),0_3px_6px_-4px_rgba(0,0,0,0.05)]"
+          : "text-[#6b6f76] hover:bg-black/[0.035] hover:text-[#1b1b1f]"
+      }`}
+      style={{ padding: "8px 9px", width: "calc(100% - 4px)" }}
+    >
+      {isActive && (
+        <span className="absolute left-[-2px] top-1/2 -translate-y-1/2 w-[2px] h-5 bg-[#1b1b1f] rounded-r-[2px]" />
+      )}
+      <span className={`transition-colors duration-100 ${isActive ? "text-[#1b1b1f]" : "text-[#9ca0a8] group-hover:text-[#1b1b1f]"}`}>
+        {icon}
+      </span>
+      <span className="flex-1 text-left leading-[1.25]">{label}</span>
+      {(count !== undefined && count > 0) && (
+        <span className={`ml-auto text-[10.5px] font-medium tabular-nums min-w-[18px] text-center rounded-[3px] leading-[1.35] px-[5px] py-[1px] transition-colors duration-100 ${
+          isActive ? "bg-[#f5f5f7] text-[#6b6f76]" : "text-[#8b8d94] group-hover:bg-black/[0.04] group-hover:text-[#6b6f76]"
+        }`}>
+          {count}
+        </span>
+      )}
+      {hasDot && (
+        <span className="ml-auto w-[6px] h-[6px] rounded-full bg-[#5e6ad2] shadow-[0_0_0_3px_rgba(94,106,210,0.15)]" />
+      )}
+    </button>
+  );
+}
+
 function Sidebar({
   userProfile,
   onLogout,
@@ -581,177 +648,193 @@ function Sidebar({
   const pathname = usePathname();
   const router = useRouter();
   const [showAddMenu, setShowAddMenu] = useState(false);
+  const [workspaceOpen, setWorkspaceOpen] = useState(true);
   const isSettingsView = pathname.startsWith("/dashboard/settings");
 
   const displayName = userProfile.fullName ?? userProfile.email;
   const userInitial = displayName.charAt(0).toUpperCase();
 
   return (
-    <aside className="relative flex h-screen w-[220px] shrink-0 flex-col border-r border-[#e6e6e9] bg-[#fbfbfc]">
-      <div className="flex items-center gap-2.5 px-4 pt-3.5 pb-1">
+    <aside className="relative flex h-screen w-[248px] shrink-0 flex-col border-r border-[#e6e6e9] bg-[#fafafb]" style={{ padding: "10px 8px 0" }}>
+      {/* Brand row */}
+      <div className="flex items-center gap-[9px] rounded-[7px]" style={{ padding: "8px 8px 10px", margin: "0 2px 10px" }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo.png" alt="sidr" className="shrink-0 object-contain" style={{ width: 40, height: 40 }} />
+        <img src="/logo.png" alt="sidr" className="shrink-0 object-contain" style={{ width: 26, height: 26 }} />
+        <div className="flex-1 min-w-0">
+          <div className="text-[13.5px] font-semibold text-[#1b1b1f] tracking-[0.05em] leading-[1.15]">
+            SIDR
+          </div>
+        </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-2 py-2">
+      {/* Main navigation */}
+      <nav className="flex-none">
         {isSettingsView ? (
           <>
-            {/* Back to main nav */}
             <button
               onClick={() => router.push("/dashboard")}
-              className="group flex w-full items-center cursor-pointer gap-2 rounded-md px-2.5 py-[6px] text-[13px] font-normal text-[#6b6f76] hover:text-[#1b1b1f] hover:bg-black/[0.03] transition-colors mb-1"
+              className="group flex w-full items-center cursor-pointer gap-[9px] rounded-[6px] mx-[2px] text-[13px] font-medium text-[#6b6f76] hover:text-[#1b1b1f] hover:bg-black/[0.035] transition-colors mb-1"
+              style={{ padding: "8px 9px", width: "calc(100% - 4px)" }}
             >
-              <svg className="h-4 w-4 shrink-0 text-[#8b8d94] group-hover:text-[#6b6f76] transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-              </svg>
+              <span className="text-[#9ca0a8] group-hover:text-[#1b1b1f] transition-colors">{icons.chevronLeft}</span>
               Settings
             </button>
 
-            <div className="flex flex-col gap-px">
+            <div className="flex flex-col gap-[1px]">
               {settingsSubItems.map((item) => {
                 const isActive = pathname === item.href;
                 return (
-                  <button
+                  <NavItem
                     key={item.href}
+                    label={item.label}
+                    icon={item.icon}
+                    isActive={isActive}
                     onClick={() => router.push(item.href)}
-                    className={`group flex w-full items-center cursor-pointer gap-2 rounded-md px-2.5 py-[6px] text-[13px] transition-colors ${
-                      isActive
-                        ? "font-medium text-[#1b1b1f] bg-black/[0.04]"
-                        : "font-normal text-[#6b6f76] hover:text-[#1b1b1f] hover:bg-black/[0.03]"
-                    }`}
-                  >
-                    <span className={`shrink-0 text-[16px] transition-colors ${isActive ? "text-[#1b1b1f]" : "text-[#8b8d94] group-hover:text-[#6b6f76]"}`}>
-                      {item.icon}
-                    </span>
-                    {item.label}
-                  </button>
+                  />
                 );
               })}
               <button
                 onClick={onLogout}
-                className="group flex w-full items-center cursor-pointer gap-2 rounded-md px-2.5 py-[6px] text-[13px] font-normal text-red-500 hover:bg-red-50 transition-colors"
+                className="group flex w-full items-center cursor-pointer gap-[9px] rounded-[6px] mx-[2px] text-[13px] font-medium text-red-500 hover:bg-red-50 transition-colors"
+                style={{ padding: "8px 9px", width: "calc(100% - 4px)" }}
               >
-                <span className="shrink-0 text-[16px]">
-                  <MI name="logout" />
-                </span>
+                <span className="text-red-400">{icons.logout}</span>
                 Log out
               </button>
             </div>
           </>
         ) : (
           <>
-            <div className="flex flex-col gap-px">
-              {navItems.map((item) => {
-                const isActive = item.href === "/dashboard"
-                  ? pathname === "/dashboard"
+            {/* Primary nav items */}
+            <div className="flex flex-col gap-[1px]">
+              {primaryNavItems.map((item) => {
+                const isActive = item.exact
+                  ? pathname === item.href
                   : pathname.startsWith(item.href);
+                const count = item.countKey ? (recordCounts[item.countKey] ?? 0) : undefined;
                 return (
-                  <button
+                  <NavItem
                     key={item.href}
+                    label={item.label}
+                    icon={item.icon}
+                    isActive={isActive}
                     onClick={() => router.push(item.href)}
-                    className={`group flex w-full items-center cursor-pointer gap-2 rounded-md px-2.5 py-[6px] text-[13px] transition-colors ${
-                      isActive
-                        ? "font-medium text-[#1b1b1f] bg-black/[0.04]"
-                        : "font-normal text-[#6b6f76] hover:text-[#1b1b1f] hover:bg-black/[0.03]"
-                    }`}
-                  >
-                    <span className={`shrink-0 text-[16px] transition-colors ${isActive ? "text-[#1b1b1f]" : "text-[#8b8d94] group-hover:text-[#6b6f76]"}`}>
-                      {item.icon}
-                    </span>
-                    {item.label}
-                  </button>
+                    count={count}
+                    hasDot={item.hasDot}
+                  />
                 );
               })}
             </div>
 
-            <div className="mt-4 flex flex-col gap-px">
-              <p className="px-2.5 pb-1 text-[11px] font-medium uppercase tracking-wider text-[#8b8d94]">Records</p>
-              {recordNavItems.map((item) => {
-                const isActive = pathname.startsWith(item.href);
-                const count = recordCounts[item.label] ?? 0;
-                return (
-                  <button
-                    key={item.href}
-                    onClick={() => router.push(item.href)}
-                    className={`group flex w-full items-center cursor-pointer gap-2 rounded-md px-2.5 py-[6px] text-[13px] transition-colors ${
-                      isActive
-                        ? "font-medium text-[#1b1b1f] bg-black/[0.04]"
-                        : "font-normal text-[#6b6f76] hover:text-[#1b1b1f] hover:bg-black/[0.03]"
-                    }`}
-                  >
-                    <span className={`shrink-0 text-[16px] transition-colors ${isActive ? "text-[#1b1b1f]" : "text-[#8b8d94] group-hover:text-[#6b6f76]"}`}>
-                      {item.icon}
-                    </span>
-                    {item.label}
-                    {count > 0 && (
-                      <span className="ml-auto text-[11px] font-normal tabular-nums text-[#8b8d94]">
-                        {count}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+            {/* Add button — standalone */}
+            <div className="relative mx-[2px] mt-3 mb-1" style={{ width: "calc(100% - 4px)" }}>
+              <button
+                onClick={() => setShowAddMenu((v) => !v)}
+                className="flex w-full items-center justify-center gap-[6px] rounded-[7px] border border-[#e6e6e9] bg-white py-[6px] text-[13px] font-medium text-[#6b6f76] transition-all hover:border-[#d4d4d8] hover:bg-[#f5f5f7] hover:text-[#1b1b1f] hover:shadow-[0_1px_2px_rgba(0,0,0,0.03)] cursor-pointer"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 5v14M5 12h14"/>
+                </svg>
+                Add
+              </button>
             </div>
+
+            {/* Divider */}
+            <div className="h-px bg-[#e6e6e9] mx-[10px] my-[10px]" />
+
+            {/* Workspace group — collapsible */}
+            <div>
+              <button
+                onClick={() => setWorkspaceOpen((v) => !v)}
+                className="flex items-center gap-[6px] w-full cursor-pointer select-none"
+                style={{ padding: "4px 10px 6px", fontSize: "10.5px", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.06em", color: "#8b8d94" }}
+              >
+                <svg
+                  className="transition-transform duration-150"
+                  style={{ color: "#8b8d94", opacity: 0.55, transform: workspaceOpen ? "rotate(90deg)" : "rotate(0deg)" }}
+                  width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                >
+                  <polyline points="9 18 15 12 9 6"/>
+                </svg>
+                <span>Workspace</span>
+              </button>
+
+              {workspaceOpen && (
+                <div className="flex flex-col gap-[1px]">
+                  {workspaceNavItems.map((item) => {
+                    const isActive = pathname.startsWith(item.href);
+                    return (
+                      <NavItem
+                        key={item.href}
+                        label={item.label}
+                        icon={item.icon}
+                        isActive={isActive}
+                        onClick={() => router.push(item.href)}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Add menu dropdown */}
+            {showAddMenu && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowAddMenu(false)} />
+                <div className="absolute left-[10px] top-auto z-50 mt-1 rounded-[8px] border border-[#e6e6e9] bg-white py-[2px] shadow-[0_4px_6px_-1px_rgba(0,0,0,0.08),0_2px_4px_-2px_rgba(0,0,0,0.04)] animate-fade-in" style={{ width: "calc(100% - 20px)" }}>
+                  <button
+                    onClick={() => { setShowAddMenu(false); onGlobalAction("company"); }}
+                    className="flex w-full items-center gap-[8px] px-3 py-[7px] text-[13px] text-[#6b6f76] transition-colors hover:bg-[#f5f5f7] hover:text-[#1b1b1f]"
+                  >
+                    {icons.building}
+                    Company
+                  </button>
+                  <button
+                    onClick={() => { setShowAddMenu(false); onGlobalAction("person"); }}
+                    className="flex w-full items-center gap-[8px] px-3 py-[7px] text-[13px] text-[#6b6f76] transition-colors hover:bg-[#f5f5f7] hover:text-[#1b1b1f]"
+                  >
+                    {icons.user}
+                    Person
+                  </button>
+                </div>
+              </>
+            )}
           </>
         )}
       </nav>
 
-      {/* Add + button — hidden in settings view */}
-      {!isSettingsView && (
-        <div className="relative px-2 pb-2">
-          <button
-            onClick={() => setShowAddMenu((v) => !v)}
-            className="flex w-full items-center justify-center gap-1.5 rounded-md border border-[#e6e6e9] bg-white py-[6px] text-[13px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f5f5f7] hover:text-[#1b1b1f]"
-          >
-            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-            </svg>
-            Add
-          </button>
-
-          {showAddMenu && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setShowAddMenu(false)} />
-              <div className="absolute bottom-full left-2 right-2 z-50 mb-1 rounded-lg border border-[#e6e6e9] bg-white py-0.5 shadow-sm animate-fade-in">
-                <button
-                  onClick={() => { setShowAddMenu(false); onGlobalAction("company"); }}
-                  className="flex w-full items-center px-3 py-1.5 text-[13px] text-[#6b6f76] transition-colors hover:bg-[#f5f5f7] hover:text-[#1b1b1f]"
-                >
-                  Company
-                </button>
-                <button
-                  onClick={() => { setShowAddMenu(false); onGlobalAction("person"); }}
-                  className="flex w-full items-center px-3 py-1.5 text-[13px] text-[#6b6f76] transition-colors hover:bg-[#f5f5f7] hover:text-[#1b1b1f]"
-                >
-                  Person
-                </button>
-              </div>
-            </>
-          )}
-        </div>
-      )}
+      {/* Spacer */}
+      <div className="flex-1 min-h-2" />
 
       {/* User footer */}
-      <div className="px-2 pb-2 pt-1 border-t border-[#e6e6e9]">
-        <div className="flex w-full items-center gap-2.5 px-2 py-1.5">
-          <div className="h-7 w-7 shrink-0 overflow-hidden rounded-full bg-[#e6e6e9]">
+      <div
+        className="flex items-center gap-[9px] cursor-pointer transition-colors hover:bg-black/[0.025] border-t border-[#e6e6e9]"
+        style={{ padding: "9px 12px", margin: "10px -8px 0", height: 54 }}
+        onClick={() => router.push("/dashboard/settings/profile")}
+      >
+        <div className="relative w-7 h-7 shrink-0">
+          <div className="w-7 h-7 rounded-full overflow-hidden" style={{ background: "linear-gradient(135deg, #a7a7b3, #6b6f76)" }}>
             <FallbackImg src={userProfile.profilePhotoUrl} className="h-full w-full object-cover">
-              <div className="flex h-full w-full items-center justify-center text-[11px] font-medium text-[#6b6f76]">
+              <div className="flex h-full w-full items-center justify-center text-[11px] font-semibold text-white">
                 {userInitial}
               </div>
             </FallbackImg>
           </div>
-          <div className="min-w-0 flex-1 text-left">
-            <p className="truncate text-[13px] font-medium text-[#1b1b1f]">{displayName}</p>
-          </div>
-          <button
-            onClick={() => router.push("/dashboard/settings/profile")}
-            className="rounded-md p-1.5 transition-colors hover:bg-black/[0.05]"
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="https://img.icons8.com/?size=100&id=83214&format=png&color=000000" alt="Settings" className="h-4 w-4 opacity-50" />
-          </button>
+          <span className="absolute -right-[1px] -bottom-[1px] w-[9px] h-[9px] rounded-full bg-[#10b981] border-2 border-[#fafafb]" />
         </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-[12.5px] font-medium text-[#1b1b1f] leading-[1.2] truncate">{displayName}</div>
+          <div className="text-[11px] text-[#8b8d94] leading-[1.2] mt-[1px] truncate">{userProfile.email}</div>
+        </div>
+        <button
+          onClick={(e) => { e.stopPropagation(); router.push("/dashboard/settings/profile"); }}
+          className="shrink-0 p-1 rounded text-[#8b8d94] transition-colors hover:bg-black/[0.05] hover:text-[#1b1b1f]"
+          aria-label="Account menu"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>
+          </svg>
+        </button>
       </div>
     </aside>
   );

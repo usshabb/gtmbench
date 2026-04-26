@@ -30,10 +30,15 @@ function LoginInner() {
   const inviteToken = useMemo(() => {
     const fromUrl = searchParams.get("invite");
     if (fromUrl) {
-      window.localStorage.setItem(localStorageInviteKey, fromUrl);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(localStorageInviteKey, fromUrl);
+      }
       return fromUrl;
     }
-    return window.localStorage.getItem(localStorageInviteKey);
+    if (typeof window !== "undefined") {
+      return window.localStorage.getItem(localStorageInviteKey);
+    }
+    return null;
   }, [searchParams]);
 
   const [inviteWorkspace, setInviteWorkspace] = useState<{ name: string } | null>(null);
