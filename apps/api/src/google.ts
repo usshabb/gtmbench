@@ -345,7 +345,8 @@ export interface ThreadMessage {
 function extractTextBody(payload: any): string {
   if (!payload) return "";
   if (payload.mimeType === "text/plain" && payload.body?.data) {
-    return Buffer.from(payload.body.data as string, "base64url").toString("utf-8");
+    const raw = Buffer.from(payload.body.data as string, "base64url").toString("utf-8");
+    return stripQuotedText(raw);
   }
   if (payload.parts) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -355,6 +356,28 @@ function extractTextBody(payload: any): string {
     }
   }
   return "";
+}
+
+/** Strip quoted / forwarded text from an email body so only the latest reply shows. */
+function stripQuotedText(body: string): string {
+  // Common quote markers — match the first one found and discard everything after it
+  const patterns = [
+    /^--- original message ---/im,
+    /^-{2,}\s*Forwarded message\s*-{2,}/im,
+    /^On .{10,80} wrote:\s*$/im,
+    /^\d{4}年.{2,30}に.{2,60}wrote:\s*$/im,          // Japanese Gmail quote header
+    /^>\s/m,                                            // traditional > quoting (first occurrence)
+    /^From:\s.+/im,                                     // Outlook-style "From: ..."
+    /^_{5,}/m,                                          // Outlook "________" separator
+  ];
+
+  let earliest = body.length;
+  for (const re of patterns) {
+    const m = re.exec(body);
+    if (m && m.index < earliest) earliest = m.index;
+  }
+
+  return body.slice(0, earliest).trimEnd();
 }
 
 export async function getThreadMessages(
