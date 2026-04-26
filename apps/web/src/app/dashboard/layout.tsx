@@ -71,7 +71,7 @@ const settingsSubItems = [
 /*  Global Action Modal                                                */
 /* ------------------------------------------------------------------ */
 
-type GlobalActionType = "company" | "person" | null;
+type GlobalActionType = "pick" | "company" | "person" | null;
 
 interface PersonPreview {
   name?: string;
@@ -140,10 +140,67 @@ function GlobalActionModal({
   const [allBuyerProfiles, setAllBuyerProfiles] = useState<{ _id: string; name: string; isDefault: boolean }[]>([]);
   const [isSwitchingProfile, setIsSwitchingProfile] = useState(false);
 
+  const [selectedType, setSelectedType] = useState<"company" | "person" | null>(null);
+
+  // Reset selectedType when modal opens/closes
+  useEffect(() => {
+    if (actionType === "company" || actionType === "person") {
+      setSelectedType(actionType);
+    } else if (actionType === "pick") {
+      setSelectedType(null);
+    }
+  }, [actionType]);
+
   if (!actionType) return null;
 
-  const isCompany = actionType === "company";
-  const isPerson = actionType === "person";
+  // "pick" step — show type selection
+  if (actionType === "pick" && !selectedType) {
+    return createPortal(
+      <div className="fixed inset-0 z-[9999] flex items-start justify-center bg-black/30 p-4 pt-[10vh]" onClick={onClose}>
+        <div
+          className="flex w-full max-w-sm flex-col rounded-xl border border-[#e6e6e9] bg-white shadow-xl animate-slide-up"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-5 pt-4 pb-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-[15px] font-semibold text-[#1b1b1f]">What would you like to add?</h2>
+              <button type="button" onClick={onClose} className="rounded p-1 text-[#8b8d94] transition-colors hover:bg-[#f5f5f7] hover:text-[#6b6f76]">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+          </div>
+          <div className="border-t border-[#ededf0]" />
+          <div className="px-5 py-4 flex flex-col gap-2">
+            <button
+              onClick={() => setSelectedType("company")}
+              className="flex items-center gap-3 rounded-lg border border-[#e6e6e9] px-4 py-3.5 text-left transition-all hover:border-[#d4d4d8] hover:bg-[#f9f9fb] hover:shadow-sm"
+            >
+              <span className="text-[#8b8d94]">{icons.building}</span>
+              <div>
+                <p className="text-[13px] font-medium text-[#1b1b1f]">Company</p>
+                <p className="text-[11px] text-[#8b8d94]">Add a company and find matching buyers</p>
+              </div>
+            </button>
+            <button
+              onClick={() => setSelectedType("person")}
+              className="flex items-center gap-3 rounded-lg border border-[#e6e6e9] px-4 py-3.5 text-left transition-all hover:border-[#d4d4d8] hover:bg-[#f9f9fb] hover:shadow-sm"
+            >
+              <span className="text-[#8b8d94]">{icons.user}</span>
+              <div>
+                <p className="text-[13px] font-medium text-[#1b1b1f]">Person</p>
+                <p className="text-[11px] text-[#8b8d94]">Add a person by LinkedIn URL or email</p>
+              </div>
+            </button>
+          </div>
+        </div>
+      </div>,
+      document.body,
+    );
+  }
+
+  const effectiveType = selectedType ?? actionType;
+  const isCompany = effectiveType === "company";
+  const isPerson = effectiveType === "person";
   const isEmail = isPerson && value.includes("@") && !value.includes("linkedin.com");
   const isPersonPreview = isPerson && personPreview !== null;
   const isCompanyPreview = isCompany && companyOnlyPreview !== null;
@@ -563,10 +620,10 @@ function GlobalActionModal({
             <div className="flex items-center justify-between border-t border-[#ededf0] px-5 py-3">
               <button
                 type="button"
-                onClick={onClose}
+                onClick={() => { if (actionType === "pick") { setSelectedType(null); setValue(""); setError(""); } else { onClose(); } }}
                 className="rounded-md border border-[#e6e6e9] px-3 py-1.5 text-[13px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f5f5f7]"
               >
-                Cancel
+                {actionType === "pick" ? "Back" : "Cancel"}
               </button>
               <button
                 type="submit"
@@ -647,7 +704,6 @@ function Sidebar({
 }) {
   const pathname = usePathname();
   const router = useRouter();
-  const [showAddMenu, setShowAddMenu] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(true);
   const isSettingsView = pathname.startsWith("/dashboard/settings");
 
@@ -726,19 +782,6 @@ function Sidebar({
               })}
             </div>
 
-            {/* Add button — standalone */}
-            <div className="relative mx-[2px] mt-3 mb-1" style={{ width: "calc(100% - 4px)" }}>
-              <button
-                onClick={() => setShowAddMenu((v) => !v)}
-                className="flex w-full items-center justify-center gap-[6px] rounded-[7px] border border-[#e6e6e9] bg-white py-[6px] text-[13px] font-medium text-[#6b6f76] transition-all hover:border-[#d4d4d8] hover:bg-[#f5f5f7] hover:text-[#1b1b1f] hover:shadow-[0_1px_2px_rgba(0,0,0,0.03)] cursor-pointer"
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 5v14M5 12h14"/>
-                </svg>
-                Add
-              </button>
-            </div>
-
             {/* Divider */}
             <div className="h-px bg-[#e6e6e9] mx-[10px] my-[10px]" />
 
@@ -777,34 +820,25 @@ function Sidebar({
               )}
             </div>
 
-            {/* Add menu dropdown */}
-            {showAddMenu && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowAddMenu(false)} />
-                <div className="absolute left-[10px] top-auto z-50 mt-1 rounded-[8px] border border-[#e6e6e9] bg-white py-[2px] shadow-[0_4px_6px_-1px_rgba(0,0,0,0.08),0_2px_4px_-2px_rgba(0,0,0,0.04)] animate-fade-in" style={{ width: "calc(100% - 20px)" }}>
-                  <button
-                    onClick={() => { setShowAddMenu(false); onGlobalAction("company"); }}
-                    className="flex w-full items-center gap-[8px] px-3 py-[7px] text-[13px] text-[#6b6f76] transition-colors hover:bg-[#f5f5f7] hover:text-[#1b1b1f]"
-                  >
-                    {icons.building}
-                    Company
-                  </button>
-                  <button
-                    onClick={() => { setShowAddMenu(false); onGlobalAction("person"); }}
-                    className="flex w-full items-center gap-[8px] px-3 py-[7px] text-[13px] text-[#6b6f76] transition-colors hover:bg-[#f5f5f7] hover:text-[#1b1b1f]"
-                  >
-                    {icons.user}
-                    Person
-                  </button>
-                </div>
-              </>
-            )}
           </>
         )}
       </nav>
 
       {/* Spacer */}
       <div className="flex-1 min-h-2" />
+
+      {/* Add button — above user footer */}
+      <div className="mx-[2px] mb-2" style={{ width: "calc(100% - 4px)" }}>
+        <button
+          onClick={() => onGlobalAction("pick")}
+          className="flex w-full items-center justify-center gap-[6px] rounded-[7px] border border-[#e6e6e9] bg-white py-[6px] text-[13px] font-medium text-[#6b6f76] transition-all hover:border-[#d4d4d8] hover:bg-[#f5f5f7] hover:text-[#1b1b1f] hover:shadow-[0_1px_2px_rgba(0,0,0,0.03)] cursor-pointer"
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+          Add
+        </button>
+      </div>
 
       {/* User footer */}
       <div

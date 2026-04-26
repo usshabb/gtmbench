@@ -430,10 +430,10 @@ function ProfileCard({
           >
             +{hiddenTags.length} more
             {showMore && (
-              <div className="absolute bottom-full left-0 z-20 mb-2 w-60 rounded-lg bg-[#1b1b1f] p-3 shadow-xl">
+              <div className="absolute bottom-full left-0 z-20 mb-2 w-56 max-h-40 overflow-y-auto rounded-lg border border-[#e6e6e9] bg-white p-2.5 shadow-lg">
                 <div className="flex flex-wrap gap-1.5">
                   {hiddenTags.map((t, j) => (
-                    <span key={j} className="rounded-full bg-white/15 px-2.5 py-1 text-[11px] font-medium text-white">
+                    <span key={j} className="rounded-full border border-[#e0e0e3] bg-[#f5f5f7] px-2.5 py-0.5 text-[11px] font-medium text-[#3a3a42]">
                       {t}
                     </span>
                   ))}
