@@ -3,10 +3,10 @@ import { randomUUID } from "crypto";
 import express from "express";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
-import { getBuyerProfilesCollection, getBuyerSearchResultsCollection, getCompanyATSCollection, getCompaniesCollection, getEmailSignaturesCollection, getEmailTemplatesCollection, getGoogleTokensCollection, getInvitesCollection, getJobsCollection, getLegacyLinkedinContentForPersonCollection, getLinkedinPostsForUserCollection, getPersonsCollection, getSignalsCollection, getSkillsCollection, getTriggerJobsCollection, getTriggersCollection, getUsersCollection, getWorkspacesCollection } from "./db.js";
+import { getBuyerProfilesCollection, getBuyerSearchResultsCollection, getCompanyATSCollection, getCompaniesCollection, getEmailSignaturesCollection, getEmailTemplatesCollection, getGoogleTokensCollection, getInvitesCollection, getJobsCollection, getLegacyLinkedinContentForPersonCollection, getLinkedinPostsForUserCollection, getPersonsCollection, getSignalsCollection, getSkillsCollection, getThreadCommentsCollection, getTriggerJobsCollection, getTriggersCollection, getUsersCollection, getWorkspacesCollection } from "./db.js";
 import { env } from "./env.js";
 import { getEmailFromToken, signToken } from "./auth.js";
-import { enrichCompanyByLinkedinId, enrichDomainWithFiber, enrichPersonByEmailWithFiber, enrichPersonWithFiber, findEmailWithContactDetails, findPersonEmailWithFiber, searchBuyersWithFiber } from "./fiber.js";
+import { ContactEmail, enrichCompanyByLinkedinId, enrichDomainWithFiber, enrichPersonByEmailWithFiber, enrichPersonWithFiber, findEmailWithContactDetails, findPersonEmailWithFiber, searchBuyersWithFiber } from "./fiber.js";
 import { startTriggersWorker, scheduleTriggersCron, triggerTriggersProcessing, createPendingJobs, enqueuePendingJobsForUser, enqueueSpecificJob } from "./triggers-worker.js";
 import { detectCompanyATS } from "./firecrawl.js";
 import { exchangeCodeForTokens, getCalendarEvents, getEmailsWithPerson, getGoogleAuthUrl, getGoogleSigninUrl, getInboxThreads, getThreadMessages, getUserInfoFromGoogle, markThreadAsRead, replyToThread, sendGmail } from "./google.js";
@@ -1141,7 +1141,7 @@ app.patch("/companies/:id/buyer-profile", async (request, response) => {
     return;
   }
 
-  const profileObjectId = buyerProfileId ? new ObjectId(buyerProfileId) : null;
+  const profileObjectId = buyerProfileId ? new ObjectId(buyerProfileId) : undefined;
 
   const companiesCol = await getCompaniesCollection();
   const company = await companiesCol.findOne({ _id: companyObjectId, userEmails: { $in: memberEmails } });
@@ -1478,24 +1478,7 @@ app.post("/persons/confirm", async (request, response) => {
       }
     }
 
-    // Try email search if no work email
-    let enrichmentPayload = personPayload;
-    if (enrichmentPayload) {
-      try {
-        const personData = enrichmentPayload?.output?.data?.[0];
-        const hasEmail = !!(personData?.work_email ?? personData?.emails?.[0] ?? personData?.personal_email);
-        if (!hasEmail && personData?.first_name && personData?.last_name && companyDomain) {
-          const foundEmail = await findPersonEmailWithFiber(personData.first_name, personData.last_name, companyDomain);
-          if (foundEmail) {
-            enrichmentPayload = {
-              ...enrichmentPayload,
-              output: { ...enrichmentPayload.output, data: [{ ...personData, work_email: foundEmail }] },
-            };
-          }
-        }
-      } catch { /* ignore */ }
-    }
-
+    const enrichmentPayload = personPayload;
     const { workEmail: extractedEmail } = extractPersonFields(enrichmentPayload ?? {});
     const finalWorkEmail = rawWorkEmail ?? extractedEmail;
 
@@ -1534,6 +1517,47 @@ app.post("/persons/confirm", async (request, response) => {
 
     const savedPerson = await personsCollection.findOne({ _id: insertResult.insertedId });
     response.status(201).json({ person: savedPerson });
+
+    // Background email lookup — runs after response is sent, doesn't block the user
+    if (!finalWorkEmail && linkedinUrl && !linkedinUrl.startsWith("email:")) {
+      void (async () => {
+        try {
+          const col = await getPersonsCollection();
+          const emailResult = await findEmailWithContactDetails(linkedinUrl);
+          if (emailResult.emails.length > 0) {
+            const best = emailResult.email ?? emailResult.emails[0].email;
+            const existing = await col.findOne({ _id: insertResult.insertedId });
+            const updatedEnrichment = existing?.enrichmentData
+              ? {
+                  ...existing.enrichmentData,
+                  output: {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    ...((existing.enrichmentData as any).output ?? {}),
+                    data: [{
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      ...((existing.enrichmentData as any).output?.data?.[0] ?? {}),
+                      work_email: best,
+                    }],
+                  },
+                }
+              : undefined;
+            await col.updateOne(
+              { _id: insertResult.insertedId },
+              {
+                $set: {
+                  workEmail: best,
+                  availableEmails: emailResult.emails,
+                  ...(updatedEnrichment ? { enrichmentData: updatedEnrichment } : {}),
+                },
+              },
+            );
+            console.log(`[confirm-person] Background email found for ${linkedinUrl}: ${best} (${emailResult.emails.length} total)`);
+          }
+        } catch (err) {
+          console.error("[confirm-person] Background email lookup failed:", err instanceof Error ? err.message : err);
+        }
+      })();
+    }
   } catch (err) {
     console.error("[confirm-person] Error:", err);
     response.status(500).json({ error: "Failed to add person" });
@@ -1838,7 +1862,7 @@ app.patch("/persons/:id/buyer-profile", async (request, response) => {
     return;
   }
 
-  const profileObjectId = buyerProfileId ? new ObjectId(buyerProfileId) : null;
+  const profileObjectId = buyerProfileId ? new ObjectId(buyerProfileId) : undefined;
   const personsCol = await getPersonsCollection();
   const result = await personsCol.updateOne(
     { _id: personObjectId, userEmails: { $in: memberEmails } },
@@ -3386,6 +3410,47 @@ app.post("/inbox/threads/:threadId/read", async (request, response) => {
   }
 });
 
+// ── Thread internal comments ────────────────────────────────────────────────
+
+app.get("/inbox/threads/:threadId/comments", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+  const commentsCol = await getThreadCommentsCollection();
+
+  const comments = await commentsCol
+    .find({ threadId: request.params.threadId, authorEmail: { $in: memberEmails } })
+    .sort({ createdAt: 1 })
+    .toArray();
+
+  response.json({ comments });
+});
+
+app.post("/inbox/threads/:threadId/comments", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const usersCol = await getUsersCollection();
+  const user = await usersCol.findOne({ email: userEmail });
+  const commentsCol = await getThreadCommentsCollection();
+
+  const { body, mentions } = request.body as { body: string; mentions?: string[] };
+
+  if (!body?.trim()) {
+    response.status(400).json({ error: "Comment body is required" });
+    return;
+  }
+
+  const comment = {
+    threadId: request.params.threadId,
+    authorEmail: userEmail,
+    authorName: user?.fullName ?? userEmail,
+    body: body.trim(),
+    mentions: mentions ?? [],
+    createdAt: new Date().toISOString(),
+  };
+
+  const result = await commentsCol.insertOne(comment);
+  response.json({ comment: { ...comment, _id: result.insertedId } });
+});
+
 // Get calendar events — aggregated from all workspace members with Calendar connected
 app.get("/calendar/events", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
@@ -3689,25 +3754,31 @@ app.post("/persons/:id/find-email", async (request, response) => {
   const lastName = personData?.last_name as string | undefined;
   const { companyDomain } = extractPersonFields(person.enrichmentData ?? {});
 
+  let foundEmails: ContactEmail[] = [];
   let foundEmail: string | null = null;
 
-  // Strategy 1: contact-details/sync by LinkedIn URL (primary)
+  // Strategy 1: contact-details/sync by LinkedIn URL (primary) — returns work + personal emails
   if (person.linkedinUrl) {
     const result = await findEmailWithContactDetails(person.linkedinUrl);
+    foundEmails = result.emails;
     foundEmail = result.email;
   }
 
-  // Strategy 2: people-search by name + company domain (fallback)
+  // Strategy 2: people-search by name + company domain (fallback, work email only)
   if (!foundEmail && firstName && lastName && companyDomain) {
-    foundEmail = await findPersonEmailWithFiber(firstName, lastName, companyDomain);
+    const fallback = await findPersonEmailWithFiber(firstName, lastName, companyDomain);
+    if (fallback) {
+      foundEmail = fallback;
+      foundEmails = [{ email: fallback, type: "work" }];
+    }
   }
 
   if (!foundEmail) {
-    response.json({ person, email: null, message: "Could not find email" });
+    response.json({ person, email: null, emails: [], message: "Could not find email" });
     return;
   }
 
-  // Store the found email in enrichmentData
+  // Store the best email and all available emails in DB
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const existing = (person.enrichmentData ?? { output: { data: [{}] } }) as any;
   const updatedEnrichmentData = {
@@ -3720,11 +3791,11 @@ app.post("/persons/:id/find-email", async (request, response) => {
 
   await personsCol.updateOne(
     { _id: new ObjectId(request.params.id) },
-    { $set: { enrichmentData: updatedEnrichmentData, workEmail: foundEmail } },
+    { $set: { enrichmentData: updatedEnrichmentData, workEmail: foundEmail, availableEmails: foundEmails } },
   );
 
   const updatedPerson = await personsCol.findOne({ _id: new ObjectId(request.params.id) });
-  response.json({ person: updatedPerson, email: foundEmail });
+  response.json({ person: updatedPerson, email: foundEmail, emails: foundEmails });
 });
 
 // Save a manually-provided email for a person (no Fiber call needed)

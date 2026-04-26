@@ -1,4 +1,192 @@
 @import "tailwindcss";
+@import "quill/dist/quill.snow.css";
+
+/* ------------------------------------------------------------------ */
+/*  Quill email editor overrides                                        */
+/* ------------------------------------------------------------------ */
+
+.email-quill-editor {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.email-quill-editor .ql-toolbar.ql-snow {
+  border: none;
+  border-bottom: 1px solid #f0f3f8;
+  padding: 4px 16px;
+  background: #fff;
+}
+
+.email-quill-editor .ql-container.ql-snow {
+  border: none;
+  font-family: inherit;
+  font-size: 13px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.email-quill-editor .ql-editor {
+  padding: 12px 20px;
+  min-height: 180px;
+  color: #1a1f36;
+  line-height: 1.65;
+}
+
+.email-quill-editor .ql-editor.ql-blank::before {
+  color: #c2c7cf;
+  font-style: normal;
+  left: 20px;
+  right: 20px;
+}
+
+.email-quill-editor .ql-toolbar.ql-snow .ql-formats {
+  margin-right: 6px;
+}
+
+.email-quill-editor .ql-snow .ql-stroke {
+  stroke: #6b6f76;
+}
+
+.email-quill-editor .ql-snow .ql-fill {
+  fill: #6b6f76;
+}
+
+.email-quill-editor .ql-snow.ql-toolbar button,
+.email-quill-editor .ql-snow .ql-toolbar button {
+  width: 26px;
+  height: 26px;
+  padding: 3px;
+  border-radius: 4px;
+}
+
+.email-quill-editor .ql-snow.ql-toolbar button:hover,
+.email-quill-editor .ql-snow .ql-toolbar button:hover,
+.email-quill-editor .ql-snow.ql-toolbar button.ql-active,
+.email-quill-editor .ql-snow .ql-toolbar button.ql-active {
+  background: #f5f5f7;
+  color: #1a1f36;
+}
+
+.email-quill-editor .ql-snow.ql-toolbar button:hover .ql-stroke,
+.email-quill-editor .ql-snow .ql-toolbar button:hover .ql-stroke,
+.email-quill-editor .ql-snow.ql-toolbar button.ql-active .ql-stroke,
+.email-quill-editor .ql-snow .ql-toolbar button.ql-active .ql-stroke {
+  stroke: #1a1f36;
+}
+
+.email-quill-editor .ql-snow.ql-toolbar button:hover .ql-fill,
+.email-quill-editor .ql-snow .ql-toolbar button:hover .ql-fill,
+.email-quill-editor .ql-snow.ql-toolbar button.ql-active .ql-fill,
+.email-quill-editor .ql-snow .ql-toolbar button.ql-active .ql-fill {
+  fill: #1a1f36;
+}
+
+.email-quill-editor .ql-snow a {
+  color: #4f46e5;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Quill settings editors (templates + signature)                      */
+/* ------------------------------------------------------------------ */
+
+.settings-quill-editor .ql-toolbar.ql-snow {
+  border: 1px solid #e6e6e9;
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  padding: 4px 8px;
+  background: #fafafa;
+}
+
+.settings-quill-editor .ql-container.ql-snow {
+  border: 1px solid #e6e6e9;
+  border-radius: 0 0 6px 6px;
+  font-family: inherit;
+  font-size: 13px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.settings-quill-editor .ql-container.ql-snow:focus-within {
+  border-color: #5e6ad2;
+  box-shadow: 0 0 0 3px rgba(94, 106, 210, 0.12);
+}
+
+.settings-quill-editor .ql-editor {
+  padding: 8px 12px;
+  min-height: 160px;
+  color: #1b1b1f;
+  line-height: 1.65;
+}
+
+.settings-quill-editor.sig .ql-editor {
+  min-height: 80px;
+}
+
+.settings-quill-editor .ql-editor.ql-blank::before {
+  color: #b4b5ba;
+  font-style: normal;
+  left: 12px;
+  right: 12px;
+}
+
+.settings-quill-editor .ql-toolbar.ql-snow .ql-formats {
+  margin-right: 4px;
+}
+
+.settings-quill-editor .ql-snow .ql-stroke {
+  stroke: #6b6f76;
+}
+
+.settings-quill-editor .ql-snow .ql-fill {
+  fill: #6b6f76;
+}
+
+.settings-quill-editor .ql-snow.ql-toolbar button {
+  width: 24px;
+  height: 24px;
+  padding: 3px;
+  border-radius: 4px;
+}
+
+.settings-quill-editor .ql-snow.ql-toolbar button:hover,
+.settings-quill-editor .ql-snow.ql-toolbar button.ql-active {
+  background: #ededf0;
+}
+
+.settings-quill-editor .ql-snow.ql-toolbar button:hover .ql-stroke,
+.settings-quill-editor .ql-snow.ql-toolbar button.ql-active .ql-stroke {
+  stroke: #1b1b1f;
+}
+
+.settings-quill-editor .ql-snow.ql-toolbar button:hover .ql-fill,
+.settings-quill-editor .ql-snow.ql-toolbar button.ql-active .ql-fill {
+  fill: #1b1b1f;
+}
+
+.settings-quill-editor .ql-snow a {
+  color: #4f46e5;
+}
+
+/* signature HTML preview in compose modal */
+.signature-html {
+  font-size: 13px;
+  color: #8b8d94;
+  line-height: 1.65;
+}
+
+.signature-html p {
+  margin: 0;
+}
+
+.signature-html p + p {
+  margin-top: 2px;
+}
+
+.signature-html strong { font-weight: 600; }
+.signature-html em { font-style: italic; }
+.signature-html a { color: #4f46e5; text-decoration: underline; }
 
 :root {
   --background: #ffffff;

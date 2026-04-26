@@ -78,6 +78,7 @@ export interface PersonRecord {
   userEmails: string[];
   linkedinUrl: string;
   workEmail?: string;       // top-level for fast querying, mirrored from enrichmentData
+  availableEmails?: { email: string; type: "work" | "personal" }[];  // all found emails, work first
   companyDomain?: string;
   companyId?: ObjectId;
   buyerProfileId?: ObjectId;
@@ -279,4 +280,14 @@ export interface EmailSignatureRecord {
   userEmail: string;
   body: string;
   updatedAt: string;
+}
+
+export interface ThreadCommentRecord {
+  _id?: ObjectId;
+  threadId: string;
+  authorEmail: string;
+  authorName: string;
+  body: string;
+  mentions: string[];
+  createdAt: string;
 }
