@@ -12,6 +12,16 @@ function getApiBaseUrl(): string {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+interface ThreadComment {
+  _id: string;
+  threadId: string;
+  authorEmail: string;
+  authorName: string;
+  body: string;
+  mentions: string[];
+  createdAt: string;
+}
+
 interface PersonMeta {
   email: string;
   name: string;
@@ -180,7 +190,7 @@ function MessageBubble({
       </div>
 
       {/* Bubble */}
-      <div className={`min-w-0 max-w-[75%] ${isMine ? "items-end" : "items-start"} flex flex-col`}>
+      <div className={`min-w-0 max-w-[90%] ${isMine ? "items-end" : "items-start"} flex flex-col`}>
         {/* Header */}
         <button
           onClick={() => setExpanded((v) => !v)}
@@ -202,6 +212,268 @@ function MessageBubble({
             {msg.body || <span className="italic opacity-50">No content</span>}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Internal Comments ───────────────────────────────────────────────────────
+
+function InternalComments({
+  threadId,
+  authToken,
+  apiBaseUrl,
+  connectedUsers,
+  onCountChange,
+}: {
+  threadId: string;
+  authToken: string;
+  apiBaseUrl: string;
+  connectedUsers: { email: string; name: string; profilePhotoUrl?: string | null }[];
+  onCountChange?: (count: number) => void;
+}) {
+  const [comments, setComments] = useState<ThreadComment[]>([]);
+  const [body, setBody] = useState("");
+  const [sending, setSending] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionAnchorPos, setMentionAnchorPos] = useState(0);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const loadedThreadRef = useRef<string | null>(null);
+
+  // Fetch comments when thread changes
+  useEffect(() => {
+    if (!threadId || !authToken) return;
+    if (loadedThreadRef.current === threadId) return;
+    loadedThreadRef.current = threadId;
+
+    void apiFetch(`${apiBaseUrl}/inbox/threads/${threadId}/comments`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    })
+      .then(async (res) => {
+        const data = (await safeJson(res)) as { comments?: ThreadComment[] };
+        const list = data.comments ?? [];
+        setComments(list);
+        onCountChange?.(list.length);
+      })
+      .catch(() => setComments([]));
+  }, [threadId, authToken, apiBaseUrl, onCountChange]);
+
+  // Reset when thread changes
+  useEffect(() => {
+    loadedThreadRef.current = null;
+    setComments([]);
+    setBody("");
+    setMentionQuery(null);
+  }, [threadId]);
+
+  function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const val = e.target.value;
+    setBody(val);
+
+    const cursor = e.target.selectionStart ?? val.length;
+    const before = val.slice(0, cursor);
+    const atIdx = before.lastIndexOf("@");
+    if (atIdx !== -1 && !before.slice(atIdx).includes(" ")) {
+      setMentionQuery(before.slice(atIdx + 1));
+      setMentionAnchorPos(atIdx);
+    } else {
+      setMentionQuery(null);
+    }
+  }
+
+  function insertMention(member: { email: string; name: string }) {
+    const ta = inputRef.current;
+    if (!ta) return;
+    const cursor = ta.selectionStart ?? body.length;
+    const before = body.slice(0, mentionAnchorPos);
+    const after = body.slice(cursor);
+    const tag = `@${member.name} `;
+    const next = before + tag + after;
+    setBody(next);
+    setMentionQuery(null);
+    setTimeout(() => {
+      ta.focus();
+      const pos = before.length + tag.length;
+      ta.setSelectionRange(pos, pos);
+    }, 0);
+  }
+
+  const filteredMembers = useMemo(() => {
+    if (mentionQuery === null) return [];
+    const q = mentionQuery.toLowerCase();
+    return connectedUsers.filter(
+      (m) => m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q),
+    );
+  }, [mentionQuery, connectedUsers]);
+
+  // Extract @mentions from body
+  function extractMentions(text: string): string[] {
+    const mentions: string[] = [];
+    const regex = /@(\S+(?:\s\S+)?)/g;
+    let match;
+    while ((match = regex.exec(text)) !== null) {
+      const name = match[1];
+      const user = connectedUsers.find(
+        (u) => u.name.toLowerCase() === name.toLowerCase(),
+      );
+      if (user) mentions.push(user.email);
+    }
+    return mentions;
+  }
+
+  async function submitComment() {
+    if (!body.trim() || sending) return;
+    setSending(true);
+    try {
+      const mentions = extractMentions(body);
+      const res = await apiFetch(`${apiBaseUrl}/inbox/threads/${threadId}/comments`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ body: body.trim(), mentions }),
+      });
+      const data = (await safeJson(res)) as { comment?: ThreadComment };
+      if (data.comment) {
+        setComments((prev) => {
+          const next = [...prev, data.comment!];
+          onCountChange?.(next.length);
+          return next;
+        });
+      }
+      setBody("");
+      setMentionQuery(null);
+    } catch { /* ignore */ } finally {
+      setSending(false);
+    }
+  }
+
+  // Render body with @mentions highlighted
+  function renderCommentBody(text: string) {
+    const parts = text.split(/(@\S+(?:\s\S+)?)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith("@")) {
+        const name = part.slice(1);
+        const isUser = connectedUsers.some(
+          (u) => u.name.toLowerCase() === name.toLowerCase(),
+        );
+        if (isUser) {
+          return (
+            <span key={i} className="rounded bg-[#5e6ad2]/10 px-1 py-0.5 text-[#5e6ad2] font-medium">
+              {part}
+            </span>
+          );
+        }
+      }
+      return part;
+    });
+  }
+
+  return (
+    <div className="flex flex-1 flex-col bg-[#f9f9fb]">
+      {/* Existing comments */}
+      {comments.length > 0 && (
+        <div className="flex-1 px-4 pt-3 pb-1 space-y-2.5 overflow-y-auto">
+          {comments.map((c) => (
+            <div key={c._id} className="flex gap-2">
+              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#ededf0] text-[9px] font-semibold text-[#6b6f76]">
+                {getInitials(c.authorName)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-[12px] font-semibold text-[#1b1b1f]">{c.authorName}</span>
+                  <span className="text-[10px] text-[#8b8d94]">{formatDate(c.createdAt)}</span>
+                </div>
+                <p className="text-[12px] text-[#6b6f76] leading-relaxed whitespace-pre-wrap break-words">
+                  {renderCommentBody(c.body)}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Comment input */}
+      <div className="px-4 py-2.5">
+        <div className="relative flex items-start gap-2 rounded-lg border border-[#e6e6e9] bg-white px-3 py-2 focus-within:border-[#8b8d94] transition-colors">
+          <textarea
+            ref={inputRef}
+            value={body}
+            onChange={handleChange}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                void submitComment();
+              }
+              if (e.key === "Escape") setMentionQuery(null);
+            }}
+            placeholder="Add internal comment · visible to your team"
+            rows={1}
+            className="flex-1 resize-none bg-transparent text-[12px] text-[#1b1b1f] placeholder:text-[#8b8d94] outline-none min-h-[20px]"
+          />
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                if (inputRef.current) {
+                  const pos = inputRef.current.selectionStart ?? body.length;
+                  const before = body.slice(0, pos);
+                  const after = body.slice(pos);
+                  setBody(before + "@" + after);
+                  setMentionQuery("");
+                  setMentionAnchorPos(pos);
+                  setTimeout(() => {
+                    inputRef.current?.focus();
+                    const newPos = pos + 1;
+                    inputRef.current?.setSelectionRange(newPos, newPos);
+                  }, 0);
+                }
+              }}
+              className="rounded p-1 text-[#8b8d94] hover:bg-[#f5f5f7] hover:text-[#6b6f76] transition-colors"
+              title="Mention teammate"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>
+              </svg>
+            </button>
+            <button
+              onClick={submitComment}
+              disabled={!body.trim() || sending}
+              className="rounded p-1 text-[#8b8d94] hover:bg-[#f5f5f7] hover:text-[#1b1b1f] transition-colors disabled:opacity-30"
+              title="Post comment"
+            >
+              {sending ? (
+                <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#8b8d94]/30 border-t-[#8b8d94]" />
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="22" x2="11" y1="2" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                </svg>
+              )}
+            </button>
+          </div>
+
+          {/* @ mention dropdown */}
+          {mentionQuery !== null && filteredMembers.length > 0 && (
+            <div className="absolute bottom-full left-0 mb-1 w-60 overflow-hidden rounded-lg border border-[#e6e6e9] bg-white shadow-md z-10">
+              {filteredMembers.map((m) => (
+                <button
+                  key={m.email}
+                  onMouseDown={(e) => { e.preventDefault(); insertMention(m); }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[#f9f9fb] transition-colors"
+                >
+                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[#e6e6e9] text-[9px] font-semibold text-[#6b6f76]">
+                    {getInitials(m.name)}
+                  </div>
+                  <div>
+                    <p className="text-[11px] font-medium text-[#1b1b1f]">{m.name}</p>
+                    <p className="text-[10px] text-[#8b8d94]">{m.email}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -264,6 +536,8 @@ function InboxInner() {
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [emailSignature, setEmailSignature] = useState("");
   const templatesFetched = useRef(false);
+  const [bottomTab, setBottomTab] = useState<"reply" | "comments">("reply");
+  const [commentCount, setCommentCount] = useState(0);
 
   const fetchTemplates = useCallback(async () => {
     if (!authToken || templatesFetched.current) return;
@@ -371,6 +645,16 @@ function InboxInner() {
     setMentionQuery(null);
     setLoadingMessages(true);
     setReadIds((prev) => new Set([...prev, thread.id]));
+    setBottomTab("reply");
+    setCommentCount(0);
+
+    // Fetch comment count
+    void apiFetch(`${apiBaseUrl}/inbox/threads/${thread.id}/comments`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    }).then(async (res) => {
+      const data = (await safeJson(res)) as { comments?: unknown[] };
+      setCommentCount((data.comments ?? []).length);
+    }).catch(() => {});
 
     // Mark as read in Gmail
     if (thread.isUnread) {
@@ -1014,8 +1298,8 @@ function InboxInner() {
               </div>
             </div>
 
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+            {/* Messages — capped height so bottom panel has room */}
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3 space-y-3" style={{ maxHeight: "calc(100vh - 320px)" }}>
               {loadingMessages ? (
                 <div className="flex justify-center py-8">
                   <div className="h-5 w-5 animate-spin rounded-full border-2 border-black/10 border-t-black/40" />
@@ -1030,95 +1314,145 @@ function InboxInner() {
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Reply composer */}
-            <div className="border-t border-[#e6e6e9] bg-white px-4 py-3">
-              {/* Textarea with @ mention */}
-              <div className="relative">
-                <textarea
-                  ref={replyRef}
-                  value={replyBody}
-                  onChange={handleReplyChange}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                      e.preventDefault();
-                      void sendReply();
-                    }
-                    if (e.key === "Escape") setMentionQuery(null);
-                  }}
-                  placeholder="Write a reply…"
-                  rows={3}
-                  className="w-full resize-none rounded-lg border border-[#e6e6e9] bg-[#f9f9fb] px-3 py-2.5 text-[13px] text-[#1b1b1f] placeholder:text-[#8b8d94] outline-none focus:border-[#8b8d94] focus:bg-white transition-colors"
-                />
-
-                {/* @ mention dropdown */}
-                {mentionQuery !== null && filteredMentionMembers.length > 0 && (
-                  <div className="absolute bottom-full left-0 mb-1 w-60 overflow-hidden rounded-lg border border-[#e6e6e9] bg-white z-10">
-                    {filteredMentionMembers.map((m) => (
-                      <button
-                        key={m.email}
-                        onMouseDown={(e) => { e.preventDefault(); insertMention(m); }}
-                        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[#f9f9fb] transition-colors"
-                      >
-                        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#e6e6e9] text-[10px] font-semibold text-[#6b6f76]">
-                          {getInitials(m.name)}
-                        </div>
-                        <div>
-                          <p className="text-[12px] font-medium text-[#1b1b1f]">{m.name}</p>
-                          <p className="text-[11px] text-[#8b8d94]">{m.email}</p>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
+            {/* Bottom panel — tabbed: Reply / Comments */}
+            <div className="border-t border-[#e6e6e9] flex flex-col min-h-[180px]">
+              {/* Tabs */}
+              <div className="flex items-center gap-0 px-4 border-b border-[#ededf0]">
+                <button
+                  onClick={() => setBottomTab("reply")}
+                  className={`px-3 py-2 text-[12px] font-medium border-b-2 transition-colors ${
+                    bottomTab === "reply"
+                      ? "border-[#1b1b1f] text-[#1b1b1f]"
+                      : "border-transparent text-[#8b8d94] hover:text-[#6b6f76]"
+                  }`}
+                >
+                  Reply
+                </button>
+                <button
+                  onClick={() => setBottomTab("comments")}
+                  className={`flex items-center gap-1.5 px-3 py-2 text-[12px] font-medium border-b-2 transition-colors ${
+                    bottomTab === "comments"
+                      ? "border-[#1b1b1f] text-[#1b1b1f]"
+                      : "border-transparent text-[#8b8d94] hover:text-[#6b6f76]"
+                  }`}
+                >
+                  Comments
+                  {commentCount > 0 && (
+                    <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#5e6ad2] px-1 text-[10px] font-semibold text-white leading-none">
+                      {commentCount}
+                    </span>
+                  )}
+                </button>
               </div>
 
-              {/* Send bar */}
-              <div className="mt-2 flex items-center justify-between">
-                <div className="relative">
-                  <button
-                    onClick={() => { void fetchTemplates(); setShowTemplatePicker((p) => !p); }}
-                    className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-[#6b6f76] hover:bg-[#f5f5f7] transition-colors"
-                  >
-                    Use template
-                  </button>
-                  {showTemplatePicker && (
-                    <div className="absolute left-0 bottom-full mb-1 w-64 rounded-lg border border-[#e6e6e9] bg-white shadow-lg z-20 overflow-hidden">
-                      {emailTemplates.length === 0 ? (
-                        <p className="px-3 py-3 text-[12px] text-[#8b8d94]">No templates yet</p>
-                      ) : (
-                        emailTemplates.map((t) => (
+              {/* Tab content */}
+              <div className="flex-1 flex flex-col">
+                {bottomTab === "reply" ? (
+                  <div className="flex-1 flex flex-col px-4 py-3">
+                    <div className="relative flex-1 flex flex-col rounded-lg border border-[#e6e6e9] bg-[#f9f9fb] focus-within:border-[#8b8d94] focus-within:bg-white transition-colors">
+                      <textarea
+                        ref={replyRef}
+                        value={replyBody}
+                        onChange={(e) => {
+                          handleReplyChange(e);
+                          // Auto-grow
+                          e.target.style.height = "auto";
+                          e.target.style.height = Math.max(60, e.target.scrollHeight) + "px";
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                            e.preventDefault();
+                            void sendReply();
+                          }
+                          if (e.key === "Escape") setMentionQuery(null);
+                        }}
+                        placeholder="Write a reply…"
+                        className="flex-1 w-full resize-none bg-transparent px-3 pt-2.5 pb-1 text-[13px] text-[#1b1b1f] placeholder:text-[#8b8d94] outline-none"
+                        style={{ minHeight: 60 }}
+                      />
+
+                      {/* Actions bar inside the box */}
+                      <div className="flex items-center justify-between px-2 pb-2 shrink-0">
+                        <div className="relative">
                           <button
-                            key={t._id}
-                            onClick={() => resolveTemplateForReply(t)}
-                            className="flex w-full flex-col px-3 py-2 text-left hover:bg-[#f9f9fb] transition-colors"
+                            onClick={() => { void fetchTemplates(); setShowTemplatePicker((p) => !p); }}
+                            className="rounded-md px-2 py-1 text-[11px] font-medium text-[#8b8d94] hover:bg-black/[0.04] hover:text-[#6b6f76] transition-colors"
                           >
-                            <span className="text-[12px] font-medium text-[#1b1b1f]">{t.title}</span>
-                            <span className="text-[11px] text-[#8b8d94] line-clamp-1 font-mono">{t.body}</span>
+                            Use template
                           </button>
-                        ))
+                          {showTemplatePicker && (
+                            <div className="absolute left-0 bottom-full mb-1 w-64 rounded-lg border border-[#e6e6e9] bg-white shadow-lg z-20 overflow-hidden">
+                              {emailTemplates.length === 0 ? (
+                                <p className="px-3 py-3 text-[12px] text-[#8b8d94]">No templates yet</p>
+                              ) : (
+                                emailTemplates.map((t) => (
+                                  <button
+                                    key={t._id}
+                                    onClick={() => resolveTemplateForReply(t)}
+                                    className="flex w-full flex-col px-3 py-2 text-left hover:bg-[#f9f9fb] transition-colors"
+                                  >
+                                    <span className="text-[12px] font-medium text-[#1b1b1f]">{t.title}</span>
+                                    <span className="text-[11px] text-[#8b8d94] line-clamp-1 font-mono">{t.body}</span>
+                                  </button>
+                                ))
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2.5">
+                          <span className="text-[10px] text-[#8b8d94]">
+                            <kbd className="rounded bg-black/[0.04] px-1 py-0.5 font-mono text-[9px] text-[#8b8d94]">⌘↵</kbd>
+                          </span>
+                          <button
+                            onClick={sendReply}
+                            disabled={!replyBody.trim() || sendingReply}
+                            className="flex items-center gap-1.5 rounded-md bg-[#1b1b1f] px-3 py-1 text-[11px] font-medium text-white transition-opacity disabled:opacity-30 hover:bg-[#2c2c33]"
+                          >
+                            {sendingReply ? (
+                              <div className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                            ) : (
+                              <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+                              </svg>
+                            )}
+                            Send
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* @ mention dropdown */}
+                      {mentionQuery !== null && filteredMentionMembers.length > 0 && (
+                        <div className="absolute bottom-full left-0 mb-1 w-60 overflow-hidden rounded-lg border border-[#e6e6e9] bg-white shadow-md z-10">
+                          {filteredMentionMembers.map((m) => (
+                            <button
+                              key={m.email}
+                              onMouseDown={(e) => { e.preventDefault(); insertMention(m); }}
+                              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[#f9f9fb] transition-colors"
+                            >
+                              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#e6e6e9] text-[10px] font-semibold text-[#6b6f76]">
+                                {getInitials(m.name)}
+                              </div>
+                              <div>
+                                <p className="text-[12px] font-medium text-[#1b1b1f]">{m.name}</p>
+                                <p className="text-[11px] text-[#8b8d94]">{m.email}</p>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
                       )}
                     </div>
-                  )}
-                </div>
-                <div className="flex items-center gap-3">
-                <span className="text-[11px] text-[#8b8d94]">
-                  <kbd className="rounded bg-[#f5f5f7] px-1 py-0.5 font-mono text-[10px] text-[#6b6f76]">⌘↵</kbd> to send
-                </span>
-                <button
-                  onClick={sendReply}
-                  disabled={!replyBody.trim() || sendingReply}
-                  className="flex items-center gap-1.5 rounded-lg bg-[#1b1b1f] px-3.5 py-1.5 text-[12px] font-medium text-white transition-opacity disabled:opacity-40 hover:bg-[#1b1b1f]"
-                >
-                  {sendingReply ? (
-                    <div className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                  ) : (
-                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
-                    </svg>
-                  )}
-                  Send
-                </button>
-                </div>
+                  </div>
+                ) : (
+                  <div className="flex-1 flex flex-col">
+                    <InternalComments
+                      threadId={selectedThread.id}
+                      authToken={authToken}
+                      apiBaseUrl={apiBaseUrl}
+                      connectedUsers={connectedUsers}
+                      onCountChange={setCommentCount}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           </>

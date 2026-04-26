@@ -281,3 +281,13 @@ export interface EmailSignatureRecord {
   body: string;
   updatedAt: string;
 }
+
+export interface ThreadCommentRecord {
+  _id?: ObjectId;
+  threadId: string;
+  authorEmail: string;
+  authorName: string;
+  body: string;
+  mentions: string[];
+  createdAt: string;
+}

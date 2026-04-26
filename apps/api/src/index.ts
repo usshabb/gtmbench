@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 import express from "express";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
-import { getBuyerProfilesCollection, getBuyerSearchResultsCollection, getCompanyATSCollection, getCompaniesCollection, getEmailSignaturesCollection, getEmailTemplatesCollection, getGoogleTokensCollection, getInvitesCollection, getJobsCollection, getLegacyLinkedinContentForPersonCollection, getLinkedinPostsForUserCollection, getPersonsCollection, getSignalsCollection, getSkillsCollection, getTriggerJobsCollection, getTriggersCollection, getUsersCollection, getWorkspacesCollection } from "./db.js";
+import { getBuyerProfilesCollection, getBuyerSearchResultsCollection, getCompanyATSCollection, getCompaniesCollection, getEmailSignaturesCollection, getEmailTemplatesCollection, getGoogleTokensCollection, getInvitesCollection, getJobsCollection, getLegacyLinkedinContentForPersonCollection, getLinkedinPostsForUserCollection, getPersonsCollection, getSignalsCollection, getSkillsCollection, getThreadCommentsCollection, getTriggerJobsCollection, getTriggersCollection, getUsersCollection, getWorkspacesCollection } from "./db.js";
 import { env } from "./env.js";
 import { getEmailFromToken, signToken } from "./auth.js";
 import { ContactEmail, enrichCompanyByLinkedinId, enrichDomainWithFiber, enrichPersonByEmailWithFiber, enrichPersonWithFiber, findEmailWithContactDetails, findPersonEmailWithFiber, searchBuyersWithFiber } from "./fiber.js";
@@ -3408,6 +3408,47 @@ app.post("/inbox/threads/:threadId/read", async (request, response) => {
     console.error("[inbox-mark-read] Failed:", err);
     response.status(500).json({ error: "Failed to mark as read" });
   }
+});
+
+// ── Thread internal comments ────────────────────────────────────────────────
+
+app.get("/inbox/threads/:threadId/comments", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+  const commentsCol = await getThreadCommentsCollection();
+
+  const comments = await commentsCol
+    .find({ threadId: request.params.threadId, authorEmail: { $in: memberEmails } })
+    .sort({ createdAt: 1 })
+    .toArray();
+
+  response.json({ comments });
+});
+
+app.post("/inbox/threads/:threadId/comments", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const usersCol = await getUsersCollection();
+  const user = await usersCol.findOne({ email: userEmail });
+  const commentsCol = await getThreadCommentsCollection();
+
+  const { body, mentions } = request.body as { body: string; mentions?: string[] };
+
+  if (!body?.trim()) {
+    response.status(400).json({ error: "Comment body is required" });
+    return;
+  }
+
+  const comment = {
+    threadId: request.params.threadId,
+    authorEmail: userEmail,
+    authorName: user?.fullName ?? userEmail,
+    body: body.trim(),
+    mentions: mentions ?? [],
+    createdAt: new Date().toISOString(),
+  };
+
+  const result = await commentsCol.insertOne(comment);
+  response.json({ comment: { ...comment, _id: result.insertedId } });
 });
 
 // Get calendar events — aggregated from all workspace members with Calendar connected
