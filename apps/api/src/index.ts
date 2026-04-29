@@ -261,20 +261,38 @@ app.get("/auth/google/callback", async (request, response) => {
       const googleInfo = await getUserInfoFromGoogle(tokens.access_token!, tokens.refresh_token ?? null);
       const email = googleInfo.email.toLowerCase();
 
-      // Store Google tokens
+      // Store Google tokens — preserve existing refresh token & scopes from a prior "connect" flow
       const googleTokensCol = await getGoogleTokensCollection();
+      const existingToken = await googleTokensCol.findOne({ userEmail: email });
+
+      const tokenUpdate: Record<string, unknown> = {
+        userEmail: email,
+        accessToken: tokens.access_token!,
+        expiryDate: tokens.expiry_date ?? null,
+        updatedAt: new Date().toISOString(),
+      };
+
+      // Only overwrite refreshToken/scope if the new token actually has them;
+      // otherwise keep the broader values from a previous "connect" OAuth.
+      if (tokens.refresh_token) {
+        tokenUpdate.refreshToken = tokens.refresh_token;
+      } else if (!existingToken) {
+        tokenUpdate.refreshToken = null;
+      }
+
+      if (tokens.scope) {
+        // Merge scopes: keep existing broader scopes if the new sign-in has fewer
+        const newScopes = new Set(tokens.scope.split(" "));
+        const oldScopes = new Set((existingToken?.scope ?? "").split(" ").filter(Boolean));
+        const merged = new Set([...oldScopes, ...newScopes]);
+        tokenUpdate.scope = [...merged].join(" ");
+      } else if (!existingToken) {
+        tokenUpdate.scope = null;
+      }
+
       await googleTokensCol.updateOne(
         { userEmail: email },
-        {
-          $set: {
-            userEmail: email,
-            accessToken: tokens.access_token!,
-            refreshToken: tokens.refresh_token ?? null,
-            expiryDate: tokens.expiry_date ?? null,
-            scope: tokens.scope ?? null,
-            updatedAt: new Date().toISOString(),
-          },
-        },
+        { $set: tokenUpdate },
         { upsert: true },
       );
 
@@ -297,6 +315,17 @@ app.get("/auth/google/callback", async (request, response) => {
         const updates: Record<string, unknown> = { updatedAt: now };
         if (!existingUser.fullName && googleInfo.name) updates.fullName = googleInfo.name;
         if (!existingUser.profilePhotoUrl && googleInfo.picture) updates.profilePhotoUrl = googleInfo.picture;
+
+        // Restore gmailConnected/calendarConnected if token still has the required scopes
+        const finalToken = await googleTokensCol.findOne({ userEmail: email });
+        const scopes = finalToken?.scope ?? "";
+        if (scopes.includes("gmail") && existingUser.gmailConnected !== false) {
+          updates.gmailConnected = true;
+        }
+        if (scopes.includes("calendar") && existingUser.calendarConnected !== false) {
+          updates.calendarConnected = true;
+        }
+
         await usersCol.updateOne({ email }, { $set: updates });
       }
 
@@ -3272,7 +3301,7 @@ app.get("/inbox/emails", async (_request, response) => {
     const allThreadResults = await Promise.all(
       allTokens.map(async (tokenRecord) => {
         try {
-          const threads = await getInboxThreads(tokenRecord.accessToken, tokenRecord.refreshToken, personEmailMeta);
+          const threads = await getInboxThreads(tokenRecord.accessToken, tokenRecord.refreshToken, personEmailMeta, 50, tokenRecord.userEmail);
           return threads.map((t) => ({
             ...t,
             personId: emailToPersonId.get(t.personEmail.toLowerCase()),
@@ -3326,6 +3355,7 @@ app.get("/inbox/threads/:threadId", async (request, response) => {
         tokenRecord.accessToken,
         tokenRecord.refreshToken,
         request.params.threadId,
+        tokenRecord.userEmail,
       );
       response.json({ messages, sourceUserEmail: tokenRecord.userEmail });
       return;
@@ -3375,6 +3405,7 @@ app.post("/inbox/threads/:threadId/reply", async (request, response) => {
       subject ?? "",
       body,
       inReplyTo,
+      tokenRecord.userEmail,
     );
     response.json({ success: true });
   } catch (err) {
@@ -3402,7 +3433,7 @@ app.post("/inbox/threads/:threadId/read", async (request, response) => {
   }
 
   try {
-    await markThreadAsRead(tokenRecord.accessToken, tokenRecord.refreshToken, request.params.threadId);
+    await markThreadAsRead(tokenRecord.accessToken, tokenRecord.refreshToken, request.params.threadId, tokenRecord.userEmail);
     response.json({ success: true });
   } catch (err) {
     console.error("[inbox-mark-read] Failed:", err);
@@ -3520,7 +3551,7 @@ app.get("/calendar/events", async (request, response) => {
     const allResults = await Promise.all(
       allTokens.map(async (tokenRecord) => {
         try {
-          const events = await getCalendarEvents(tokenRecord.accessToken, tokenRecord.refreshToken, timeMin, timeMax);
+          const events = await getCalendarEvents(tokenRecord.accessToken, tokenRecord.refreshToken, timeMin, timeMax, tokenRecord.userEmail);
           return events.map((event) => {
             const matchedPersons = event.attendees
               .map((a) => {
@@ -3621,7 +3652,7 @@ app.get("/persons/:id/emails", async (request, response) => {
     const allResults = await Promise.all(
       allTokens.map(async (tokenRecord) => {
         try {
-          const emails = await getEmailsWithPerson(tokenRecord.accessToken, tokenRecord.refreshToken, personEmail);
+          const emails = await getEmailsWithPerson(tokenRecord.accessToken, tokenRecord.refreshToken, personEmail, tokenRecord.userEmail);
           return emails.map((e) => ({
             ...e,
             sourceUserEmail: tokenRecord.userEmail,
@@ -3874,7 +3905,7 @@ app.post("/persons/:id/emails", async (request, response) => {
   }
 
   try {
-    await sendGmail(tokenRecord.accessToken, tokenRecord.refreshToken, to, subject, body);
+    await sendGmail(tokenRecord.accessToken, tokenRecord.refreshToken, to, subject, body, tokenRecord.userEmail);
     response.json({ success: true });
   } catch (err) {
     console.error("[gmail-send] Failed:", err);

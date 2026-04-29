@@ -1,5 +1,6 @@
 import { google } from "googleapis";
 import { env } from "./env.js";
+import { getGoogleTokensCollection } from "./db.js";
 
 export function createOAuth2Client() {
   return new google.auth.OAuth2(
@@ -7,6 +8,35 @@ export function createOAuth2Client() {
     env.GOOGLE_CLIENT_SECRET,
     env.GOOGLE_REDIRECT_URI,
   );
+}
+
+/**
+ * Create an OAuth2 client with credentials set, and a listener that persists
+ * refreshed tokens back to the database so they survive across requests.
+ */
+export function createAuthenticatedClient(
+  accessToken: string,
+  refreshToken: string | null,
+  userEmail: string,
+) {
+  const client = createOAuth2Client();
+  client.setCredentials({ access_token: accessToken, refresh_token: refreshToken });
+
+  // When the googleapis library auto-refreshes the access token, persist the new one
+  client.on("tokens", async (newTokens) => {
+    try {
+      const col = await getGoogleTokensCollection();
+      const updates: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+      if (newTokens.access_token) updates.accessToken = newTokens.access_token;
+      if (newTokens.refresh_token) updates.refreshToken = newTokens.refresh_token;
+      if (newTokens.expiry_date) updates.expiryDate = newTokens.expiry_date;
+      await col.updateOne({ userEmail }, { $set: updates });
+    } catch (err) {
+      console.error(`[google] Failed to persist refreshed token for ${userEmail}:`, err);
+    }
+  });
+
+  return client;
 }
 
 const SIGNIN_SCOPES = [
@@ -81,9 +111,11 @@ export async function getEmailsWithPerson(
   accessToken: string,
   refreshToken: string | null,
   personEmail: string,
+  userEmail?: string,
 ): Promise<EmailThread[]> {
-  const client = createOAuth2Client();
-  client.setCredentials({ access_token: accessToken, refresh_token: refreshToken });
+  const client = userEmail
+    ? createAuthenticatedClient(accessToken, refreshToken, userEmail)
+    : (() => { const c = createOAuth2Client(); c.setCredentials({ access_token: accessToken, refresh_token: refreshToken }); return c; })();
 
   const gmail = google.gmail({ version: "v1", auth: client });
 
@@ -141,11 +173,13 @@ export async function getInboxThreads(
   refreshToken: string | null,
   personEmails: { email: string; name: string }[],
   maxResults = 50,
+  userEmail?: string,
 ): Promise<InboxThread[]> {
   if (personEmails.length === 0) return [];
 
-  const client = createOAuth2Client();
-  client.setCredentials({ access_token: accessToken, refresh_token: refreshToken });
+  const client = userEmail
+    ? createAuthenticatedClient(accessToken, refreshToken, userEmail)
+    : (() => { const c = createOAuth2Client(); c.setCredentials({ access_token: accessToken, refresh_token: refreshToken }); return c; })();
   const gmail = google.gmail({ version: "v1", auth: client });
 
   // Build combined query: (from:a OR to:a) OR (from:b OR to:b) ...
@@ -226,9 +260,11 @@ export async function markThreadAsRead(
   accessToken: string,
   refreshToken: string | null,
   threadId: string,
+  userEmail?: string,
 ): Promise<void> {
-  const client = createOAuth2Client();
-  client.setCredentials({ access_token: accessToken, refresh_token: refreshToken });
+  const client = userEmail
+    ? createAuthenticatedClient(accessToken, refreshToken, userEmail)
+    : (() => { const c = createOAuth2Client(); c.setCredentials({ access_token: accessToken, refresh_token: refreshToken }); return c; })();
   const gmail = google.gmail({ version: "v1", auth: client });
 
   await gmail.users.threads.modify({
@@ -259,9 +295,11 @@ export async function getCalendarEvents(
   refreshToken: string | null,
   timeMin: string,
   timeMax: string,
+  userEmail?: string,
 ): Promise<CalendarEvent[]> {
-  const client = createOAuth2Client();
-  client.setCredentials({ access_token: accessToken, refresh_token: refreshToken });
+  const client = userEmail
+    ? createAuthenticatedClient(accessToken, refreshToken, userEmail)
+    : (() => { const c = createOAuth2Client(); c.setCredentials({ access_token: accessToken, refresh_token: refreshToken }); return c; })();
 
   const calendar = google.calendar({ version: "v3", auth: client });
 
@@ -314,9 +352,11 @@ export async function sendGmail(
   to: string,
   subject: string,
   body: string,
+  userEmail?: string,
 ): Promise<void> {
-  const client = createOAuth2Client();
-  client.setCredentials({ access_token: accessToken, refresh_token: refreshToken });
+  const client = userEmail
+    ? createAuthenticatedClient(accessToken, refreshToken, userEmail)
+    : (() => { const c = createOAuth2Client(); c.setCredentials({ access_token: accessToken, refresh_token: refreshToken }); return c; })();
 
   const gmail = google.gmail({ version: "v1", auth: client });
 
@@ -384,9 +424,11 @@ export async function getThreadMessages(
   accessToken: string,
   refreshToken: string | null,
   threadId: string,
+  userEmail?: string,
 ): Promise<ThreadMessage[]> {
-  const client = createOAuth2Client();
-  client.setCredentials({ access_token: accessToken, refresh_token: refreshToken });
+  const client = userEmail
+    ? createAuthenticatedClient(accessToken, refreshToken, userEmail)
+    : (() => { const c = createOAuth2Client(); c.setCredentials({ access_token: accessToken, refresh_token: refreshToken }); return c; })();
   const gmail = google.gmail({ version: "v1", auth: client });
 
   const threadData = await gmail.users.threads.get({ userId: "me", id: threadId, format: "full" });
@@ -419,9 +461,11 @@ export async function replyToThread(
   subject: string,
   body: string,
   inReplyTo?: string,
+  userEmail?: string,
 ): Promise<void> {
-  const client = createOAuth2Client();
-  client.setCredentials({ access_token: accessToken, refresh_token: refreshToken });
+  const client = userEmail
+    ? createAuthenticatedClient(accessToken, refreshToken, userEmail)
+    : (() => { const c = createOAuth2Client(); c.setCredentials({ access_token: accessToken, refresh_token: refreshToken }); return c; })();
   const gmail = google.gmail({ version: "v1", auth: client });
 
   const cleanSubject = subject.startsWith("Re: ") ? subject : `Re: ${subject}`;
