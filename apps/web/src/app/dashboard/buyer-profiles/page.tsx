@@ -7,6 +7,7 @@ import { safeJson, apiFetch } from "../components";
 interface BuyerProfile {
   _id: string;
   name: string;
+  price?: number | null;
   titles: string[];
   isDefault: boolean;
   createdAt: string;
@@ -85,6 +86,7 @@ function ProfileFormModal({
   authToken: string;
 }) {
   const [name, setName] = useState(profile?.name ?? "");
+  const [price, setPrice] = useState(profile?.price != null ? String(profile.price) : "");
   const [titles, setTitles] = useState<string[]>(profile?.titles ?? []);
   const [inputValue, setInputValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -141,7 +143,7 @@ function ProfileFormModal({
       const response = await apiFetch(url, {
         method: isEditing ? "PUT" : "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ name: name.trim(), titles: allTitles }),
+        body: JSON.stringify({ name: name.trim(), price: price ? Number(price) : null, titles: allTitles }),
       });
 
       const result = (await safeJson(response)) as { profile?: unknown; error?: string };
@@ -161,12 +163,13 @@ function ProfileFormModal({
       <form
         onSubmit={handleSubmit}
         className="flex w-full max-w-lg flex-col rounded-lg bg-white shadow-lg"
+        style={{ maxHeight: "70vh" }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-4">
           <h2 className="text-[17px] font-semibold text-[#1b1b1f]">
-            {isEditing ? "Edit Buyer Profile" : "New Buyer Profile"}
+            {isEditing ? "Edit Product" : "New Product"}
           </h2>
           <button
             type="button"
@@ -180,29 +183,47 @@ function ProfileFormModal({
         </div>
 
         {/* Body */}
-        <div className="px-5 pb-5 space-y-6">
-          {/* Profile Name */}
+        <div className="px-5 pb-5 space-y-6 overflow-y-auto flex-1 min-h-0">
+          {/* Product Name */}
           <div>
-            <label className="block text-[14px] font-semibold text-[#1b1b1f] mb-2">Profile Name</label>
+            <label className="block text-[14px] font-semibold text-[#1b1b1f] mb-2">Product Name</label>
             <input
               className="w-full rounded-md border border-[#e6e6e9] bg-white px-4 py-3 text-[14px] text-[#1b1b1f] placeholder:text-[#8b8d94] focus:border-[#5e6ad2] focus:ring-1 focus:ring-[#5e6ad2]/20 focus:outline-none transition-colors"
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Enterprise Sales Leaders"
+              placeholder="e.g. Enterprise CRM Platform"
               autoFocus
               required
             />
           </div>
 
-          {/* Titles — tag input */}
+          {/* Price */}
           <div>
-            <label className="block text-[14px] font-semibold text-[#1b1b1f] mb-1">Titles</label>
-            <p className="text-[13px] text-[#8b8d94] mb-3">Job titles that describe who you are selling to</p>
+            <label className="block text-[14px] font-semibold text-[#1b1b1f] mb-1">Price</label>
+            <p className="text-[13px] text-[#8b8d94] mb-3">Annual contract value or price point</p>
+            <div className="relative">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[14px] text-[#8b8d94]">$</span>
+              <input
+                className="w-full rounded-md border border-[#e6e6e9] bg-white pl-8 pr-4 py-3 text-[14px] text-[#1b1b1f] placeholder:text-[#8b8d94] focus:border-[#5e6ad2] focus:ring-1 focus:ring-[#5e6ad2]/20 focus:outline-none transition-colors"
+                type="number"
+                min="0"
+                step="any"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                placeholder="0.00"
+              />
+            </div>
+          </div>
+
+          {/* Buyer Profile Titles — tag input */}
+          <div>
+            <label className="block text-[14px] font-semibold text-[#1b1b1f] mb-1">Buyer Profiles</label>
+            <p className="text-[13px] text-[#8b8d94] mb-3">Job titles of the buyers for this product</p>
 
             {/* Tag box */}
             <div
-              className="flex min-h-[52px] flex-wrap gap-2 rounded-md border border-[#e6e6e9] bg-white px-3.5 py-2.5 cursor-text focus-within:border-[#5e6ad2] focus-within:ring-1 focus-within:ring-[#5e6ad2]/20 transition-colors"
+              className="flex min-h-[52px] max-h-[160px] overflow-y-auto flex-wrap gap-2 rounded-md border border-[#e6e6e9] bg-white px-3.5 py-2.5 cursor-text focus-within:border-[#5e6ad2] focus-within:ring-1 focus-within:ring-[#5e6ad2]/20 transition-colors"
               onClick={() => inputRef.current?.focus()}
             >
               {titles.map((title, i) => (
@@ -253,7 +274,7 @@ function ProfileFormModal({
             disabled={isLoading}
             className="rounded-md bg-[#1b1b1f] px-4 py-2 text-[14px] font-semibold text-white transition-all hover:bg-[#2c2c33] disabled:opacity-60"
           >
-            {isLoading ? "Saving…" : isEditing ? "Save Changes" : "Create Profile"}
+            {isLoading ? "Saving…" : isEditing ? "Save Changes" : "Create Product"}
           </button>
         </div>
       </form>
@@ -344,9 +365,12 @@ function ProfileCard({
             )}
           </div>
           <p className="mt-0.5 text-[12px] text-[#8b8d94]">
-            {profile.titles.length} {profile.titles.length === 1 ? "title" : "titles"}
+            {profile.price != null && profile.price > 0 && (
+              <><span className="text-[#1b1b1f] font-medium">${profile.price.toLocaleString()}</span> · </>
+            )}
+            {profile.titles.length} {profile.titles.length === 1 ? "buyer profile" : "buyer profiles"}
             {personCount > 0 && (
-              <> · <span className="text-[#6b6f76]">{personCount} {personCount === 1 ? "person" : "people"}</span></>
+              <> · <span className="text-[#6b6f76]">{personCount} {personCount === 1 ? "buyer" : "buyers"} matched</span></>
             )}
           </p>
         </div>
@@ -463,7 +487,7 @@ function AddProfileCard({ onClick }: { onClick: () => void }) {
         </svg>
       </div>
       <p className="mt-3 text-[14px] font-medium text-[#8b8d94] transition-colors group-hover:text-[#6b6f76]">
-        Add a Buyer Profile
+        Add a Product
       </p>
     </button>
   );
@@ -573,7 +597,7 @@ export default function BuyerProfilesPage() {
         <div className="mx-auto w-full max-w-3xl px-4 py-6">
           {/* Header */}
           <p className="text-[13px] text-[#6b6f76] leading-relaxed">
-            Define who you are selling to. Buyer profiles match tracked people by job title so you can focus on the right contacts.
+            Define what you sell and who buys it. Each product has buyer profiles that match tracked people by job title.
           </p>
 
           {/* Create button */}
@@ -585,7 +609,7 @@ export default function BuyerProfilesPage() {
               <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
               </svg>
-              Create profile
+              Add product
             </button>
           </div>
 
@@ -611,7 +635,7 @@ export default function BuyerProfilesPage() {
             )}
             {!isLoading && profiles.length === 0 && (
               <div className="flex items-center justify-center py-16">
-                <p className="text-[14px] text-[#8b8d94]">No buyer profiles yet</p>
+                <p className="text-[14px] text-[#8b8d94]">No products yet</p>
               </div>
             )}
           </div>

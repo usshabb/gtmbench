@@ -469,7 +469,7 @@ function BuyerPickerModal({
   onSelect: (person: PersonInfo) => void;
   onClose: () => void;
 }) {
-  const buyers = persons.filter((p) => p.companyDomain === domain && p.workEmail);
+  const buyers = persons.filter((p) => p.companyDomain === domain && (p.workEmail || (p.availableEmails && p.availableEmails.length > 0)));
 
   return (
     <div
@@ -500,21 +500,24 @@ function BuyerPickerModal({
           </div>
         ) : (
           <div className="divide-y divide-[#ededf0]">
-            {buyers.map((p) => (
-              <button
-                key={p._id}
-                onClick={() => onSelect(p)}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-[#f5f5f7]"
-              >
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#f5f5f7] text-[13px] font-medium text-[#6b6f76]">
-                  {(p.fullName ?? p.workEmail ?? "?").charAt(0).toUpperCase()}
-                </div>
-                <div className="min-w-0">
-                  {p.fullName && <p className="text-[13px] font-medium text-[#1b1b1f] truncate">{p.fullName}</p>}
-                  <p className="text-[12px] text-[#8b8d94] truncate">{p.workEmail}</p>
-                </div>
-              </button>
-            ))}
+            {buyers.map((p) => {
+              const email = p.workEmail || p.availableEmails?.[0]?.email || "";
+              return (
+                <button
+                  key={p._id}
+                  onClick={() => onSelect(p)}
+                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-[#f5f5f7]"
+                >
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#f5f5f7] text-[13px] font-medium text-[#6b6f76]">
+                    {(p.fullName ?? email ?? "?").charAt(0).toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    {p.fullName && <p className="text-[13px] font-medium text-[#1b1b1f] truncate">{p.fullName}</p>}
+                    <p className="text-[12px] text-[#8b8d94] truncate">{email}</p>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -1289,7 +1292,7 @@ function EmailComposeModal({
           <div ref={quillContainerRef} />
           {signature && (
             <div className="border-t border-[#f0f3f8] px-5 py-2">
-              <p className="whitespace-pre-wrap text-[13px] text-[#8b8d94] leading-relaxed">{signature}</p>
+              <div className="text-[13px] text-[#8b8d94] leading-relaxed [&_p]:m-0 [&_a]:text-[#5e6ad2] [&_a]:underline" dangerouslySetInnerHTML={{ __html: signature }} />
             </div>
           )}
         </div>
@@ -1578,10 +1581,11 @@ export default function SignalsPage() {
     const domain = signal.data.companyDomain ?? signal.companyDomain;
     const firstJob = signal.data.jobs[0];
     const emails = person.availableEmails ?? (person.workEmail ? [{ email: person.workEmail, type: "work" }] : []);
+    const bestEmail = person.workEmail || person.availableEmails?.[0]?.email || "";
     setBuyerPickerSignal(null);
     setEmailError("");
     setEmailModal({
-      to: person.workEmail ?? "",
+      to: bestEmail,
       subject: firstJob
         ? `Re: ${firstJob.title} at ${domain ?? ""}`
         : `Following up on ${domain ?? ""}`,
@@ -1625,7 +1629,7 @@ export default function SignalsPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ to, subject, body: emailSignature ? `${body}\n\n${emailSignature}` : body }),
+        body: JSON.stringify({ to, subject, body }),
       });
       const data = (await safeJson(res)) as { success?: boolean; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Failed to send");

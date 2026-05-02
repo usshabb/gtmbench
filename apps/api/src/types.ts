@@ -46,6 +46,8 @@ export interface CompanyRecord {
   userEmails: string[];
   domain: string;
   buyerProfileId?: ObjectId | null;
+  starred?: boolean;
+  pipelineStage?: string | null;
   createdAt: string;
   enrichedAt?: string;
   enrichmentStatus: "pending" | "completed" | "failed";
@@ -57,6 +59,7 @@ export interface BuyerProfileRecord {
   _id?: ObjectId;
   userEmail: string;
   name: string;
+  price?: number | null;
   titles: string[];
   isDefault: boolean;
   createdAt: string;
@@ -290,4 +293,19 @@ export interface ThreadCommentRecord {
   body: string;
   mentions: string[];
   createdAt: string;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Email Tracking                                                      */
+/* ------------------------------------------------------------------ */
+
+export interface EmailTrackRecord {
+  _id?: ObjectId;
+  trackId: string;            // UUID embedded in pixel URL
+  userEmail: string;          // sender
+  threadId: string;
+  recipientEmail: string;
+  messageSubject?: string;
+  sentAt: string;
+  opens: { openedAt: string; ip?: string; userAgent?: string }[];
 }

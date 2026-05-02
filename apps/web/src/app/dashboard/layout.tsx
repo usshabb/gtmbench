@@ -45,16 +45,19 @@ const icons = {
   search: <LucideIcon><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></LucideIcon>,
 };
 
+const pipelineIcon = <LucideIcon><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></LucideIcon>;
+
 const primaryNavItems = [
   { label: "Home", href: "/dashboard", icon: icons.home, exact: true },
   { label: "Inbox", href: "/dashboard/inbox", icon: icons.inbox, hasDot: true },
   { label: "Meetings", href: "/dashboard/calendar", icon: icons.calendar },
+  { label: "Pipeline", href: "/dashboard/pipeline", icon: pipelineIcon },
   { label: "Companies", href: "/dashboard/companies", icon: icons.building, countKey: "Companies" },
   { label: "People", href: "/dashboard/people", icon: icons.user, countKey: "People" },
 ];
 
 const workspaceNavItems = [
-  { label: "Buyer Profiles", href: "/dashboard/buyer-profiles", icon: icons.target },
+  { label: "Products", href: "/dashboard/buyer-profiles", icon: icons.target },
   { label: "Skills", href: "/dashboard/skills", icon: icons.wand },
   { label: "Triggers", href: "/dashboard/triggers", icon: icons.bolt },
   { label: "Settings", href: "/dashboard/settings/profile", icon: icons.settings },

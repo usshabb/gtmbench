@@ -10,6 +10,8 @@ interface CompanyRecord {
   userEmails: string[];
   domain: string;
   buyerProfileId?: string | null;
+  starred?: boolean;
+  pipelineStage?: string | null;
   createdAt: string;
   enrichedAt?: string;
   enrichmentStatus: "pending" | "completed" | "failed";
@@ -364,6 +366,7 @@ function CompanyCard({
   buyerProfile,
   allBuyerProfiles,
   onBuyerProfileUpdated,
+  onStarToggled,
   apiBaseUrl,
   authToken,
   trackedPersonCount,
@@ -377,6 +380,7 @@ function CompanyCard({
   buyerProfile?: BuyerProfile;
   allBuyerProfiles: BuyerProfile[];
   onBuyerProfileUpdated: (companyId: string, buyerProfileId: string | null) => void;
+  onStarToggled: (companyId: string, starred: boolean) => void;
   apiBaseUrl: string;
   authToken: string;
   trackedPersonCount: number | null;
@@ -386,7 +390,29 @@ function CompanyCard({
   const [showBuyerProfileModal, setShowBuyerProfileModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
+  const [toggingStar, setTogglingStar] = useState(false);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
+
+  async function handleToggleStar(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!company._id || toggingStar) return;
+    setTogglingStar(true);
+    try {
+      const res = await apiFetch(`${apiBaseUrl}/companies/${company._id}/star`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+      });
+      if (res.ok) {
+        const data = (await safeJson(res)) as { starred: boolean };
+        onStarToggled(company._id, data.starred);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setTogglingStar(false);
+    }
+  }
 
   const data = getFiberData(company);
   const name = (data?.preferred_name ?? company.domain) as string;
@@ -406,6 +432,20 @@ function CompanyCard({
     <>
       <div className="group relative flex items-center gap-3 rounded-lg border border-[#e6e6e9] bg-white px-3.5 py-2.5 transition-all hover:border-[#d4d4d8]">
         <Link href={`/dashboard/companies/${company._id}`} className="absolute inset-0 rounded-lg" />
+
+        {/* Star */}
+        <button
+          onClick={handleToggleStar}
+          disabled={toggingStar}
+          className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[#f5f5f7] disabled:opacity-50"
+          title={company.starred ? "Remove from pipeline" : "Add to pipeline"}
+        >
+          {company.starred ? (
+            <svg className="h-4 w-4 text-amber-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
+          ) : (
+            <svg className="h-4 w-4 text-[#d4d4d8] group-hover:text-[#8b8d94]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
+          )}
+        </button>
 
         {/* Logo */}
         <div className="relative shrink-0">
@@ -687,6 +727,10 @@ export default function CompaniesPage() {
     setCompanies((prev) => prev.map((c) => c._id === companyId ? { ...c, buyerProfileId } : c));
   }
 
+  function handleStarToggled(companyId: string, starred: boolean) {
+    setCompanies((prev) => prev.map((c) => c._id === companyId ? { ...c, starred } : c));
+  }
+
   async function handleDetectATS(id: string) {
     setIsDetectingATS(id);
     setATSData((prev) => ({ ...prev, [id]: { detectionStatus: "pending" } }));
@@ -777,6 +821,7 @@ export default function CompaniesPage() {
                 buyerProfile={company.buyerProfileId ? buyerProfiles.find((p) => p._id === company.buyerProfileId) : undefined}
                 allBuyerProfiles={buyerProfiles}
                 onBuyerProfileUpdated={handleBuyerProfileUpdated}
+                onStarToggled={handleStarToggled}
                 apiBaseUrl={apiBaseUrl}
                 authToken={authToken}
                 trackedPersonCount={company._id ? (personCounts[company._id] ?? null) : null}
