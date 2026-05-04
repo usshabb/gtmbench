@@ -45,7 +45,11 @@ export async function getCompaniesCollection(): Promise<Collection<CompanyRecord
     // Index may not exist, ignore
   }
 
-  await companiesCollection.createIndex({ domain: 1 }, { unique: true });
+  try {
+    await companiesCollection.createIndex({ domain: 1 }, { unique: true });
+  } catch {
+    console.error("[db] Could not create unique index on companies.domain — duplicate values exist");
+  }
   await companiesCollection.createIndex({ userEmails: 1 });
 
   return companiesCollection;
@@ -72,7 +76,13 @@ export async function getPersonsCollection(): Promise<Collection<PersonRecord>> 
 
   personsCollection = database.collection<PersonRecord>("persons");
 
-  await personsCollection.createIndex({ linkedinUrl: 1 }, { unique: true });
+  // sparse so null/missing linkedinUrl values don't conflict; catch in case stale
+  // duplicate data in prod prevents index creation
+  try {
+    await personsCollection.createIndex({ linkedinUrl: 1 }, { unique: true, sparse: true });
+  } catch {
+    console.error("[db] Could not create unique index on persons.linkedinUrl — duplicate values exist");
+  }
   await personsCollection.createIndex({ userEmails: 1 });
   await personsCollection.createIndex({ companyDomain: 1 });
   await personsCollection.createIndex({ workEmail: 1 }, { sparse: true });
@@ -88,7 +98,11 @@ export async function getTriggersCollection(): Promise<Collection<TriggerRecord>
 
   triggersCollection = database.collection<TriggerRecord>("triggers");
 
-  await triggersCollection.createIndex({ userEmail: 1, triggerType: 1 }, { unique: true });
+  try {
+    await triggersCollection.createIndex({ userEmail: 1, triggerType: 1 }, { unique: true });
+  } catch {
+    console.error("[db] Could not create unique index on triggers(userEmail, triggerType)");
+  }
 
   return triggersCollection;
 }
@@ -119,14 +133,18 @@ export async function getTriggerJobsCollection(): Promise<Collection<TriggerJobR
   } catch {
     // Index may not exist
   }
-  await triggerJobsCollection.createIndex(
-    { personId: 1, triggerId: 1 },
-    { unique: true, partialFilterExpression: { personId: { $exists: true, $type: "objectId" } } },
-  );
-  await triggerJobsCollection.createIndex(
-    { companyId: 1, triggerId: 1 },
-    { unique: true, partialFilterExpression: { companyId: { $exists: true, $type: "objectId" } } },
-  );
+  try {
+    await triggerJobsCollection.createIndex(
+      { personId: 1, triggerId: 1 },
+      { unique: true, partialFilterExpression: { personId: { $exists: true, $type: "objectId" } } },
+    );
+    await triggerJobsCollection.createIndex(
+      { companyId: 1, triggerId: 1 },
+      { unique: true, partialFilterExpression: { companyId: { $exists: true, $type: "objectId" } } },
+    );
+  } catch {
+    console.error("[db] Could not create unique indexes on triggerJobs");
+  }
 
   return triggerJobsCollection;
 }
@@ -147,7 +165,11 @@ export async function getSignalsCollection(): Promise<Collection<SignalRecord>> 
   } catch {
     // Index may not exist
   }
-  await signalsCollection.createIndex({ "data.postId": 1, userEmail: 1 }, { unique: true, sparse: true });
+  try {
+    await signalsCollection.createIndex({ "data.postId": 1, userEmail: 1 }, { unique: true, sparse: true });
+  } catch {
+    console.error("[db] Could not create unique index on signals(postId, userEmail)");
+  }
   // Drop old per-job ATS dedup index, replaced by per-day aggregated dedup
   try {
     await signalsCollection.dropIndex("companyId_1_data.jobUrl_1_userEmail_1");
@@ -155,7 +177,11 @@ export async function getSignalsCollection(): Promise<Collection<SignalRecord>> 
     // Index may not exist
   }
   // Dedup for aggregated ATS signals: one per company per user per day
-  await signalsCollection.createIndex({ companyId: 1, userEmail: 1, signalDate: 1 }, { unique: true, sparse: true });
+  try {
+    await signalsCollection.createIndex({ companyId: 1, userEmail: 1, signalDate: 1 }, { unique: true, sparse: true });
+  } catch {
+    console.error("[db] Could not create unique index on signals(companyId, userEmail, signalDate)");
+  }
 
   return signalsCollection;
 }
@@ -168,7 +194,11 @@ export async function getBuyerSearchResultsCollection(): Promise<Collection<Buye
 
   buyerSearchResultsCollection = database.collection<BuyerSearchResultRecord>("buyerSearchResults");
 
-  await buyerSearchResultsCollection.createIndex({ companyId: 1, buyerProfileId: 1 }, { unique: true });
+  try {
+    await buyerSearchResultsCollection.createIndex({ companyId: 1, buyerProfileId: 1 }, { unique: true });
+  } catch {
+    console.error("[db] Could not create unique index on buyerSearchResults(companyId, buyerProfileId)");
+  }
   await buyerSearchResultsCollection.createIndex({ userEmail: 1 });
 
   return buyerSearchResultsCollection;
@@ -189,7 +219,11 @@ export async function getCompanyATSCollection(): Promise<Collection<CompanyATSRe
     // Index may not exist, ignore
   }
 
-  await companyATSCollection.createIndex({ companyId: 1 }, { unique: true });
+  try {
+    await companyATSCollection.createIndex({ companyId: 1 }, { unique: true });
+  } catch {
+    console.error("[db] Could not create unique index on companyATS.companyId");
+  }
   await companyATSCollection.createIndex({ domain: 1 });
 
   return companyATSCollection;
@@ -207,7 +241,11 @@ export async function getJobsCollection(): Promise<Collection<JobRecord>> {
   await jobsCollection.createIndex({ domain: 1 });
   await jobsCollection.createIndex({ fetchedAt: -1 });
   // Dedup by jobUrl per company (sparse so null jobUrls don't collide)
-  await jobsCollection.createIndex({ companyId: 1, jobUrl: 1 }, { unique: true, sparse: true });
+  try {
+    await jobsCollection.createIndex({ companyId: 1, jobUrl: 1 }, { unique: true, sparse: true });
+  } catch {
+    console.error("[db] Could not create unique index on jobs(companyId, jobUrl)");
+  }
 
   return jobsCollection;
 }
@@ -223,7 +261,11 @@ export async function getLinkedinPostsForUserCollection(): Promise<Collection<Li
   await linkedinPostsForUserCollection.createIndex({ userEmail: 1, postedAt: -1 });
   await linkedinPostsForUserCollection.createIndex({ personId: 1 });
   // Dedup: one row per (user, post)
-  await linkedinPostsForUserCollection.createIndex({ userEmail: 1, postId: 1 }, { unique: true });
+  try {
+    await linkedinPostsForUserCollection.createIndex({ userEmail: 1, postId: 1 }, { unique: true });
+  } catch {
+    console.error("[db] Could not create unique index on linkedinPostsForUser(userEmail, postId)");
+  }
 
   return linkedinPostsForUserCollection;
 }
@@ -238,7 +280,11 @@ export async function getFundedStartupsCollection(): Promise<Collection<FundedSt
   await fundedStartupsCollection.createIndex({ userEmail: 1, fetchedAt: -1 });
   await fundedStartupsCollection.createIndex({ userEmail: 1, signalDate: -1 });
   // Dedup: one record per domain per user (skip if same company fetched again)
-  await fundedStartupsCollection.createIndex({ userEmail: 1, websiteDomain: 1 }, { unique: true });
+  try {
+    await fundedStartupsCollection.createIndex({ userEmail: 1, websiteDomain: 1 }, { unique: true });
+  } catch {
+    console.error("[db] Could not create unique index on fundedStartups(userEmail, websiteDomain)");
+  }
 
   return fundedStartupsCollection;
 }
@@ -248,7 +294,11 @@ export async function getGoogleTokensCollection(): Promise<Collection<GoogleToke
   await mongoClient.connect();
   const database = mongoClient.db(env.MONGODB_DB_NAME);
   googleTokensCollection = database.collection<GoogleTokenRecord>("googleTokens");
-  await googleTokensCollection.createIndex({ userEmail: 1 }, { unique: true });
+  try {
+    await googleTokensCollection.createIndex({ userEmail: 1 }, { unique: true });
+  } catch {
+    console.error("[db] Could not create unique index on googleTokens.userEmail");
+  }
   return googleTokensCollection;
 }
 
@@ -257,7 +307,11 @@ export async function getWorkspacesCollection(): Promise<Collection<WorkspaceRec
   await mongoClient.connect();
   const database = mongoClient.db(env.MONGODB_DB_NAME);
   workspacesCollection = database.collection<WorkspaceRecord>("workspaces");
-  await workspacesCollection.createIndex({ domain: 1 }, { unique: true });
+  try {
+    await workspacesCollection.createIndex({ domain: 1 }, { unique: true });
+  } catch {
+    console.error("[db] Could not create unique index on workspaces.domain");
+  }
   return workspacesCollection;
 }
 
@@ -266,7 +320,11 @@ export async function getUsersCollection(): Promise<Collection<UserRecord>> {
   await mongoClient.connect();
   const database = mongoClient.db(env.MONGODB_DB_NAME);
   usersCollection = database.collection<UserRecord>("users");
-  await usersCollection.createIndex({ email: 1 }, { unique: true });
+  try {
+    await usersCollection.createIndex({ email: 1 }, { unique: true });
+  } catch {
+    console.error("[db] Could not create unique index on users.email");
+  }
   await usersCollection.createIndex({ workspaceId: 1 }, { sparse: true });
   return usersCollection;
 }
@@ -276,7 +334,11 @@ export async function getInvitesCollection(): Promise<Collection<InviteRecord>> 
   await mongoClient.connect();
   const database = mongoClient.db(env.MONGODB_DB_NAME);
   invitesCollection = database.collection<InviteRecord>("invites");
-  await invitesCollection.createIndex({ token: 1 }, { unique: true });
+  try {
+    await invitesCollection.createIndex({ token: 1 }, { unique: true });
+  } catch {
+    console.error("[db] Could not create unique index on invites.token");
+  }
   await invitesCollection.createIndex({ workspaceId: 1 });
   return invitesCollection;
 }
@@ -295,7 +357,11 @@ export async function getSkillsCollection(): Promise<Collection<SkillRecord>> {
 
   skillsCollection = database.collection<SkillRecord>("skills");
 
-  await skillsCollection.createIndex({ userEmail: 1, skillType: 1 }, { unique: true });
+  try {
+    await skillsCollection.createIndex({ userEmail: 1, skillType: 1 }, { unique: true });
+  } catch {
+    console.error("[db] Could not create unique index on skills(userEmail, skillType)");
+  }
 
   return skillsCollection;
 }
@@ -321,7 +387,11 @@ export async function getEmailSignaturesCollection(): Promise<Collection<EmailSi
 
   emailSignaturesCollection = database.collection<EmailSignatureRecord>("emailSignatures");
 
-  await emailSignaturesCollection.createIndex({ userEmail: 1 }, { unique: true });
+  try {
+    await emailSignaturesCollection.createIndex({ userEmail: 1 }, { unique: true });
+  } catch {
+    console.error("[db] Could not create unique index on emailSignatures.userEmail");
+  }
 
   return emailSignaturesCollection;
 }
@@ -347,7 +417,11 @@ export async function getEmailTracksCollection(): Promise<Collection<EmailTrackR
 
   emailTracksCollection = database.collection<EmailTrackRecord>("emailTracks");
 
-  await emailTracksCollection.createIndex({ trackId: 1 }, { unique: true });
+  try {
+    await emailTracksCollection.createIndex({ trackId: 1 }, { unique: true });
+  } catch {
+    console.error("[db] Could not create unique index on emailTracks.trackId");
+  }
   await emailTracksCollection.createIndex({ threadId: 1 });
   await emailTracksCollection.createIndex({ userEmail: 1 });
 
