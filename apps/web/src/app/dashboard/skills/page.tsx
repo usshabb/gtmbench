@@ -15,7 +15,7 @@ interface SkillRecord {
 const AVAILABLE_SKILLS = [
   {
     type: "detect_ats",
-    name: "detect-ats",
+    name: "Identify Hiring System",
     description: "Identify the applicant tracking system (ATS) used by each company. Runs automatically when a company is added to detect hiring tools like Greenhouse, Lever, Workday, and more.",
     appliesTo: "Companies",
   },
@@ -100,6 +100,7 @@ export default function SkillsPage() {
   const [skills, setSkills] = useState<SkillRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [togglingSkill, setTogglingSkill] = useState<string | null>(null);
+  const [filterTab, setFilterTab] = useState<"All" | "Enabled" | "Disabled">("All");
 
   useEffect(() => {
     const storedToken = window.localStorage.getItem(localStorageTokenKey);
@@ -169,10 +170,15 @@ export default function SkillsPage() {
           {/* Filter tabs + Create */}
           <div className="mt-4 flex items-center justify-between">
             <div className="inline-flex border-b border-[#e6e6e9]">
-              {["All", "Enabled", "Disabled"].map((tab) => (
+              {(["All", "Enabled", "Disabled"] as const).map((tab) => (
                 <button
                   key={tab}
-                  className="text-[#1b1b1f] border-b-2 border-[#1b1b1f] px-3 py-2 text-[13px] font-medium transition-colors"
+                  onClick={() => setFilterTab(tab)}
+                  className={`px-3 py-2 text-[13px] font-medium transition-colors ${
+                    filterTab === tab
+                      ? "text-[#1b1b1f] border-b-2 border-[#1b1b1f]"
+                      : "text-[#8b8d94] border-b-2 border-transparent hover:text-[#6b6f76]"
+                  }`}
                 >
                   {tab}
                 </button>
@@ -188,7 +194,11 @@ export default function SkillsPage() {
               </div>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2">
-                {AVAILABLE_SKILLS.map((skill) => {
+                {AVAILABLE_SKILLS.filter((skill) => {
+                  if (filterTab === "All") return true;
+                  const enabled = isSkillEnabled(skill.type);
+                  return filterTab === "Enabled" ? enabled : !enabled;
+                }).map((skill) => {
                   const enabled = isSkillEnabled(skill.type);
                   const isToggling = togglingSkill === skill.type;
 

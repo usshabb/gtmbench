@@ -453,6 +453,46 @@ export async function getThreadMessages(
   });
 }
 
+export async function sendNewGmail(
+  accessToken: string,
+  refreshToken: string | null,
+  to: string,
+  subject: string,
+  body: string,
+  userEmail?: string,
+  trackingPixelUrl?: string,
+  signatureHtml?: string,
+): Promise<string> {
+  const client = userEmail
+    ? createAuthenticatedClient(accessToken, refreshToken, userEmail)
+    : (() => { const c = createOAuth2Client(); c.setCredentials({ access_token: accessToken, refresh_token: refreshToken }); return c; })();
+  const gmail = google.gmail({ version: "v1", auth: client });
+
+  const escapedBody = body
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n/g, "<br>");
+  const pixelTag = trackingPixelUrl
+    ? `<img src="${trackingPixelUrl}" width="1" height="1" style="display:none" alt="" />`
+    : "";
+  const sigBlock = signatureHtml ? `<br><div style="margin-top:12px;border-top:1px solid #e0e0e0;padding-top:12px">${signatureHtml}</div>` : "";
+  const htmlBody = `<div>${escapedBody}</div>${sigBlock}${pixelTag}`;
+
+  const headerLines = [
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    "MIME-Version: 1.0",
+    "Content-Type: text/html; charset=utf-8",
+    "",
+    htmlBody,
+  ];
+
+  const raw = Buffer.from(headerLines.join("\r\n")).toString("base64url");
+  const res = await gmail.users.messages.send({ userId: "me", requestBody: { raw } });
+  return res.data.threadId ?? "";
+}
+
 export async function replyToThread(
   accessToken: string,
   refreshToken: string | null,
@@ -462,6 +502,8 @@ export async function replyToThread(
   body: string,
   inReplyTo?: string,
   userEmail?: string,
+  trackingPixelUrl?: string,
+  signatureHtml?: string,
 ): Promise<void> {
   const client = userEmail
     ? createAuthenticatedClient(accessToken, refreshToken, userEmail)
@@ -469,13 +511,26 @@ export async function replyToThread(
   const gmail = google.gmail({ version: "v1", auth: client });
 
   const cleanSubject = subject.startsWith("Re: ") ? subject : `Re: ${subject}`;
+
+  const escapedBody = body
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n/g, "<br>");
+  const pixelTag = trackingPixelUrl
+    ? `<img src="${trackingPixelUrl}" width="1" height="1" style="display:none" alt="" />`
+    : "";
+  const sigBlock = signatureHtml ? `<br><div style="margin-top:12px;border-top:1px solid #e0e0e0;padding-top:12px">${signatureHtml}</div>` : "";
+  const htmlBody = `<div>${escapedBody}</div>${sigBlock}${pixelTag}`;
+
   const headerLines = [
     `To: ${to}`,
     `Subject: ${cleanSubject}`,
-    "Content-Type: text/plain; charset=utf-8",
+    "MIME-Version: 1.0",
+    "Content-Type: text/html; charset=utf-8",
     ...(inReplyTo ? [`In-Reply-To: ${inReplyTo}`, `References: ${inReplyTo}`] : []),
     "",
-    body,
+    htmlBody,
   ];
 
   const raw = Buffer.from(headerLines.join("\r\n")).toString("base64url");

@@ -7,6 +7,9 @@
     "dev": "concurrently \"npm run dev --workspace web\" \"npm run dev --workspace api\"",
     "dev:web": "npm run dev --workspace web",
     "dev:api": "npm run dev --workspace api",
+    "prod": "concurrently \"npm run prod --workspace web\" \"npm run prod --workspace api\"",
+    "prod:web": "npm run prod --workspace web",
+    "prod:api": "npm run prod --workspace api",
     "build": "npm run build --workspace web && npm run build --workspace api",
     "lint": "npm run lint --workspace web"
   },

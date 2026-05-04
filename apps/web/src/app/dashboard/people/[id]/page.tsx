@@ -158,14 +158,20 @@ function PersonDetailInner() {
     });
   }
 
+  function htmlToPlainText(html: string): string {
+    const tmp = document.createElement("div");
+    tmp.innerHTML = html;
+    return tmp.innerText ?? tmp.textContent ?? "";
+  }
+
   function resolveTemplate(tmpl: EmailTemplate) {
     const d = person ? getFiberData(person) : null;
     const firstName = (d?.first_name as string) ?? "";
     const name = d ? getFullName(d, person?.linkedinUrl ?? "") : "";
     const email = composeTo || "";
     const website = person?.companyDomain ?? "";
-    // Replace all tokens except ats_name (resolved async)
-    const resolved = tmpl.body
+    const plainBody = htmlToPlainText(tmpl.body);
+    const resolved = plainBody
       .replace(/\{\{first_name\}\}/g, firstName)
       .replace(/\{\{full_name\}\}/g, name)
       .replace(/\{\{email\}\}/g, email)
@@ -304,7 +310,7 @@ function PersonDetailInner() {
       const res = await apiFetch(`${apiBaseUrl}/persons/${id}/emails`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ to: composeTo, subject: composeSubject, body: emailSignature ? `${composeBody}\n\n${emailSignature}` : composeBody }),
+        body: JSON.stringify({ to: composeTo, subject: composeSubject, body: composeBody }),
       });
       if (!res.ok) {
         const data = (await safeJson(res)) as { error?: string };
@@ -874,7 +880,7 @@ function PersonDetailInner() {
                 />
                 {emailSignature && (
                   <div className="mt-2 border-t border-[#f0f3f8] pt-2">
-                    <p className="whitespace-pre-wrap text-[13px] text-[#8b8d94] leading-relaxed">{emailSignature}</p>
+                    <div className="text-[13px] text-[#8b8d94] leading-relaxed [&_p]:m-0 [&_a]:text-[#5e6ad2] [&_a]:underline" dangerouslySetInnerHTML={{ __html: emailSignature }} />
                   </div>
                 )}
               </div>

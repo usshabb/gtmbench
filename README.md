@@ -7,7 +7,7 @@ Basic Vercel-friendly monorepo with:
 
 ## Features
 
-- Email + OTP auth (`7777` hardcoded for now)
+- Google OAuth sign-in
 - Add domain leads
 - Persist leads in MongoDB
 - Enrich new leads by calling Fiber API
@@ -36,8 +36,8 @@ Basic Vercel-friendly monorepo with:
 
 ## API Endpoints
 
-- `POST /auth/request-code` `{ email }`
-- `POST /auth/verify-code` `{ email, code }`
+- `GET /auth/google/signin-url` returns a Google OAuth sign-in URL
+- `GET /auth/google/callback` completes Google OAuth and redirects with the app auth token
 - `GET /leads` with `Authorization: Bearer <token>`
 - `POST /leads` `{ domain }` with `Authorization: Bearer <token>`
 

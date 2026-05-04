@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type Quill from "quill";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "../../components";
 
@@ -26,6 +27,193 @@ const TOKENS = [
   { token: "ats_name", label: "ATS Name" },
 ];
 
+// ─── Quill Rich Text Editor ────────────────────────────────────────────────
+
+function RichTextEditor({
+  value,
+  onChange,
+  placeholder,
+  minHeight = 120,
+  tokens,
+}: {
+  value: string;
+  onChange: (html: string) => void;
+  placeholder?: string;
+  minHeight?: number;
+  tokens?: typeof TOKENS;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const quillRef = useRef<Quill | null>(null);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const isInternalChange = useRef(false);
+  const [showTokenMenu, setShowTokenMenu] = useState(false);
+  const [tokenFilter, setTokenFilter] = useState("");
+
+  useEffect(() => {
+    if (!containerRef.current || quillRef.current) return;
+
+    let cancelled = false;
+
+    void (async () => {
+      const QuillModule = await import("quill");
+      const Quill = QuillModule.default;
+
+      if (cancelled || !containerRef.current) return;
+
+      // Inject Quill snow CSS once
+      if (!document.getElementById("quill-snow-css")) {
+        const link = document.createElement("link");
+        link.id = "quill-snow-css";
+        link.rel = "stylesheet";
+        link.href = "https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css";
+        document.head.appendChild(link);
+      }
+
+      const quill = new Quill(containerRef.current, {
+        theme: "snow",
+        placeholder: placeholder ?? "",
+        modules: {
+          toolbar: [
+            ["bold", "italic", "underline"],
+            ["link"],
+            [{ list: "ordered" }, { list: "bullet" }],
+            ["clean"],
+          ],
+        },
+      });
+
+      quillRef.current = quill;
+
+      if (value) {
+        quill.clipboard.dangerouslyPasteHTML(value);
+      }
+
+      quill.on("text-change", () => {
+        isInternalChange.current = true;
+        const html = quill.root.innerHTML;
+        onChangeRef.current(html === "<p><br></p>" ? "" : html);
+
+        // Token autocomplete detection
+        if (tokens) {
+          const selection = quill.getSelection();
+          if (selection) {
+            const cursorPos = selection.index;
+            const text = quill.getText(0, cursorPos);
+            const lastOpen = text.lastIndexOf("{{");
+            if (lastOpen !== -1) {
+              const between = text.slice(lastOpen + 2);
+              if (!between.includes("}}")) {
+                setTokenFilter(between.toLowerCase());
+                setShowTokenMenu(true);
+                return;
+              }
+            }
+          }
+          setShowTokenMenu(false);
+        }
+      });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!quillRef.current || isInternalChange.current) {
+      isInternalChange.current = false;
+      return;
+    }
+    const quill = quillRef.current;
+    const currentHtml = quill.root.innerHTML;
+    if (currentHtml !== value && !(currentHtml === "<p><br></p>" && !value)) {
+      quill.clipboard.dangerouslyPasteHTML(value || "");
+    }
+  }, [value]);
+
+  function insertToken(token: string) {
+    const quill = quillRef.current;
+    if (!quill) return;
+    const selection = quill.getSelection();
+    if (!selection) return;
+    const cursorPos = selection.index;
+    const text = quill.getText(0, cursorPos);
+    const lastOpen = text.lastIndexOf("{{");
+    if (lastOpen === -1) return;
+
+    const deleteLen = cursorPos - lastOpen;
+    quill.deleteText(lastOpen, deleteLen);
+    quill.insertText(lastOpen, `{{${token}}}`);
+    quill.setSelection(lastOpen + token.length + 4, 0);
+    setShowTokenMenu(false);
+  }
+
+  const filteredTokens = tokens?.filter(
+    (t) => t.label.toLowerCase().includes(tokenFilter) || t.token.toLowerCase().includes(tokenFilter),
+  ) ?? [];
+
+  return (
+    <div className="relative">
+      <div
+        ref={containerRef}
+        style={{ minHeight }}
+      />
+      {showTokenMenu && filteredTokens.length > 0 && (
+        <div className="absolute left-0 top-full mt-1 w-64 rounded-lg border border-[#e6e6e9] bg-white shadow-lg z-30 overflow-hidden">
+          <div className="px-3 py-1.5 border-b border-[#ededf0]">
+            <p className="text-[10px] font-medium uppercase tracking-wider text-[#8b8d94]">Insert token</p>
+          </div>
+          {filteredTokens.map((t) => (
+            <button
+              key={t.token}
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); insertToken(t.token); }}
+              className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-[#f9f9fb] transition-colors"
+            >
+              <span className="text-[12px] font-medium text-[#1b1b1f]">{t.label}</span>
+              <code className="text-[11px] text-[#8b8d94] font-mono">{`{{${t.token}}}`}</code>
+            </button>
+          ))}
+        </div>
+      )}
+      <style jsx global>{`
+        .ql-container.ql-snow {
+          border: 1px solid #e6e6e9 !important;
+          border-top: none !important;
+          border-radius: 0 0 0.375rem 0.375rem;
+          font-size: 13px;
+          font-family: inherit;
+        }
+        .ql-toolbar.ql-snow {
+          border: 1px solid #e6e6e9 !important;
+          border-radius: 0.375rem 0.375rem 0 0;
+          padding: 4px 8px !important;
+        }
+        .ql-toolbar.ql-snow .ql-formats {
+          margin-right: 8px !important;
+        }
+        .ql-toolbar.ql-snow button {
+          width: 26px !important;
+          height: 26px !important;
+        }
+        .ql-editor {
+          padding: 10px 12px !important;
+          line-height: 1.6 !important;
+        }
+        .ql-editor.ql-blank::before {
+          color: #b4b5ba !important;
+          font-style: normal !important;
+          font-size: 13px !important;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+// ─── Main Page ─────────────────────────────────────────────────────────────
+
 export default function EmailTemplatesPage() {
   const router = useRouter();
   const apiBaseUrl = useMemo(() => getApiBaseUrl(), []);
@@ -47,12 +235,6 @@ export default function EmailTemplatesPage() {
   const [signatureDraft, setSignatureDraft] = useState("");
   const [savingSignature, setSavingSignature] = useState(false);
   const [signatureSaved, setSignatureSaved] = useState(false);
-
-  // Token autocomplete
-  const [showTokenMenu, setShowTokenMenu] = useState(false);
-  const [tokenFilter, setTokenFilter] = useState("");
-  const bodyRef = useRef<HTMLTextAreaElement>(null);
-  const cursorPosRef = useRef(0);
 
   const checkedRef = useRef(false);
 
@@ -111,7 +293,7 @@ export default function EmailTemplatesPage() {
       const res = await apiFetch(url, {
         method,
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ title: title.trim(), body: body.trim() }),
+        body: JSON.stringify({ title: title.trim(), body }),
       });
       if (!res.ok) {
         const d = (await res.json()) as { error?: string };
@@ -150,50 +332,11 @@ export default function EmailTemplatesPage() {
     finally { setSavingSignature(false); }
   }
 
-  // Handle body textarea changes — detect {{ for token autocomplete
-  function handleBodyChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
-    const val = e.target.value;
-    const cursor = e.target.selectionStart ?? 0;
-    setBody(val);
-    cursorPosRef.current = cursor;
-
-    // Check if the two chars before cursor are {{
-    const before = val.slice(0, cursor);
-    const lastOpen = before.lastIndexOf("{{");
-    if (lastOpen !== -1) {
-      const between = before.slice(lastOpen + 2);
-      // No closing }} yet
-      if (!between.includes("}}")) {
-        setTokenFilter(between.toLowerCase());
-        setShowTokenMenu(true);
-        return;
-      }
-    }
-    setShowTokenMenu(false);
+  function stripHtmlToPreview(html: string): string {
+    const tmp = document.createElement("div");
+    tmp.innerHTML = html;
+    return tmp.textContent ?? tmp.innerText ?? "";
   }
-
-  function insertToken(token: string) {
-    const ta = bodyRef.current;
-    if (!ta) return;
-    const cursor = cursorPosRef.current;
-    const before = body.slice(0, cursor);
-    const lastOpen = before.lastIndexOf("{{");
-    const after = body.slice(cursor);
-    const newBody = before.slice(0, lastOpen) + `{{${token}}}` + after;
-    setBody(newBody);
-    setShowTokenMenu(false);
-
-    // Restore focus and cursor position
-    const newCursor = lastOpen + token.length + 4; // {{token}}
-    requestAnimationFrame(() => {
-      ta.focus();
-      ta.setSelectionRange(newCursor, newCursor);
-    });
-  }
-
-  const filteredTokens = TOKENS.filter((t) =>
-    t.label.toLowerCase().includes(tokenFilter) || t.token.toLowerCase().includes(tokenFilter)
-  );
 
   if (loading) {
     return (
@@ -213,12 +356,11 @@ export default function EmailTemplatesPage() {
         </div>
         <div className="rounded-lg border border-[#e6e6e9] bg-white">
           <div className="px-4 py-3">
-            <textarea
+            <RichTextEditor
               value={signatureDraft}
-              onChange={(e) => { setSignatureDraft(e.target.value); setSignatureSaved(false); }}
-              rows={3}
-              placeholder="e.g. John Doe\nCTO @ Acme Inc."
-              className="w-full rounded-md border border-[#e6e6e9] px-3 py-2 text-[13px] placeholder:text-[#b4b5ba] focus:border-[#5e6ad2] focus:outline-none focus:ring-1 focus:ring-[#5e6ad2]/20 resize-none leading-relaxed"
+              onChange={(html) => { setSignatureDraft(html); setSignatureSaved(false); }}
+              placeholder="e.g. John Doe — CTO @ Acme Inc."
+              minHeight={80}
             />
           </div>
           <div className="flex items-center justify-end gap-2 border-t border-[#ededf0] px-4 py-2.5">
@@ -276,38 +418,13 @@ export default function EmailTemplatesPage() {
                   Type <code className="rounded bg-[#f5f5f7] px-1 py-0.5 text-[10px] font-mono">{"{{"}</code> to insert a token
                 </span>
               </div>
-              <div className="relative">
-                <textarea
-                  ref={bodyRef}
-                  value={body}
-                  onChange={handleBodyChange}
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") setShowTokenMenu(false);
-                  }}
-                  rows={8}
-                  placeholder={"Hi {{first_name}},\n\nI noticed your team at..."}
-                  className="w-full rounded-md border border-[#e6e6e9] px-3 py-2 text-[13px] placeholder:text-[#b4b5ba] focus:border-[#5e6ad2] focus:outline-none focus:ring-1 focus:ring-[#5e6ad2]/20 resize-none font-mono leading-relaxed"
-                />
-                {/* Token autocomplete dropdown */}
-                {showTokenMenu && filteredTokens.length > 0 && (
-                  <div className="absolute left-0 bottom-full mb-1 w-64 rounded-lg border border-[#e6e6e9] bg-white shadow-lg z-10 overflow-hidden">
-                    <div className="px-3 py-1.5 border-b border-[#ededf0]">
-                      <p className="text-[10px] font-medium uppercase tracking-wider text-[#8b8d94]">Insert token</p>
-                    </div>
-                    {filteredTokens.map((t) => (
-                      <button
-                        key={t.token}
-                        type="button"
-                        onMouseDown={(e) => { e.preventDefault(); insertToken(t.token); }}
-                        className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-[#f9f9fb] transition-colors"
-                      >
-                        <span className="text-[12px] font-medium text-[#1b1b1f]">{t.label}</span>
-                        <code className="text-[11px] text-[#8b8d94] font-mono">{`{{${t.token}}}`}</code>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              <RichTextEditor
+                value={body}
+                onChange={setBody}
+                placeholder={"Hi {{first_name}}, I noticed your team at..."}
+                minHeight={160}
+                tokens={TOKENS}
+              />
             </div>
             {error && <p className="text-[12px] text-red-500">{error}</p>}
           </div>
@@ -337,7 +454,7 @@ export default function EmailTemplatesPage() {
             <div key={t._id} className="flex items-start gap-3 px-4 py-3 group">
               <div className="flex-1 min-w-0">
                 <p className="text-[13px] font-medium text-[#1b1b1f] truncate">{t.title}</p>
-                <p className="mt-0.5 text-[12px] text-[#8b8d94] line-clamp-1 font-mono">{t.body}</p>
+                <p className="mt-0.5 text-[12px] text-[#8b8d94] line-clamp-1">{stripHtmlToPreview(t.body)}</p>
               </div>
               <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button

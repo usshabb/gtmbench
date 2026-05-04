@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LetterAvatar, safeJson, apiFetch, FallbackImg } from "../components";
+import { LetterAvatar, safeJson, apiFetch, FallbackImg, COMPOSE_EMAIL_EVENT } from "../components";
 
 const localStorageTokenKey = "gtmbench-token";
 
@@ -75,11 +75,10 @@ function formatDate(dateStr: string): string {
   const d = new Date(dateStr);
   if (isNaN(d.getTime())) return dateStr;
   const now = new Date();
-  const isToday = d.toDateString() === now.toDateString();
   const isThisYear = d.getFullYear() === now.getFullYear();
-  if (isToday) return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-  if (isThisYear) return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const time = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  if (isThisYear) return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${time}`;
+  return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}, ${time}`;
 }
 
 function parseDisplayName(emailHeader: string): { name: string; address: string } {
@@ -167,51 +166,96 @@ function ThreadRow({
   );
 }
 
+interface TrackingInfo {
+  openCount: number;
+  firstOpenedAt: string | null;
+  lastOpenedAt: string | null;
+}
+
 function MessageBubble({
   msg,
   myEmails,
+  isLast,
+  tracking,
 }: {
   msg: ThreadMessage;
   myEmails: string[];
+  isLast: boolean;
+  tracking?: TrackingInfo | null;
 }) {
   const { name: fromName, address: fromAddress } = parseDisplayName(msg.from);
   const isMine = myEmails.some((e) => fromAddress.toLowerCase().includes(e.toLowerCase()));
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(isLast);
 
-  return (
-    <div className={`flex gap-2.5 ${isMine ? "flex-row-reverse" : ""}`}>
-      {/* Avatar */}
-      <div className="shrink-0">
-        <div className={`flex h-7 w-7 items-center justify-center rounded-full text-[10px] font-semibold ${
-          isMine ? "bg-[#1b1b1f] text-white" : "bg-[#e6e6e9] text-[#6b6f76]"
-        }`}>
+  // Collapsed row — single-line summary like Gmail
+  if (!expanded) {
+    return (
+      <button
+        onClick={() => setExpanded(true)}
+        className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left hover:bg-[#f5f5f7] transition-colors group"
+      >
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#e6e6e9] text-[10px] font-semibold text-[#6b6f76]">
           {getInitials(fromName)}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[13px] font-semibold text-[#1b1b1f] truncate">{fromName}</span>
+            <span className="text-[12px] text-[#8b8d94] whitespace-nowrap shrink-0">{formatDate(msg.date)}</span>
+          </div>
+          <p className="text-[12px] text-[#8b8d94] truncate mt-0.5">
+            {msg.body || "(No content)"}
+          </p>
+        </div>
+      </button>
+    );
+  }
+
+  // Expanded view — full message body
+  return (
+    <div className="rounded-lg">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3 px-3 py-2.5">
+        <div className="flex items-start gap-3 min-w-0">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#e6e6e9] text-[10px] font-semibold text-[#6b6f76] mt-0.5">
+            {getInitials(fromName)}
+          </div>
+          <div className="min-w-0">
+            <p className="text-[13px] font-semibold text-[#1b1b1f]">{fromName}</p>
+            {msg.to && (
+              <button
+                onClick={() => setExpanded(false)}
+                className="flex items-center gap-1 text-[11px] text-[#8b8d94] hover:text-[#6b6f76] transition-colors"
+              >
+                <span>To: {parseDisplayName(msg.to).name}</span>
+                <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                </svg>
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0 pt-0.5">
+          {isMine && tracking && tracking.openCount > 0 && (
+            <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-600" title={`Opened ${tracking.openCount} time${tracking.openCount > 1 ? "s" : ""}${tracking.lastOpenedAt ? ` · Last: ${formatDate(tracking.lastOpenedAt)}` : ""}`}>
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+              Opened{tracking.openCount > 1 ? ` ${tracking.openCount}x` : ""}
+            </span>
+          )}
+          {isMine && tracking && tracking.openCount === 0 && (
+            <span className="flex items-center gap-1 text-[10px] text-[#8b8d94]" title="Not opened yet">
+              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3.98 8.223A10.477 10.477 0 001.934 12c1.292 4.338 5.31 7.5 10.066 7.5.993 0 1.953-.138 2.863-.395M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l3.65 3.65m7.894 7.894L21 21m-3.228-3.228l-3.65-3.65m0 0a3 3 0 10-4.243-4.243m4.242 4.242L9.88 9.88" /></svg>
+              Sent
+            </span>
+          )}
+          <span className="text-[12px] text-[#8b8d94] whitespace-nowrap">{formatDate(msg.date)}</span>
         </div>
       </div>
 
-      {/* Bubble */}
-      <div className={`min-w-0 max-w-[90%] ${isMine ? "items-end" : "items-start"} flex flex-col`}>
-        {/* Header */}
-        <button
-          onClick={() => setExpanded((v) => !v)}
-          className={`flex items-center gap-2 mb-1 ${isMine ? "flex-row-reverse" : ""} group`}
-        >
-          <span className="text-[12px] font-semibold text-[#6b6f76]">{fromName}</span>
-          <span className="text-[11px] text-[#8b8d94]">{formatDate(msg.date)}</span>
-          <svg className={`h-3 w-3 text-[#8b8d94] group-hover:text-[#6b6f76] transition-transform ${expanded ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-          </svg>
-        </button>
-
-        {expanded && (
-          <div className={`rounded-2xl px-4 py-3 text-[13px] leading-relaxed whitespace-pre-wrap break-words ${
-            isMine
-              ? "bg-[#1b1b1f] text-white rounded-tr-sm"
-              : "bg-[#f5f5f7] text-[#1b1b1f] rounded-tl-sm"
-          }`}>
-            {msg.body || <span className="italic opacity-50">No content</span>}
-          </div>
-        )}
+      {/* Body */}
+      <div className="px-3 pb-4 pl-14">
+        <div className="text-[13px] leading-relaxed text-[#1b1b1f] whitespace-pre-wrap break-words">
+          {msg.body || <span className="italic text-[#8b8d94]">No content</span>}
+        </div>
       </div>
     </div>
   );
@@ -371,21 +415,32 @@ function InternalComments({
   }
 
   return (
-    <div className="flex flex-1 flex-col bg-[#f9f9fb]">
+    <div className="flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#f0f0f2]">
+        <div className="flex items-center gap-2 text-[12px] text-[#8b8d94]">
+          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+          </svg>
+          <span className="font-medium text-[#6b6f76]">Internal comments</span>
+          <span className="text-[11px]">· visible to your team only</span>
+        </div>
+      </div>
+
       {/* Existing comments */}
       {comments.length > 0 && (
-        <div className="flex-1 px-4 pt-3 pb-1 space-y-2.5 overflow-y-auto">
+        <div className="px-4 pt-3 pb-1 space-y-3">
           {comments.map((c) => (
-            <div key={c._id} className="flex gap-2">
-              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#ededf0] text-[9px] font-semibold text-[#6b6f76]">
+            <div key={c._id} className="flex gap-2.5">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#e6e6e9] text-[10px] font-semibold text-[#6b6f76]">
                 {getInitials(c.authorName)}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2">
                   <span className="text-[12px] font-semibold text-[#1b1b1f]">{c.authorName}</span>
-                  <span className="text-[10px] text-[#8b8d94]">{formatDate(c.createdAt)}</span>
+                  <span className="text-[11px] text-[#8b8d94]">{formatDate(c.createdAt)}</span>
                 </div>
-                <p className="text-[12px] text-[#6b6f76] leading-relaxed whitespace-pre-wrap break-words">
+                <p className="text-[12px] text-[#6b6f76] leading-relaxed whitespace-pre-wrap break-words mt-0.5">
                   {renderCommentBody(c.body)}
                 </p>
               </div>
@@ -395,24 +450,36 @@ function InternalComments({
       )}
 
       {/* Comment input */}
-      <div className="px-4 py-2.5">
-        <div className="relative flex items-start gap-2 rounded-lg border border-[#e6e6e9] bg-white px-3 py-2 focus-within:border-[#8b8d94] transition-colors">
-          <textarea
-            ref={inputRef}
-            value={body}
-            onChange={handleChange}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                e.preventDefault();
-                void submitComment();
-              }
-              if (e.key === "Escape") setMentionQuery(null);
-            }}
-            placeholder="Add internal comment · visible to your team"
-            rows={1}
-            className="flex-1 resize-none bg-transparent text-[12px] text-[#1b1b1f] placeholder:text-[#8b8d94] outline-none min-h-[20px]"
-          />
-          <div className="flex items-center gap-1 shrink-0">
+      <div className="relative">
+        <textarea
+          ref={inputRef}
+          value={body}
+          onChange={handleChange}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              void submitComment();
+            }
+            if (e.key === "Escape") setMentionQuery(null);
+          }}
+          placeholder="Write a comment…"
+          className="w-full resize-none bg-transparent px-4 pt-3 pb-2 text-[13px] text-[#1b1b1f] placeholder:text-[#8b8d94] outline-none"
+          style={{ minHeight: 80 }}
+        />
+
+        {/* Footer actions */}
+        <div className="flex items-center justify-between px-3 py-2.5 border-t border-[#f0f0f2]">
+          <div className="flex items-center gap-1">
+            <button
+              onClick={submitComment}
+              disabled={!body.trim() || sending}
+              className="flex items-center gap-1.5 rounded-lg bg-[#4338ca] px-3.5 py-1.5 text-[12px] font-medium text-white transition-opacity disabled:opacity-30 hover:bg-[#3730a3]"
+            >
+              {sending ? (
+                <div className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              ) : null}
+              Comment
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -430,50 +497,40 @@ function InternalComments({
                   }, 0);
                 }
               }}
-              className="rounded p-1 text-[#8b8d94] hover:bg-[#f5f5f7] hover:text-[#6b6f76] transition-colors"
+              className="flex items-center gap-1 rounded-lg border border-[#e6e6e9] px-2.5 py-1.5 text-[12px] font-medium text-[#6b6f76] hover:bg-[#f5f5f7] transition-colors"
               title="Mention teammate"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>
               </svg>
-            </button>
-            <button
-              onClick={submitComment}
-              disabled={!body.trim() || sending}
-              className="rounded p-1 text-[#8b8d94] hover:bg-[#f5f5f7] hover:text-[#1b1b1f] transition-colors disabled:opacity-30"
-              title="Post comment"
-            >
-              {sending ? (
-                <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#8b8d94]/30 border-t-[#8b8d94]" />
-              ) : (
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="22" x2="11" y1="2" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-                </svg>
-              )}
+              Mention
             </button>
           </div>
-
-          {/* @ mention dropdown */}
-          {mentionQuery !== null && filteredMembers.length > 0 && (
-            <div className="absolute bottom-full left-0 mb-1 w-60 overflow-hidden rounded-lg border border-[#e6e6e9] bg-white shadow-md z-10">
-              {filteredMembers.map((m) => (
-                <button
-                  key={m.email}
-                  onMouseDown={(e) => { e.preventDefault(); insertMention(m); }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[#f9f9fb] transition-colors"
-                >
-                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-[#e6e6e9] text-[9px] font-semibold text-[#6b6f76]">
-                    {getInitials(m.name)}
-                  </div>
-                  <div>
-                    <p className="text-[11px] font-medium text-[#1b1b1f]">{m.name}</p>
-                    <p className="text-[10px] text-[#8b8d94]">{m.email}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
+          <div className="flex items-center gap-3 text-[#8b8d94]">
+            <kbd className="rounded bg-black/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-[#8b8d94]">⌘↵</kbd>
+          </div>
         </div>
+
+        {/* @ mention dropdown */}
+        {mentionQuery !== null && filteredMembers.length > 0 && (
+          <div className="absolute left-4 bottom-16 w-60 overflow-hidden rounded-lg border border-[#e6e6e9] bg-white shadow-md z-10">
+            {filteredMembers.map((m) => (
+              <button
+                key={m.email}
+                onMouseDown={(e) => { e.preventDefault(); insertMention(m); }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[#f9f9fb] transition-colors"
+              >
+                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#e6e6e9] text-[10px] font-semibold text-[#6b6f76]">
+                  {getInitials(m.name)}
+                </div>
+                <div>
+                  <p className="text-[12px] font-medium text-[#1b1b1f]">{m.name}</p>
+                  <p className="text-[11px] text-[#8b8d94]">{m.email}</p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -518,15 +575,19 @@ function InboxInner() {
   const [filterPanel, setFilterPanel] = useState<"main" | "people" | "company" | "source">("main");
   const [panelSearch, setPanelSearch] = useState("");
   const filterRef = useRef<HTMLDivElement>(null);
+  const autoSelectRef = useRef<InboxThread | null>(null);
 
   // Thread detail
   const [selectedThread, setSelectedThread] = useState<InboxThread | null>(null);
   const [messages, setMessages] = useState<ThreadMessage[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [trackingData, setTrackingData] = useState<{ recipientEmail: string; sentAt: string; openCount: number; firstOpenedAt: string | null; lastOpenedAt: string | null }[]>([]);
 
   // Reply
+  const [activePanel, setActivePanel] = useState<"reply" | "comments" | null>(null);
   const [replyBody, setReplyBody] = useState("");
   const [sendingReply, setSendingReply] = useState(false);
+  const [draftingAI, setDraftingAI] = useState(false);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionAnchorPos, setMentionAnchorPos] = useState(0);
   const replyRef = useRef<HTMLTextAreaElement>(null);
@@ -537,8 +598,18 @@ function InboxInner() {
   const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const [emailSignature, setEmailSignature] = useState("");
   const templatesFetched = useRef(false);
-  const [bottomTab, setBottomTab] = useState<"reply" | "comments">("reply");
   const [commentCount, setCommentCount] = useState(0);
+
+  // Compose new email
+  const [showCompose, setShowCompose] = useState(false);
+  const [composeTo, setComposeTo] = useState<PersonMeta | null>(null);
+  const [composeToQuery, setComposeToQuery] = useState("");
+  const [composeSubject, setComposeSubject] = useState("");
+  const [composeBody, setComposeBody] = useState("");
+  const [composeSending, setComposeSending] = useState(false);
+  const [showComposeTemplatePicker, setShowComposeTemplatePicker] = useState(false);
+  const composeBodyRef = useRef<HTMLTextAreaElement>(null);
+  const composeToRef = useRef<HTMLInputElement>(null);
 
   const fetchTemplates = useCallback(async () => {
     if (!authToken || templatesFetched.current) return;
@@ -555,13 +626,20 @@ function InboxInner() {
     } catch { /* ignore */ }
   }, [apiBaseUrl, authToken]);
 
+  function htmlToPlainText(html: string): string {
+    const tmp = document.createElement("div");
+    tmp.innerHTML = html;
+    return tmp.innerText ?? tmp.textContent ?? "";
+  }
+
   function resolveTemplateForReply(tmpl: EmailTemplate) {
     if (!selectedThread) return;
     const firstName = selectedThread.personName?.split(" ")[0] ?? "";
     const fullName = selectedThread.personName ?? "";
     const email = selectedThread.personEmail ?? "";
     const domain = selectedThread.personEmail?.split("@")[1] ?? "";
-    const resolved = tmpl.body
+    const plainBody = htmlToPlainText(tmpl.body);
+    const resolved = plainBody
       .replace(/\{\{first_name\}\}/g, firstName)
       .replace(/\{\{full_name\}\}/g, fullName)
       .replace(/\{\{email\}\}/g, email)
@@ -604,9 +682,14 @@ function InboxInner() {
         personEmails: PersonMeta[];
         connectedUsers?: { email: string; name: string; profilePhotoUrl?: string | null }[];
       };
-      setThreads(data.threads ?? []);
+      const loadedThreads = data.threads ?? [];
+      setThreads(loadedThreads);
       setPersonEmails(data.personEmails ?? []);
       setConnectedUsers(data.connectedUsers ?? []);
+      // Auto-select first thread
+      if (loadedThreads.length > 0) {
+        autoSelectRef.current = loadedThreads[0];
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load inbox");
     } finally {
@@ -637,6 +720,24 @@ function InboxInner() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Open compose via sidebar pencil shortcut
+  useEffect(() => {
+    const handler = () => openCompose();
+    window.addEventListener(COMPOSE_EMAIL_EVENT, handler);
+    return () => window.removeEventListener(COMPOSE_EMAIL_EVENT, handler);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-select first thread after load
+  useEffect(() => {
+    if (autoSelectRef.current && !selectedThread && threads.length > 0) {
+      const thread = autoSelectRef.current;
+      autoSelectRef.current = null;
+      selectThread(thread);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threads]);
+
   // ── Thread selection ──────────────────────────────────────────────────────
 
   async function selectThread(thread: InboxThread) {
@@ -646,8 +747,17 @@ function InboxInner() {
     setMentionQuery(null);
     setLoadingMessages(true);
     setReadIds((prev) => new Set([...prev, thread.id]));
-    setBottomTab("reply");
+    setActivePanel(null);
     setCommentCount(0);
+    setTrackingData([]);
+
+    // Fetch tracking data
+    void apiFetch(`${apiBaseUrl}/inbox/threads/${thread.id}/tracking`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    }).then(async (res) => {
+      const data = (await safeJson(res)) as { tracks?: typeof trackingData };
+      setTrackingData(data.tracks ?? []);
+    }).catch(() => {});
 
     // Fetch comment count
     void apiFetch(`${apiBaseUrl}/inbox/threads/${thread.id}/comments`, {
@@ -682,7 +792,16 @@ function InboxInner() {
         headers: { Authorization: `Bearer ${authToken}` },
       });
       const data = (await safeJson(res)) as { messages?: ThreadMessage[] };
-      setMessages(data.messages ?? []);
+      // Deduplicate messages — by id first, then by content+sender fingerprint
+      const seen = new Set<string>();
+      const deduped = (data.messages ?? []).filter((m) => {
+        const fingerprint = `${m.id}||${m.from}::${m.date}::${m.body?.slice(0, 100)}`;
+        if (seen.has(m.id) || seen.has(fingerprint)) return false;
+        seen.add(m.id);
+        seen.add(fingerprint);
+        return true;
+      });
+      setMessages(deduped);
     } catch {
       setMessages([]);
     } finally {
@@ -739,7 +858,7 @@ function InboxInner() {
         body: JSON.stringify({
           to: selectedThread.personEmail,
           subject: selectedThread.subject,
-          body: emailSignature ? `${replyBody}\n\n${emailSignature}` : replyBody,
+          body: replyBody,
           sourceUserEmail: selectedThread.sourceUserEmail,
           inReplyTo: lastMsg?.messageId,
         }),
@@ -752,6 +871,98 @@ function InboxInner() {
       // ignore
     } finally {
       setSendingReply(false);
+    }
+  }
+
+  async function generateAIDraft() {
+    if (!selectedThread || messages.length === 0 || draftingAI) return;
+    setActivePanel("reply");
+    setDraftingAI(true);
+    setReplyBody("");
+    setTimeout(() => replyRef.current?.focus(), 50);
+    try {
+      const res = await apiFetch(`${apiBaseUrl}/inbox/threads/${selectedThread.id}/ai-draft`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${authToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: messages.map((m) => ({ from: m.from, body: m.body, date: m.date })),
+        }),
+      });
+      const data = (await res.json()) as { draft?: string; error?: string };
+      if (data.draft) setReplyBody(data.draft);
+    } catch { /* ignore */ }
+    finally { setDraftingAI(false); }
+  }
+
+  // ── Compose ───────────────────────────────────────────────────────────────
+
+  function openCompose() {
+    setShowCompose(true);
+    setComposeTo(null);
+    setComposeToQuery("");
+    setComposeSubject("");
+    setComposeBody("");
+    setShowComposeTemplatePicker(false);
+    void fetchTemplates();
+    setTimeout(() => composeToRef.current?.focus(), 100);
+  }
+
+  function closeCompose() {
+    setShowCompose(false);
+    setComposeTo(null);
+    setComposeToQuery("");
+    setComposeSubject("");
+    setComposeBody("");
+    setShowComposeTemplatePicker(false);
+  }
+
+  function resolveTemplateForCompose(tmpl: EmailTemplate) {
+    const firstName = composeTo?.name?.split(" ")[0] ?? "";
+    const fullName = composeTo?.name ?? "";
+    const email = composeTo?.email ?? "";
+    const domain = composeTo?.email?.split("@")[1] ?? "";
+    const plainBody = htmlToPlainText(tmpl.body);
+    const resolved = plainBody
+      .replace(/\{\{first_name\}\}/g, firstName)
+      .replace(/\{\{full_name\}\}/g, fullName)
+      .replace(/\{\{email\}\}/g, email)
+      .replace(/\{\{website\}\}/g, domain)
+      .replace(/\{\{ats_name\}\}/g, "");
+    setComposeBody(resolved);
+    setShowComposeTemplatePicker(false);
+  }
+
+  const filteredPersonSuggestions = useMemo(() => {
+    if (!composeToQuery || composeTo) return [];
+    const q = composeToQuery.toLowerCase();
+    return personEmails.filter(
+      (p) => p.name.toLowerCase().includes(q) || p.email.toLowerCase().includes(q),
+    ).slice(0, 8);
+  }, [composeToQuery, composeTo, personEmails]);
+
+  async function sendCompose() {
+    if (!composeTo || !composeSubject.trim() || !composeBody.trim() || composeSending) return;
+    setComposeSending(true);
+    try {
+      await apiFetch(`${apiBaseUrl}/inbox/send`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          to: composeTo.email,
+          subject: composeSubject.trim(),
+          body: composeBody,
+        }),
+      });
+      closeCompose();
+      // Refresh inbox to show the new thread
+      void fetchInbox(authToken);
+    } catch {
+      // ignore
+    } finally {
+      setComposeSending(false);
     }
   }
 
@@ -1195,7 +1406,7 @@ function InboxInner() {
           </div>
         </div>
 
-        {/* All / Unread toggle + Refresh */}
+        {/* All / Unread toggle + Compose + Refresh */}
         <div className="flex items-center justify-between px-3 py-2 border-b border-[#ededf0]">
           <div className="inline-flex rounded-lg bg-[#f5f5f7] p-0.5">
             <button
@@ -1224,24 +1435,35 @@ function InboxInner() {
               )}
             </button>
           </div>
-          <button
-            onClick={async () => {
-              if (!authToken || refreshing) return;
-              setRefreshing(true);
-              await fetchInbox(authToken).finally(() => setRefreshing(false));
-            }}
-            disabled={refreshing}
-            className="flex items-center justify-center rounded-md p-1.5 text-[#8b8d94] transition-colors hover:bg-[#f5f5f7] hover:text-[#6b6f76] disabled:opacity-50"
-            title="Refresh inbox"
-          >
-            {refreshing ? (
-              <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#e6e6e9] border-t-[#6b6f76]" />
-            ) : (
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+          <div className="flex items-center gap-0.5">
+            <button
+              onClick={openCompose}
+              className="flex items-center justify-center rounded-md p-1.5 text-[#8b8d94] transition-colors hover:bg-[#f5f5f7] hover:text-[#6b6f76]"
+              title="Compose email"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>
               </svg>
-            )}
-          </button>
+            </button>
+            <button
+              onClick={async () => {
+                if (!authToken || refreshing) return;
+                setRefreshing(true);
+                await fetchInbox(authToken).finally(() => setRefreshing(false));
+              }}
+              disabled={refreshing}
+              className="flex items-center justify-center rounded-md p-1.5 text-[#8b8d94] transition-colors hover:bg-[#f5f5f7] hover:text-[#6b6f76] disabled:opacity-50"
+              title="Refresh inbox"
+            >
+              {refreshing ? (
+                <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#e6e6e9] border-t-[#6b6f76]" />
+              ) : (
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+                </svg>
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Active filter pills */}
@@ -1289,6 +1511,152 @@ function InboxInner() {
         </div>
       </div>
 
+      {/* ── Compose modal ────────────────────────────────────────────── */}
+      {showCompose && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={(e) => { if (e.target === e.currentTarget) closeCompose(); }}>
+          <div className="w-full max-w-[560px] rounded-xl border border-[#e6e6e9] bg-white shadow-xl overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-[#ededf0] px-4 py-3">
+              <h3 className="text-[14px] font-semibold text-[#1b1b1f]">New message</h3>
+              <button onClick={closeCompose} className="rounded-md p-1 text-[#8b8d94] hover:bg-[#f5f5f7] hover:text-[#6b6f76] transition-colors">
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* To field */}
+            <div className="relative border-b border-[#f0f0f2] px-4 py-2.5">
+              <div className="flex items-center gap-2">
+                <span className="text-[12px] text-[#8b8d94] shrink-0">To</span>
+                {composeTo ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-md bg-[#f5f5f7] px-2 py-1 text-[12px] font-medium text-[#1b1b1f]">
+                    {composeTo.name}
+                    <span className="text-[11px] text-[#8b8d94]">&lt;{composeTo.email}&gt;</span>
+                    <button
+                      onClick={() => { setComposeTo(null); setComposeToQuery(""); setTimeout(() => composeToRef.current?.focus(), 0); }}
+                      className="ml-0.5 rounded-full p-0.5 text-[#8b8d94] hover:text-[#6b6f76] hover:bg-[#e6e6e9] transition-colors"
+                    >
+                      <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </span>
+                ) : (
+                  <input
+                    ref={composeToRef}
+                    type="text"
+                    value={composeToQuery}
+                    onChange={(e) => setComposeToQuery(e.target.value)}
+                    placeholder="Search people…"
+                    className="flex-1 text-[13px] text-[#1b1b1f] placeholder:text-[#8b8d94] outline-none"
+                  />
+                )}
+              </div>
+
+              {/* Person suggestions dropdown */}
+              {filteredPersonSuggestions.length > 0 && (
+                <div className="absolute left-4 right-4 top-full mt-1 overflow-hidden rounded-lg border border-[#e6e6e9] bg-white shadow-lg z-10 max-h-56 overflow-y-auto">
+                  {filteredPersonSuggestions.map((p) => (
+                    <button
+                      key={p.email}
+                      onMouseDown={(e) => { e.preventDefault(); setComposeTo(p); setComposeToQuery(""); }}
+                      className="flex w-full items-center gap-2.5 px-3 py-2.5 text-left hover:bg-[#f9f9fb] transition-colors"
+                    >
+                      <LetterAvatar name={p.name} size="sm" src={profilePicMap.get(p.email.toLowerCase())} />
+                      <div className="min-w-0">
+                        <p className="text-[12px] font-medium text-[#1b1b1f] truncate">{p.name}</p>
+                        <p className="text-[11px] text-[#8b8d94] truncate">{p.email}{p.companyName ? ` · ${p.companyName}` : ""}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Subject field */}
+            <div className="border-b border-[#f0f0f2] px-4 py-2.5">
+              <div className="flex items-center gap-2">
+                <span className="text-[12px] text-[#8b8d94] shrink-0">Subject</span>
+                <input
+                  type="text"
+                  value={composeSubject}
+                  onChange={(e) => setComposeSubject(e.target.value)}
+                  placeholder="Email subject"
+                  className="flex-1 text-[13px] text-[#1b1b1f] placeholder:text-[#8b8d94] outline-none"
+                />
+              </div>
+            </div>
+
+            {/* Body */}
+            <textarea
+              ref={composeBodyRef}
+              value={composeBody}
+              onChange={(e) => setComposeBody(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void sendCompose(); }
+              }}
+              placeholder="Write your message…"
+              className="w-full resize-none bg-transparent px-4 pt-3 pb-2 text-[13px] text-[#1b1b1f] placeholder:text-[#8b8d94] outline-none"
+              style={{ minHeight: 200 }}
+            />
+            {emailSignature && (
+              <div className="mx-4 mb-2 border-t border-[#f0f0f2] pt-2">
+                <div className="text-[13px] text-[#8b8d94] leading-relaxed [&_p]:m-0 [&_a]:text-[#5e6ad2] [&_a]:underline" dangerouslySetInnerHTML={{ __html: emailSignature }} />
+              </div>
+            )}
+
+            {/* Footer */}
+            <div className="flex items-center justify-between border-t border-[#f0f0f2] px-3 py-2.5">
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => void sendCompose()}
+                  disabled={!composeTo || !composeSubject.trim() || !composeBody.trim() || composeSending}
+                  className="flex items-center gap-1.5 rounded-lg bg-[#4338ca] px-3.5 py-1.5 text-[12px] font-medium text-white transition-opacity disabled:opacity-30 hover:bg-[#3730a3]"
+                >
+                  {composeSending ? (
+                    <div className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  ) : null}
+                  Send
+                </button>
+                <div className="relative">
+                  <button
+                    onClick={() => { void fetchTemplates(); setShowComposeTemplatePicker((p) => !p); }}
+                    className="flex items-center gap-1 rounded-lg border border-[#e6e6e9] px-2.5 py-1.5 text-[12px] font-medium text-[#6b6f76] hover:bg-[#f5f5f7] transition-colors"
+                  >
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                    </svg>
+                    Templates
+                  </button>
+                  {showComposeTemplatePicker && (
+                    <div className="absolute left-0 bottom-full mb-1 w-64 rounded-lg border border-[#e6e6e9] bg-white shadow-lg z-20 overflow-hidden">
+                      {emailTemplates.length === 0 ? (
+                        <p className="px-3 py-3 text-[12px] text-[#8b8d94]">No templates yet</p>
+                      ) : (
+                        emailTemplates.map((t) => (
+                          <button
+                            key={t._id}
+                            onClick={() => resolveTemplateForCompose(t)}
+                            className="flex w-full flex-col px-3 py-2 text-left hover:bg-[#f9f9fb] transition-colors"
+                          >
+                            <span className="text-[12px] font-medium text-[#1b1b1f]">{t.title}</span>
+                            <span className="text-[11px] text-[#8b8d94] line-clamp-1 font-mono">{t.body}</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-3 text-[#8b8d94]">
+                <kbd className="rounded bg-black/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-[#8b8d94]">⌘↵</kbd>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Right panel: thread detail ──────────────────────────────────── */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {!selectedThread ? (
@@ -1317,7 +1685,7 @@ function InboxInner() {
               </div>
             </div>
 
-            {/* Messages — fills remaining space above pinned bottom panel */}
+            {/* Messages — fills remaining space, everything scrolls together */}
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-3 space-y-3">
               {loadingMessages ? (
                 <div className="flex justify-center py-8">
@@ -1326,78 +1694,141 @@ function InboxInner() {
               ) : messages.length === 0 ? (
                 <p className="text-center text-[13px] text-[#8b8d94]">No messages</p>
               ) : (
-                messages.map((msg) => (
-                  <MessageBubble key={msg.id} msg={msg} myEmails={myEmails} />
+                messages.map((msg, i) => (
+                  <div key={msg.id}>
+                    {i > 0 && <div className="border-t border-[#f0f0f2] mx-3" />}
+                    <MessageBubble
+                      msg={msg}
+                      myEmails={myEmails}
+                      isLast={i === messages.length - 1}
+                      tracking={trackingData.find((t) => {
+                        // Match tracking record to message by sent time proximity (within 5 minutes)
+                        const msgTime = new Date(msg.date).getTime();
+                        const sentTime = new Date(t.sentAt).getTime();
+                        return Math.abs(msgTime - sentTime) < 5 * 60 * 1000;
+                      }) ?? null}
+                    />
+                  </div>
                 ))
               )}
+
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Bottom panel — pinned to bottom, tabbed: Reply / Comments */}
-            <div className="border-t border-[#e6e6e9] flex flex-col shrink-0" style={{ minHeight: 180, maxHeight: "40%" }}>
-              {/* Tabs */}
-              <div className="flex items-center gap-0 px-4 border-b border-[#ededf0]">
-                <button
-                  onClick={() => setBottomTab("reply")}
-                  className={`px-3 py-2 text-[12px] font-medium border-b-2 transition-colors ${
-                    bottomTab === "reply"
-                      ? "border-[#1b1b1f] text-[#1b1b1f]"
-                      : "border-transparent text-[#8b8d94] hover:text-[#6b6f76]"
-                  }`}
-                >
-                  Reply
-                </button>
-                <button
-                  onClick={() => setBottomTab("comments")}
-                  className={`flex items-center gap-1.5 px-3 py-2 text-[12px] font-medium border-b-2 transition-colors ${
-                    bottomTab === "comments"
-                      ? "border-[#1b1b1f] text-[#1b1b1f]"
-                      : "border-transparent text-[#8b8d94] hover:text-[#6b6f76]"
-                  }`}
-                >
-                  Comments
-                  {commentCount > 0 && (
-                    <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#5e6ad2] px-1 text-[10px] font-semibold text-white leading-none">
-                      {commentCount}
-                    </span>
-                  )}
-                </button>
-              </div>
+            {/* Pinned bottom: action buttons + reply/comments panels */}
+            {messages.length > 0 && !loadingMessages && (
+              <div className="shrink-0 border-t border-[#e6e6e9] px-5 pb-3">
+                <div className="flex items-center gap-2 py-3">
+                  <button
+                    onClick={() => { setActivePanel(activePanel === "reply" ? null : "reply"); setTimeout(() => replyRef.current?.focus(), 50); }}
+                    className={`flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[12px] font-medium transition-colors shadow-sm ${
+                      activePanel === "reply"
+                        ? "border-[#1b1b1f] bg-[#1b1b1f] text-white"
+                        : "border-[#e6e6e9] bg-white text-[#1b1b1f] hover:bg-[#f5f5f7]"
+                    }`}
+                  >
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 15L3 9m0 0l6-6M3 9h12a6 6 0 010 12h-3" />
+                    </svg>
+                    Reply
+                  </button>
+                  <button
+                    onClick={() => void generateAIDraft()}
+                    disabled={draftingAI}
+                    className="flex items-center gap-1.5 rounded-full border border-[#e6e6e9] bg-white px-3.5 py-1.5 text-[12px] font-medium text-[#1b1b1f] hover:bg-[#f5f5f7] transition-colors shadow-sm disabled:opacity-50"
+                  >
+                    {draftingAI ? (
+                      <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-black/10 border-t-black/50" />
+                    ) : (
+                      <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                      </svg>
+                    )}
+                    AI Draft
+                  </button>
+                  <button
+                    onClick={() => { setActivePanel(activePanel === "comments" ? null : "comments"); }}
+                    className={`flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-[12px] font-medium transition-colors shadow-sm ${
+                      activePanel === "comments"
+                        ? "border-[#1b1b1f] bg-[#1b1b1f] text-white"
+                        : "border-[#e6e6e9] bg-white text-[#1b1b1f] hover:bg-[#f5f5f7]"
+                    }`}
+                  >
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+                    </svg>
+                    Comments
+                    {commentCount > 0 && (
+                      <span className={`flex h-[16px] min-w-[16px] items-center justify-center rounded-full px-1 text-[9px] font-semibold leading-none ${
+                        activePanel === "comments" ? "bg-white text-[#1b1b1f]" : "bg-[#5e6ad2] text-white"
+                      }`}>
+                        {commentCount}
+                      </span>
+                    )}
+                  </button>
+                </div>
 
-              {/* Tab content */}
-              <div className="flex-1 flex flex-col">
-                {bottomTab === "reply" ? (
-                  <div className="flex-1 flex flex-col px-4 py-3">
-                    <div className="relative flex-1 flex flex-col rounded-lg border border-[#e6e6e9] bg-[#f9f9fb] focus-within:border-[#8b8d94] focus-within:bg-white transition-colors">
-                      <textarea
-                        ref={replyRef}
-                        value={replyBody}
-                        onChange={(e) => {
-                          handleReplyChange(e);
-                          // Auto-grow
-                          e.target.style.height = "auto";
-                          e.target.style.height = Math.max(60, e.target.scrollHeight) + "px";
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                            e.preventDefault();
-                            void sendReply();
-                          }
-                          if (e.key === "Escape") setMentionQuery(null);
-                        }}
-                        placeholder="Write a reply…"
-                        className="flex-1 w-full resize-none bg-transparent px-3 pt-2.5 pb-1 text-[13px] text-[#1b1b1f] placeholder:text-[#8b8d94] outline-none"
-                        style={{ minHeight: 60 }}
-                      />
+                {/* Inline reply card */}
+                {activePanel === "reply" && (
+                  <div className="relative rounded-xl border border-[#e6e6e9] bg-white shadow-sm overflow-hidden mb-2">
+                    {/* To header */}
+                    <div className="flex items-center justify-between px-4 py-2.5 border-b border-[#f0f0f2]">
+                      <div className="flex items-center gap-2 text-[12px] text-[#8b8d94]">
+                        <span>To</span>
+                        <span className="rounded-md bg-[#f5f5f7] px-2 py-0.5 text-[12px] font-medium text-[#1b1b1f]">
+                          {selectedThread?.personName ?? selectedThread?.personEmail}
+                        </span>
+                      </div>
+                    </div>
 
-                      {/* Actions bar inside the box */}
-                      <div className="flex items-center justify-between px-2 pb-2 shrink-0">
+                    {/* Textarea */}
+                    <textarea
+                      ref={replyRef}
+                      value={replyBody}
+                      onChange={(e) => {
+                        handleReplyChange(e);
+                        e.target.style.height = "auto";
+                        e.target.style.height = Math.max(100, e.target.scrollHeight) + "px";
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                          e.preventDefault();
+                          void sendReply();
+                        }
+                        if (e.key === "Escape") setMentionQuery(null);
+                      }}
+                      placeholder={draftingAI ? "AI is drafting a reply…" : "Write a reply…"}
+                      className="w-full resize-none bg-transparent px-4 pt-3 pb-2 text-[13px] text-[#1b1b1f] placeholder:text-[#8b8d94] outline-none"
+                      style={{ minHeight: 100, maxHeight: 200, overflowY: "auto" }}
+                    />
+                    {emailSignature && (
+                      <div className="mx-4 mb-2 border-t border-[#f0f0f2] pt-2">
+                        <div className="text-[13px] text-[#8b8d94] leading-relaxed [&_p]:m-0 [&_a]:text-[#5e6ad2] [&_a]:underline" dangerouslySetInnerHTML={{ __html: emailSignature }} />
+                      </div>
+                    )}
+
+                    {/* Footer actions */}
+                    <div className="flex items-center justify-between px-3 py-2.5 border-t border-[#f0f0f2]">
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={sendReply}
+                          disabled={!replyBody.trim() || sendingReply}
+                          className="flex items-center gap-1.5 rounded-lg bg-[#4338ca] px-3.5 py-1.5 text-[12px] font-medium text-white transition-opacity disabled:opacity-30 hover:bg-[#3730a3]"
+                        >
+                          {sendingReply ? (
+                            <div className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                          ) : null}
+                          Send
+                        </button>
                         <div className="relative">
                           <button
                             onClick={() => { void fetchTemplates(); setShowTemplatePicker((p) => !p); }}
-                            className="rounded-md px-2 py-1 text-[11px] font-medium text-[#8b8d94] hover:bg-black/[0.04] hover:text-[#6b6f76] transition-colors"
+                            className="flex items-center gap-1 rounded-lg border border-[#e6e6e9] px-2.5 py-1.5 text-[12px] font-medium text-[#6b6f76] hover:bg-[#f5f5f7] transition-colors"
                           >
-                            Use template
+                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                            </svg>
+                            Templates
                           </button>
                           {showTemplatePicker && (
                             <div className="absolute left-0 bottom-full mb-1 w-64 rounded-lg border border-[#e6e6e9] bg-white shadow-lg z-20 overflow-hidden">
@@ -1418,53 +1849,49 @@ function InboxInner() {
                             </div>
                           )}
                         </div>
-                        <div className="flex items-center gap-2.5">
-                          <span className="text-[10px] text-[#8b8d94]">
-                            <kbd className="rounded bg-black/[0.04] px-1 py-0.5 font-mono text-[9px] text-[#8b8d94]">⌘↵</kbd>
-                          </span>
-                          <button
-                            onClick={sendReply}
-                            disabled={!replyBody.trim() || sendingReply}
-                            className="flex items-center gap-1.5 rounded-md bg-[#1b1b1f] px-3 py-1 text-[11px] font-medium text-white transition-opacity disabled:opacity-30 hover:bg-[#2c2c33]"
-                          >
-                            {sendingReply ? (
-                              <div className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                            ) : (
-                              <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
-                              </svg>
-                            )}
-                            Send
-                          </button>
-                        </div>
                       </div>
-
-                      {/* @ mention dropdown */}
-                      {mentionQuery !== null && filteredMentionMembers.length > 0 && (
-                        <div className="absolute bottom-full left-0 mb-1 w-60 overflow-hidden rounded-lg border border-[#e6e6e9] bg-white shadow-md z-10">
-                          {filteredMentionMembers.map((m) => (
-                            <button
-                              key={m.email}
-                              onMouseDown={(e) => { e.preventDefault(); insertMention(m); }}
-                              className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[#f9f9fb] transition-colors"
-                            >
-                              <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#e6e6e9] text-[10px] font-semibold text-[#6b6f76]">
-                                {getInitials(m.name)}
-                              </div>
-                              <div>
-                                <p className="text-[12px] font-medium text-[#1b1b1f]">{m.name}</p>
-                                <p className="text-[11px] text-[#8b8d94]">{m.email}</p>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      )}
+                      <div className="flex items-center gap-3 text-[#8b8d94]">
+                        <kbd className="rounded bg-black/[0.04] px-1.5 py-0.5 font-mono text-[10px] text-[#8b8d94]">⌘↵</kbd>
+                        <button
+                          onClick={() => { setActivePanel(null); setReplyBody(""); }}
+                          className="p-1 rounded hover:bg-black/[0.04] hover:text-[#6b6f76] transition-colors"
+                          title="Discard"
+                        >
+                          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
+
+                    {/* @ mention dropdown */}
+                    {mentionQuery !== null && filteredMentionMembers.length > 0 && (
+                      <div className="absolute left-4 bottom-16 w-60 overflow-hidden rounded-lg border border-[#e6e6e9] bg-white shadow-md z-10">
+                        {filteredMentionMembers.map((m) => (
+                          <button
+                            key={m.email}
+                            onMouseDown={(e) => { e.preventDefault(); insertMention(m); }}
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-[#f9f9fb] transition-colors"
+                          >
+                            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#e6e6e9] text-[10px] font-semibold text-[#6b6f76]">
+                              {getInitials(m.name)}
+                            </div>
+                            <div>
+                              <p className="text-[12px] font-medium text-[#1b1b1f]">{m.name}</p>
+                              <p className="text-[11px] text-[#8b8d94]">{m.email}</p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  <div className="flex-1 flex flex-col">
+                )}
+
+                {/* Inline comments card */}
+                {activePanel === "comments" && (
+                  <div className="rounded-xl border border-[#e6e6e9] bg-white shadow-sm overflow-hidden mb-2">
                     <InternalComments
-                      threadId={selectedThread.id}
+                      threadId={selectedThread!.id}
                       authToken={authToken}
                       apiBaseUrl={apiBaseUrl}
                       connectedUsers={connectedUsers}
@@ -1473,7 +1900,7 @@ function InboxInner() {
                   </div>
                 )}
               </div>
-            </div>
+            )}
           </>
         )}
       </div>

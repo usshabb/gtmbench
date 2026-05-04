@@ -111,6 +111,13 @@ export function dispatchDataChanged() {
   window.dispatchEvent(new CustomEvent(DATA_CHANGED_EVENT));
 }
 
+/* Custom event to open compose modal from anywhere */
+export const COMPOSE_EMAIL_EVENT = "gtmbench:compose-email";
+
+export function dispatchComposeEmail() {
+  window.dispatchEvent(new CustomEvent(COMPOSE_EMAIL_EVENT));
+}
+
 /* Custom event to trigger global action modal from any page */
 export const GLOBAL_ACTION_EVENT = "gtmbench:global-action";
 

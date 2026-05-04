@@ -1,11 +1,12 @@
 import { Queue, Worker } from "bullmq";
 import { ObjectId } from "mongodb";
 import { env } from "./env.js";
-import { getCompaniesCollection, getCompanyATSCollection, getJobsCollection, getLinkedinPostsForUserCollection, getPersonsCollection, getSignalsCollection, getTriggerJobsCollection, getTriggersCollection } from "./db.js";
+import { getCompaniesCollection, getCompanyATSCollection, getFundedStartupsCollection, getJobsCollection, getLinkedinPostsForUserCollection, getPersonsCollection, getSignalsCollection, getTriggerJobsCollection, getTriggersCollection } from "./db.js";
 import { fetchLinkedinPosts } from "./linkedin.js";
 import { fetchATSJobs } from "./parallel.js";
-import { detectCompanyATS } from "./firecrawl.js";
-import type { ATSJobsSignalData, JobData, LinkedinPostData } from "./types.js";
+import { detectCompanyATS, fetchRecentlyFundedStartups } from "./firecrawl.js";
+import { enrichDomainWithFiber } from "./fiber.js";
+import type { ATSJobsSignalData, FundedStartupData, FundedStartupSignalData, JobData, LinkedinPostData } from "./types.js";
 
 const QUEUE_NAME = "trigger-jobs";
 // Rate limit: 60 req/min from Fiber = 1 req/sec
@@ -67,7 +68,15 @@ interface ATSJobsJobData {
   keyword: string | null;
 }
 
-type TriggerJobData = LinkedinPostJobData | ATSJobsJobData;
+interface RecentlyFundedJobData {
+  type: "RecentlyFunded";
+  triggerJobId: string;
+  triggerId: string;
+  userEmail: string;
+  sinceDate?: string; // ISO date string — only fetch funding after this date
+}
+
+type TriggerJobData = LinkedinPostJobData | ATSJobsJobData | RecentlyFundedJobData;
 
 /**
  * Enqueue all pending TriggerJobs for processing.
@@ -96,6 +105,19 @@ export async function enqueueAllPendingJobs(): Promise<number> {
   const bulkJobs = pendingJobs
     .filter((job) => activeTriggerIds.has(job.triggerId.toHexString()))
     .map((job) => {
+      if (job.jobType === "RecentlyFunded") {
+        const jobData: RecentlyFundedJobData = {
+          type: "RecentlyFunded",
+          triggerJobId: job._id!.toHexString(),
+          triggerId: job.triggerId.toHexString(),
+          userEmail: job.userEmail,
+        };
+        return {
+          name: "recently-funded",
+          data: jobData,
+          opts: { jobId: `rf-${job._id!.toHexString()}-${Date.now()}` },
+        };
+      }
       if (job.jobType === "ATSJobs") {
         const atsTrigger = triggerConfigMap.get(job.triggerId.toHexString());
         const jobData: ATSJobsJobData = {
@@ -282,6 +304,28 @@ export async function createPendingJobs(userEmail: string): Promise<number> {
           }
         }
       }
+    } else if (trigger.triggerType === "recently_funded") {
+      // One job per trigger run — check if one already exists for today
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const existing = await triggerJobsCol.findOne({
+        triggerId: trigger._id!,
+        userEmail,
+        jobType: "RecentlyFunded",
+        createdAt: { $gte: todayStr },
+      });
+      if (!existing) {
+        await triggerJobsCol.insertOne({
+          triggerId: trigger._id!,
+          userEmail,
+          jobType: "RecentlyFunded",
+          status: "pending",
+          createdAt: now,
+        });
+        created++;
+        console.log(`[createPendingJobs] Created RecentlyFunded job for trigger ${trigger._id}`);
+      } else {
+        console.log(`[createPendingJobs] RecentlyFunded job already exists for today, skipping`);
+      }
     }
   }
 
@@ -306,6 +350,15 @@ export async function enqueuePendingJobsForUser(userEmail: string): Promise<numb
   const bulkJobs = pendingJobs
     .filter((job) => activeTriggerIds.has(job.triggerId.toHexString()))
     .map((job) => {
+      if (job.jobType === "RecentlyFunded") {
+        const data: RecentlyFundedJobData = {
+          type: "RecentlyFunded",
+          triggerJobId: job._id!.toHexString(),
+          triggerId: job.triggerId.toHexString(),
+          userEmail: job.userEmail,
+        };
+        return { name: "recently-funded", data, opts: { jobId: `rf-${job._id!.toHexString()}-${Date.now()}` } };
+      }
       if (job.jobType === "ATSJobs") {
         console.log(`[enqueuePendingJobs] Enqueuing ATSJobs: domain=${job.domain} atsUrl=${job.atsUrl} triggerJobId=${job._id}`);
         if (!job.atsUrl) {
@@ -368,7 +421,19 @@ export async function enqueueSpecificJob(triggerJobId: string, userEmail: string
   const trigger = await triggersCol.findOne({ _id: job.triggerId });
   const jobQueue = getTriggerJobQueue();
 
-  if (job.jobType === "ATSJobs") {
+  if (job.jobType === "RecentlyFunded") {
+    await jobQueue.add(
+      "recently-funded",
+      {
+        type: "RecentlyFunded",
+        triggerJobId: job._id!.toHexString(),
+        triggerId: job.triggerId.toHexString(),
+        userEmail: job.userEmail,
+      } satisfies RecentlyFundedJobData,
+      { jobId: `rf-${job._id!.toHexString()}-${Date.now()}` },
+    );
+    return true;
+  } else if (job.jobType === "ATSJobs") {
     await jobQueue.add(
       "ats-jobs",
       {
@@ -746,6 +811,154 @@ async function processATSJobsJob(jobData: ATSJobsJobData): Promise<void> {
   }
 }
 
+async function processRecentlyFundedJob(jobData: RecentlyFundedJobData): Promise<void> {
+  const triggerJobsCol = await getTriggerJobsCollection();
+  const fundedStartupsCol = await getFundedStartupsCollection();
+  const signalsCol = await getSignalsCollection();
+  const triggerJobId = new ObjectId(jobData.triggerJobId);
+  const triggerId = new ObjectId(jobData.triggerId);
+
+  await triggerJobsCol.updateOne({ _id: triggerJobId }, { $set: { status: "processing" } });
+
+  try {
+    // Determine search window: use lastProcessedAt of last completed job, else 7-day default.
+    const lastCompleted = await triggerJobsCol.findOne(
+      { triggerId, userEmail: jobData.userEmail, jobType: "RecentlyFunded", status: "completed", _id: { $ne: triggerJobId } },
+      { sort: { lastProcessedAt: -1 } },
+    );
+
+    let sinceDate: string;
+    if (lastCompleted?.lastProcessedAt) {
+      sinceDate = lastCompleted.lastProcessedAt.slice(0, 10);
+    } else {
+      const d = new Date();
+      d.setDate(d.getDate() - 7);
+      sinceDate = d.toISOString().slice(0, 10);
+    }
+
+    console.log(`[triggers-worker] [RecentlyFunded] Fetching startups funded since ${sinceDate}`);
+    const result = await fetchRecentlyFundedStartups(sinceDate);
+
+    if (!result.success) {
+      await triggerJobsCol.updateOne(
+        { _id: triggerJobId },
+        { $set: { status: "failed", error: result.error, lastProcessedAt: new Date().toISOString() } },
+      );
+      throw new Error(result.error ?? "Failed to fetch funded startups");
+    }
+
+    const fetchedAt = new Date().toISOString();
+    const signalDate = fetchedAt.slice(0, 10);
+    let newCount = 0;
+    const newStartups: FundedStartupData[] = [];
+
+    // For each startup: enrich via Fiber, insert into fundedStartups collection (skip duplicates)
+    for (const startup of result.startups) {
+      let enrichmentData: Record<string, unknown> | null = null;
+      if (startup.websiteDomain) {
+        const enrichResult = await enrichDomainWithFiber(startup.websiteDomain);
+        if (enrichResult.success && enrichResult.payload) {
+          enrichmentData = enrichResult.payload;
+        }
+      }
+
+      try {
+        await fundedStartupsCol.insertOne({
+          userEmail: jobData.userEmail,
+          triggerId,
+          companyName: startup.companyName,
+          websiteDomain: startup.websiteDomain,
+          fundingAmount: startup.fundingAmount,
+          investors: startup.investors,
+          citationUrl: startup.citationUrl ?? null,
+          enrichmentData,
+          fetchedAt,
+          signalDate,
+        });
+        newCount++;
+        newStartups.push({
+          companyName: startup.companyName,
+          websiteDomain: startup.websiteDomain,
+          fundingAmount: startup.fundingAmount,
+          investors: startup.investors,
+          citationUrl: startup.citationUrl,
+          enrichmentData: enrichmentData ?? undefined,
+        });
+        console.log(`[triggers-worker] [RecentlyFunded] Stored: ${startup.companyName} (${startup.websiteDomain})`);
+      } catch (err: unknown) {
+        // Duplicate (userEmail + websiteDomain) — already seen, skip
+        if (err instanceof Error && "code" in err && (err as any).code === 11000) {
+          console.log(`[triggers-worker] [RecentlyFunded] Skipped duplicate: ${startup.websiteDomain}`);
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    // If no new startups were inserted (all duplicates), check if a signal already exists.
+    // If not, fall back to all stored startups so the user sees activity on first discovery.
+    let startupsForSignal = newStartups;
+    if (startupsForSignal.length === 0) {
+      const existingSignal = await signalsCol.findOne({
+        userEmail: jobData.userEmail,
+        signalType: "recently_funded",
+        triggerId,
+      });
+      if (!existingSignal) {
+        const storedStartups = await fundedStartupsCol
+          .find({ userEmail: jobData.userEmail, triggerId })
+          .sort({ fetchedAt: -1 })
+          .limit(50)
+          .toArray();
+        startupsForSignal = storedStartups.map((s) => ({
+          companyName: s.companyName,
+          websiteDomain: s.websiteDomain,
+          fundingAmount: s.fundingAmount,
+          investors: s.investors,
+          citationUrl: s.citationUrl ?? undefined,
+          enrichmentData: s.enrichmentData ?? undefined,
+        }));
+        console.log(`[triggers-worker] [RecentlyFunded] No signal exists yet — surfacing ${startupsForSignal.length} stored startups`);
+      }
+    }
+
+    // Generate a signal from newly stored startups
+    if (startupsForSignal.length > 0) {
+      const signalData: FundedStartupSignalData = { startups: startupsForSignal, fetchedDate: signalDate };
+      await signalsCol.updateOne(
+        { userEmail: jobData.userEmail, signalType: "recently_funded", triggerId, signalDate },
+        {
+          $set: {
+            userEmail: jobData.userEmail,
+            triggerId,
+            signalType: "recently_funded",
+            signalDate,
+            data: signalData,
+            createdAt: fetchedAt,
+          },
+        },
+        { upsert: true },
+      );
+      console.log(`[triggers-worker] [RecentlyFunded] Signal created for ${startupsForSignal.length} startups`);
+    } else {
+      console.log(`[triggers-worker] [RecentlyFunded] No startups found — signal skipped`);
+    }
+
+    await triggerJobsCol.updateOne(
+      { _id: triggerJobId },
+      { $set: { status: "completed", lastProcessedAt: fetchedAt, error: undefined } },
+    );
+
+    console.log(`[triggers-worker] [RecentlyFunded] Done: ${result.startups.length} found, ${newCount} new, stored in fundedStartups`);
+  } catch (error) {
+    await triggerJobsCol.updateOne(
+      { _id: triggerJobId },
+      { $set: { status: "failed", error: error instanceof Error ? error.message : "Unknown error", lastProcessedAt: new Date().toISOString() } },
+    );
+    throw error;
+  }
+}
+
 function filterByKeyword(posts: LinkedinPostData[], keyword: string | null): LinkedinPostData[] {
   if (!keyword) return posts;
   const lowerKeyword = keyword.toLowerCase();
@@ -765,6 +978,8 @@ export function startTriggersWorker(): void {
     async (job) => {
       if (job.data.type === "ATSJobs") {
         await processATSJobsJob(job.data);
+      } else if (job.data.type === "RecentlyFunded") {
+        await processRecentlyFundedJob(job.data);
       } else {
         await processLinkedinPostJob(job.data);
       }

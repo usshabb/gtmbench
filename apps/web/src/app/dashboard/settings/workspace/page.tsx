@@ -113,149 +113,120 @@ export default function WorkspaceSettingsPage() {
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-[#d4d4d8] border-t-[#6b6f76]" />
+        <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#e6e6e9] border-t-[#6b6f76]" />
       </div>
     );
   }
 
   if (!workspace) {
     return (
-      <div className="mx-auto max-w-xl px-6 py-8">
-        <div className="mb-6">
-          <h1 className="text-[17px] font-semibold text-[#1b1b1f]">General</h1>
-        </div>
-        <div className="rounded-lg border border-[#e6e6e9] p-8 text-center">
-          <p className="text-[14px] font-medium text-[#6b6f76]">No workspace set up</p>
-          <p className="mt-1 text-[13px] text-[#8b8d94]">Complete onboarding to create a workspace.</p>
-          <button
-            onClick={() => router.push("/onboarding")}
-            className="mt-4 rounded-md bg-[#1b1b1f] px-5 py-2 text-[13px] font-medium text-white hover:opacity-90"
-          >
-            Set up workspace
-          </button>
-        </div>
+      <div className="mx-auto max-w-lg px-8 py-10">
+        <h1 className="text-[14px] font-semibold text-[#1b1b1f]">General</h1>
+        <p className="mt-8 text-[13px] text-[#6b6f76]">No workspace found. Complete onboarding to continue.</p>
+        <button
+          onClick={() => router.push("/onboarding")}
+          className="mt-4 rounded-md bg-[#1b1b1f] px-4 py-1.5 text-[12px] font-medium text-white hover:opacity-90"
+        >
+          Set up workspace
+        </button>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-xl px-8 py-8 space-y-8">
-      <div>
-        <h1 className="text-[17px] font-semibold text-[#1b1b1f]">General</h1>
-        <p className="mt-0.5 text-[13px] text-[#6b6f76]">Manage your company workspace settings.</p>
-      </div>
+    <div className="mx-auto max-w-lg px-8 py-10">
+      <h1 className="text-[14px] font-semibold text-[#1b1b1f]">General</h1>
 
-      {/* Logo + name header */}
-      <div className="flex items-center gap-4">
-        <div className="relative h-14 w-14 shrink-0">
-          <div className="h-14 w-14 overflow-hidden rounded-lg border border-[#e6e6e9] bg-[#f9f9fb] flex items-center justify-center">
-            {logoUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={logoUrl} alt="" className="h-full w-full object-contain p-1" onError={() => setLogoUrl("")} />
-            ) : (
-              <span className="text-lg font-semibold text-[#8b8d94]">{name.charAt(0).toUpperCase()}</span>
-            )}
-          </div>
-          {logoUploading && (
-            <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/30">
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-            </div>
-          )}
-        </div>
+      <form onSubmit={handleSave} className="mt-8 space-y-6">
+        {/* Logo */}
         <div>
-          <p className="text-[15px] font-semibold text-[#1b1b1f]">{workspace.name}</p>
-          <p className="text-[12px] text-[#8b8d94]">{workspace.domain}</p>
-        </div>
-      </div>
-
-      <form onSubmit={handleSave} className="space-y-4">
-        <div className="rounded-lg border border-[#e6e6e9] divide-y divide-[#ededf0]">
-          <div className="p-4">
-            <label className="block text-[13px] font-medium text-[#6b6f76] mb-1.5">Company name</label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              className="w-full rounded-md border border-[#e6e6e9] px-3 py-2 text-[13px] placeholder:text-[#8b8d94] focus:border-[#5e6ad2] focus:ring-1 focus:ring-[#5e6ad2]/20 focus:outline-none"
-            />
-          </div>
-          <div className="p-4">
-            <label className="block text-[13px] font-medium text-[#6b6f76] mb-1.5">Logo</label>
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg border border-[#e6e6e9] bg-[#f9f9fb] flex items-center justify-center">
-                {logoUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={logoUrl} alt="" className="h-full w-full object-contain p-0.5" onError={() => setLogoUrl("")} />
-                ) : (
-                  <span className="text-xs font-semibold text-[#8b8d94]">{name.charAt(0).toUpperCase()}</span>
-                )}
-              </div>
+          <label className="block text-[12px] font-medium text-[#6b6f76] mb-2">Logo</label>
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 shrink-0 overflow-hidden rounded-[6px] border border-[#e6e6e9] bg-[#f5f5f7] flex items-center justify-center">
+              {logoUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={logoUrl} alt="" className="h-full w-full object-contain" onError={() => setLogoUrl("")} />
+              ) : (
+                <span className="text-[13px] font-semibold text-[#8b8d94] select-none">
+                  {name.charAt(0).toUpperCase() || "?"}
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => logoInputRef.current?.click()}
+              disabled={logoUploading}
+              className="rounded-md border border-[#e6e6e9] px-3 py-1.5 text-[12px] font-medium text-[#3b3d44] hover:bg-[#f5f5f7] disabled:opacity-50 transition-colors"
+            >
+              {logoUploading ? "Uploading…" : "Upload"}
+            </button>
+            {logoUrl && (
               <button
                 type="button"
-                onClick={() => logoInputRef.current?.click()}
-                disabled={logoUploading}
-                className="rounded-md border border-[#e6e6e9] px-3 py-1.5 text-[12px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f5f5f7] disabled:opacity-60"
+                onClick={() => setLogoUrl("")}
+                className="text-[12px] text-[#8b8d94] hover:text-[#e5484d] transition-colors"
               >
-                {logoUploading ? "Uploading..." : "Upload logo"}
+                Remove
               </button>
-              {logoUrl && (
-                <button
-                  type="button"
-                  onClick={() => setLogoUrl("")}
-                  className="text-[12px] text-[#8b8d94] hover:text-red-500 transition-colors"
-                >
-                  Remove
-                </button>
-              )}
-              <input
-                ref={logoInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleLogoUpload}
-              />
-            </div>
-            {logoUploadError && <p className="mt-1 text-[11px] text-red-500">{logoUploadError}</p>}
+            )}
           </div>
-          <div className="p-4">
-            <label className="block text-[13px] font-medium text-[#6b6f76] mb-1.5">Website URL</label>
-            <input
-              type="url"
-              value={websiteUrl}
-              onChange={(e) => setWebsiteUrl(e.target.value)}
-              placeholder="https://acme.com"
-              className="w-full rounded-md border border-[#e6e6e9] px-3 py-2 text-[13px] placeholder:text-[#8b8d94] focus:border-[#5e6ad2] focus:ring-1 focus:ring-[#5e6ad2]/20 focus:outline-none"
-            />
-          </div>
-          <div className="p-4">
-            <label className="block text-[13px] font-medium text-[#6b6f76] mb-1.5">Description</label>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="What does your company do?"
-              rows={3}
-              className="w-full resize-none rounded-md border border-[#e6e6e9] px-3 py-2 text-[13px] placeholder:text-[#8b8d94] focus:border-[#5e6ad2] focus:ring-1 focus:ring-[#5e6ad2]/20 focus:outline-none"
-            />
-          </div>
-          <div className="p-4">
-            <label className="block text-[13px] font-medium text-[#6b6f76] mb-1">Domain</label>
-            <p className="text-[13px] text-[#6b6f76]">{workspace.domain}</p>
-            <p className="mt-0.5 text-[11px] text-[#8b8d94]">Domain cannot be changed.</p>
-          </div>
+          {logoUploadError && <p className="mt-1.5 text-[11px] text-[#e5484d]">{logoUploadError}</p>}
+          <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoUpload} />
         </div>
 
-        {error && <p className="text-[12px] text-red-500">{error}</p>}
+        {/* Company name */}
+        <div>
+          <label className="block text-[12px] font-medium text-[#6b6f76] mb-1.5">Company name</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            className="w-full rounded-md border border-[#e6e6e9] bg-white px-3 py-1.5 text-[13px] text-[#1b1b1f] placeholder:text-[#8b8d94] focus:border-[#5e6ad2] focus:ring-2 focus:ring-[#5e6ad2]/10 focus:outline-none transition-colors"
+          />
+        </div>
 
-        <div className="flex items-center gap-3">
+        {/* Website */}
+        <div>
+          <label className="block text-[12px] font-medium text-[#6b6f76] mb-1.5">Website</label>
+          <input
+            type="url"
+            value={websiteUrl}
+            onChange={(e) => setWebsiteUrl(e.target.value)}
+            placeholder="https://acme.com"
+            className="w-full rounded-md border border-[#e6e6e9] bg-white px-3 py-1.5 text-[13px] text-[#1b1b1f] placeholder:text-[#8b8d94] focus:border-[#5e6ad2] focus:ring-2 focus:ring-[#5e6ad2]/10 focus:outline-none transition-colors"
+          />
+        </div>
+
+        {/* Description */}
+        <div>
+          <label className="block text-[12px] font-medium text-[#6b6f76] mb-1.5">Description</label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="What does your company do?"
+            rows={3}
+            className="w-full resize-none rounded-md border border-[#e6e6e9] bg-white px-3 py-1.5 text-[13px] text-[#1b1b1f] placeholder:text-[#8b8d94] focus:border-[#5e6ad2] focus:ring-2 focus:ring-[#5e6ad2]/10 focus:outline-none transition-colors"
+          />
+        </div>
+
+        {/* Domain (read-only) */}
+        <div>
+          <label className="block text-[12px] font-medium text-[#6b6f76] mb-1.5">Domain</label>
+          <p className="text-[13px] text-[#3b3d44]">{workspace.domain}</p>
+          <p className="mt-0.5 text-[11px] text-[#8b8d94]">Cannot be changed.</p>
+        </div>
+
+        <div className="border-t border-[#ededf0] pt-5 flex items-center gap-3">
           <button
             type="submit"
             disabled={saving}
-            className="rounded-md bg-[#1b1b1f] px-5 py-2 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+            className="rounded-md bg-[#1b1b1f] px-4 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:opacity-50 transition-opacity"
           >
-            {saving ? "Saving..." : "Save changes"}
+            {saving ? "Saving…" : "Save changes"}
           </button>
-          {saved && <span className="text-[12px] text-[#059669] font-medium">Saved!</span>}
+          {saved && <span className="text-[12px] font-medium text-[#18794e]">Saved</span>}
+          {error && <span className="text-[12px] text-[#e5484d]">{error}</span>}
         </div>
       </form>
     </div>
