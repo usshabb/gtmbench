@@ -15,7 +15,7 @@ interface SkillRecord {
 const AVAILABLE_SKILLS = [
   {
     type: "detect_ats",
-    name: "detect-ats",
+    name: "Identify Hiring System",
     description: "Identify the applicant tracking system (ATS) used by each company. Runs automatically when a company is added to detect hiring tools like Greenhouse, Lever, Workday, and more.",
     appliesTo: "Companies",
   },

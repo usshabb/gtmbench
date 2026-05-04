@@ -595,13 +595,8 @@ export default function BuyerProfilesPage() {
 
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-3xl px-4 py-6">
-          {/* Header */}
-          <p className="text-[13px] text-[#6b6f76] leading-relaxed">
-            Define what you sell and who buys it. Each product has buyer profiles that match tracked people by job title.
-          </p>
-
           {/* Create button */}
-          <div className="mt-4 flex items-center justify-end">
+          <div className="flex items-center justify-end">
             <button
               onClick={openCreate}
               className="flex items-center gap-1.5 rounded-md border border-[#e6e6e9] bg-white px-3 py-1.5 text-[13px] font-medium text-[#6b6f76] transition-all hover:bg-[#f5f5f7]"

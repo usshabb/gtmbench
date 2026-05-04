@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type Quill from "quill";
 import { useRouter } from "next/navigation";
 import { apiFetch } from "../../components";
 
@@ -42,7 +43,7 @@ function RichTextEditor({
   tokens?: typeof TOKENS;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const quillRef = useRef<any>(null);
+  const quillRef = useRef<Quill | null>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   const isInternalChange = useRef(false);

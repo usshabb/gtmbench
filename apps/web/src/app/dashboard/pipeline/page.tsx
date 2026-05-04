@@ -204,12 +204,11 @@ export default function PipelinePage() {
   useEffect(() => {
     const storedToken = window.localStorage.getItem(localStorageTokenKey);
     if (!storedToken) { router.replace("/"); return; }
-    setAuthToken(storedToken);
+    void (async () => { setAuthToken(storedToken); })();
   }, [router]);
 
   const fetchPipeline = useCallback(() => {
     if (!authToken) return;
-    setIsLoading(true);
     void apiFetch(`${apiBaseUrl}/pipeline`, {
       headers: { Authorization: `Bearer ${authToken}` },
     })

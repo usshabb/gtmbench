@@ -96,7 +96,7 @@ export interface PersonRecord {
 /*  Triggers & Signals                                                  */
 /* ------------------------------------------------------------------ */
 
-export type TriggerType = "linkedin_content" | "ats_jobs";
+export type TriggerType = "linkedin_content" | "ats_jobs" | "recently_funded";
 
 export interface TriggerRecord {
   _id?: ObjectId;
@@ -117,7 +117,7 @@ export interface TriggerJobRecord {
   _id?: ObjectId;
   triggerId: ObjectId;
   userEmail: string;
-  jobType: "LinkedinPost" | "ATSJobs";
+  jobType: "LinkedinPost" | "ATSJobs" | "RecentlyFunded";
   // LinkedinPost fields
   personId?: ObjectId;
   linkedinUrl?: string;
@@ -203,11 +203,39 @@ export interface ATSJobsSignalData {
   companyDomain: string;
 }
 
+export interface FundedStartupRecord {
+  _id?: ObjectId;
+  userEmail: string;
+  triggerId: ObjectId;
+  companyName: string;
+  websiteDomain: string;
+  fundingAmount: string;
+  investors: string[];
+  citationUrl?: string | null;
+  enrichmentData?: Record<string, unknown> | null;
+  fetchedAt: string;        // ISO timestamp when we discovered this
+  signalDate: string;       // YYYY-MM-DD — the run date, used for signal grouping
+}
+
+export interface FundedStartupData {
+  companyName: string;
+  websiteDomain: string;
+  fundingAmount: string;
+  investors: string[];
+  enrichmentData?: Record<string, unknown>;
+  citationUrl?: string;
+}
+
+export interface FundedStartupSignalData {
+  startups: FundedStartupData[];
+  fetchedDate: string;
+}
+
 export interface SignalRecord {
   _id?: ObjectId;
   userEmail: string;
   triggerId: ObjectId;
-  signalType: "linkedin_post" | "ats_new_job";
+  signalType: "linkedin_post" | "ats_new_job" | "recently_funded";
   // linkedin_post fields
   personId?: ObjectId;
   personName?: string;
@@ -216,7 +244,7 @@ export interface SignalRecord {
   companyId?: ObjectId;
   companyDomain?: string;
   signalDate?: string; // YYYY-MM-DD, used for per-day dedup of ats_new_job
-  data: LinkedinPostData | ATSJobsSignalData;
+  data: LinkedinPostData | ATSJobsSignalData | FundedStartupSignalData;
   matchedKeyword?: string | null;
   createdAt: string;
   dismissed?: boolean;

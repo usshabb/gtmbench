@@ -127,7 +127,7 @@ function SkillsModal({
                 </div>
                 <div>
                   <p className="text-[13px] font-medium text-[#1b1b1f]">{isRunning ? "Detecting…" : "Detect ATS"}</p>
-                  <p className="text-[11px] text-[#8b8d94]">Find this company's hiring system</p>
+                  <p className="text-[11px] text-[#8b8d94]">Find this company&apos;s hiring system</p>
                 </div>
               </button>
             )

@@ -108,19 +108,21 @@ function AvailabilityCalendar({
     const end = new Date(weekStart);
     end.setDate(end.getDate() + 6);
     end.setHours(23, 59, 59);
-    setWeekLoading(true);
-    void apiFetch(
-      `${apiBaseUrl}/calendar/events?timeMin=${encodeURIComponent(weekStart.toISOString())}&timeMax=${encodeURIComponent(end.toISOString())}`,
-      { headers: { Authorization: `Bearer ${authToken}` } },
-    )
-      .then(async (res) => {
+    void (async () => {
+      setWeekLoading(true);
+      try {
+        const res = await apiFetch(
+          `${apiBaseUrl}/calendar/events?timeMin=${encodeURIComponent(weekStart.toISOString())}&timeMax=${encodeURIComponent(end.toISOString())}`,
+          { headers: { Authorization: `Bearer ${authToken}` } },
+        );
         if (res.ok) {
           const data = (await safeJson(res)) as { events: CalendarEvent[] };
           setWeekEvents(data.events ?? []);
         }
-      })
-      .catch(() => {})
-      .finally(() => setWeekLoading(false));
+      } catch { /* ignore */ } finally {
+        setWeekLoading(false);
+      }
+    })();
   }, [weekStart, authToken, apiBaseUrl]);
 
   const weekDays = useMemo(

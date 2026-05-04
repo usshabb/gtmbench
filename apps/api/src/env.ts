@@ -23,3 +23,8 @@ const envSchema = z.object({
 });
 
 export const env = envSchema.parse(process.env);
+
+console.log("[env] Loaded environment:");
+for (const [key, value] of Object.entries(env)) {
+  console.log(`[env]   ${key}=${value}`);
+}

@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LetterAvatar, safeJson, apiFetch, FallbackImg } from "../components";
+import { LetterAvatar, safeJson, apiFetch, FallbackImg, COMPOSE_EMAIL_EVENT } from "../components";
 
 const localStorageTokenKey = "gtmbench-token";
 
@@ -720,6 +720,14 @@ function InboxInner() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Open compose via sidebar pencil shortcut
+  useEffect(() => {
+    const handler = () => openCompose();
+    window.addEventListener(COMPOSE_EMAIL_EVENT, handler);
+    return () => window.removeEventListener(COMPOSE_EMAIL_EVENT, handler);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Auto-select first thread after load
   useEffect(() => {
     if (autoSelectRef.current && !selectedThread && threads.length > 0) {
@@ -1427,15 +1435,15 @@ function InboxInner() {
               )}
             </button>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5">
             <button
               onClick={openCompose}
-              className="flex items-center gap-1.5 rounded-lg bg-[#4338ca] px-3 py-1.5 text-[12px] font-medium text-white transition-colors hover:bg-[#3730a3]"
+              className="flex items-center justify-center rounded-md p-1.5 text-[#8b8d94] transition-colors hover:bg-[#f5f5f7] hover:text-[#6b6f76]"
+              title="Compose email"
             >
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>
               </svg>
-              Compose
             </button>
             <button
               onClick={async () => {
@@ -1450,8 +1458,8 @@ function InboxInner() {
               {refreshing ? (
                 <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-[#e6e6e9] border-t-[#6b6f76]" />
               ) : (
-                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
                 </svg>
               )}
             </button>

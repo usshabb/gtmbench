@@ -1,6 +1,6 @@
 import { Collection, MongoClient } from "mongodb";
 import { env } from "./env.js";
-import { BuyerProfileRecord, BuyerSearchResultRecord, CompanyATSRecord, CompanyRecord, EmailSignatureRecord, EmailTemplateRecord, EmailTrackRecord, GoogleTokenRecord, InviteRecord, JobRecord, LinkedinPostForUserRecord, PersonRecord, SignalRecord, SkillRecord, ThreadCommentRecord, TriggerJobRecord, TriggerRecord, UserRecord, WorkspaceRecord } from "./types.js";
+import { BuyerProfileRecord, BuyerSearchResultRecord, CompanyATSRecord, CompanyRecord, EmailSignatureRecord, EmailTemplateRecord, EmailTrackRecord, FundedStartupRecord, GoogleTokenRecord, InviteRecord, JobRecord, LinkedinPostForUserRecord, PersonRecord, SignalRecord, SkillRecord, ThreadCommentRecord, TriggerJobRecord, TriggerRecord, UserRecord, WorkspaceRecord } from "./types.js";
 
 const mongoClient = new MongoClient(env.MONGODB_URL);
 
@@ -15,6 +15,7 @@ let companyATSCollection: Collection<CompanyATSRecord> | null = null;
 let jobsCollection: Collection<JobRecord> | null = null;
 let skillsCollection: Collection<SkillRecord> | null = null;
 let linkedinPostsForUserCollection: Collection<LinkedinPostForUserRecord> | null = null;
+let fundedStartupsCollection: Collection<FundedStartupRecord> | null = null;
 let googleTokensCollection: Collection<GoogleTokenRecord> | null = null;
 let workspacesCollection: Collection<WorkspaceRecord> | null = null;
 let usersCollection: Collection<UserRecord> | null = null;
@@ -225,6 +226,21 @@ export async function getLinkedinPostsForUserCollection(): Promise<Collection<Li
   await linkedinPostsForUserCollection.createIndex({ userEmail: 1, postId: 1 }, { unique: true });
 
   return linkedinPostsForUserCollection;
+}
+
+export async function getFundedStartupsCollection(): Promise<Collection<FundedStartupRecord>> {
+  if (fundedStartupsCollection) return fundedStartupsCollection;
+
+  await mongoClient.connect();
+  const database = mongoClient.db(env.MONGODB_DB_NAME);
+  fundedStartupsCollection = database.collection<FundedStartupRecord>("fundedStartups");
+
+  await fundedStartupsCollection.createIndex({ userEmail: 1, fetchedAt: -1 });
+  await fundedStartupsCollection.createIndex({ userEmail: 1, signalDate: -1 });
+  // Dedup: one record per domain per user (skip if same company fetched again)
+  await fundedStartupsCollection.createIndex({ userEmail: 1, websiteDomain: 1 }, { unique: true });
+
+  return fundedStartupsCollection;
 }
 
 export async function getGoogleTokensCollection(): Promise<Collection<GoogleTokenRecord>> {

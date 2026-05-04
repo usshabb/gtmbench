@@ -2529,7 +2529,7 @@ app.get("/companies/:id/jobs", async (request, response) => {
 /* ------------------------------------------------------------------ */
 
 const createTriggerSchema = z.object({
-  triggerType: z.enum(["linkedin_content", "ats_jobs"]),
+  triggerType: z.enum(["linkedin_content", "ats_jobs", "recently_funded"]),
   keyword: z.string().nullable().optional(),
   jobTitles: z.array(z.string()).nullable().optional(),
 });
@@ -2693,6 +2693,17 @@ app.post("/triggers", async (request, response) => {
         jobsCreated = atsRecords.length;
       }
     }
+  } else if (parsed.data.triggerType === "recently_funded") {
+    // Create one job immediately so the user can run it right away
+    await triggerJobsCol.insertOne({
+      triggerId,
+      userEmail,
+      jobType: "RecentlyFunded" as const,
+      status: "pending" as const,
+      createdAt: now,
+    });
+    jobsCreated = 1;
+    console.log(`[create-trigger] Created initial RecentlyFunded job for trigger ${triggerId}`);
   }
 
   const trigger = await triggersCol.findOne({ _id: triggerId });
