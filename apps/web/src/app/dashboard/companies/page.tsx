@@ -391,6 +391,7 @@ function CompanyCard({
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
   const [toggingStar, setTogglingStar] = useState(false);
+  const [starError, setStarError] = useState("");
   const menuBtnRef = useRef<HTMLButtonElement>(null);
 
   async function handleToggleStar(e: React.MouseEvent) {
@@ -398,6 +399,7 @@ function CompanyCard({
     e.stopPropagation();
     if (!company._id || toggingStar) return;
     setTogglingStar(true);
+    setStarError("");
     try {
       const res = await apiFetch(`${apiBaseUrl}/companies/${company._id}/star`, {
         method: "PATCH",
@@ -406,9 +408,12 @@ function CompanyCard({
       if (res.ok) {
         const data = (await safeJson(res)) as { starred: boolean };
         onStarToggled(company._id, data.starred);
+      } else {
+        const errData = (await safeJson(res).catch(() => ({}))) as { error?: string };
+        setStarError(errData.error ?? "Could not update pipeline");
       }
     } catch {
-      // ignore
+      setStarError("Could not update pipeline");
     } finally {
       setTogglingStar(false);
     }
@@ -430,6 +435,9 @@ function CompanyCard({
 
   return (
     <>
+      {starError && (
+        <p className="px-1 pb-1 text-[12px] text-red-500">{starError}</p>
+      )}
       <div className="group relative flex items-center gap-3 rounded-lg border border-[#e6e6e9] bg-white px-3.5 py-2.5 transition-all hover:border-[#d4d4d8]">
         <Link href={`/dashboard/companies/${company._id}`} className="absolute inset-0 rounded-lg" />
 

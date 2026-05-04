@@ -3688,7 +3688,7 @@ app.post("/inbox/threads/:threadId/ai-draft", async (request, response) => {
     .join("\n\n---\n\n");
 
   try {
-    const { default: OpenAI } = await import("openai");
+    const { OpenAI } = await import("openai");
     const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
 
     const completion = await openai.chat.completions.create({
