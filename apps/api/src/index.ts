@@ -3,13 +3,13 @@ import { randomUUID } from "crypto";
 import express from "express";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
-import { getBuyerProfilesCollection, getBuyerSearchResultsCollection, getCompanyATSCollection, getCompaniesCollection, getEmailSignaturesCollection, getEmailTemplatesCollection, getGoogleTokensCollection, getInvitesCollection, getJobsCollection, getLegacyLinkedinContentForPersonCollection, getLinkedinPostsForUserCollection, getPersonsCollection, getSignalsCollection, getSkillsCollection, getThreadCommentsCollection, getTriggerJobsCollection, getTriggersCollection, getUsersCollection, getWorkspacesCollection } from "./db.js";
+import { getBuyerProfilesCollection, getBuyerSearchResultsCollection, getCompanyATSCollection, getCompaniesCollection, getEmailSignaturesCollection, getEmailTemplatesCollection, getEmailTracksCollection, getGoogleTokensCollection, getInvitesCollection, getJobsCollection, getLegacyLinkedinContentForPersonCollection, getLinkedinPostsForUserCollection, getPersonsCollection, getSignalsCollection, getSkillsCollection, getThreadCommentsCollection, getTriggerJobsCollection, getTriggersCollection, getUsersCollection, getWorkspacesCollection } from "./db.js";
 import { env } from "./env.js";
 import { getEmailFromToken, signToken } from "./auth.js";
 import { ContactEmail, enrichCompanyByLinkedinId, enrichDomainWithFiber, enrichPersonByEmailWithFiber, enrichPersonWithFiber, findEmailWithContactDetails, findPersonEmailWithFiber, searchBuyersWithFiber } from "./fiber.js";
 import { startTriggersWorker, scheduleTriggersCron, triggerTriggersProcessing, createPendingJobs, enqueuePendingJobsForUser, enqueueSpecificJob } from "./triggers-worker.js";
 import { detectCompanyATS } from "./firecrawl.js";
-import { exchangeCodeForTokens, getCalendarEvents, getEmailsWithPerson, getGoogleAuthUrl, getGoogleSigninUrl, getInboxThreads, getThreadMessages, getUserInfoFromGoogle, markThreadAsRead, replyToThread, sendGmail } from "./google.js";
+import { exchangeCodeForTokens, getCalendarEvents, getEmailsWithPerson, getGoogleAuthUrl, getGoogleSigninUrl, getInboxThreads, getThreadMessages, getUserInfoFromGoogle, markThreadAsRead, replyToThread, sendGmail, sendNewGmail } from "./google.js";
 
 const app = express();
 
@@ -38,11 +38,13 @@ const createCompanySchema = z.object({
 
 const createBuyerProfileSchema = z.object({
   name: z.string().min(1, "Name is required"),
+  price: z.number().min(0).nullable().optional(),
   titles: z.array(z.string().min(1)).min(1, "At least one title is required"),
 });
 
 const updateBuyerProfileSchema = z.object({
   name: z.string().min(1, "Name is required").optional(),
+  price: z.number().min(0).nullable().optional(),
   titles: z.array(z.string().min(1)).min(1, "At least one title is required").optional(),
 });
 
@@ -442,6 +444,45 @@ app.get("/cron/run-triggers", async (request, response) => {
     console.error("[cron] run-triggers error:", err);
     response.status(500).json({ error: "Cron job failed" });
   }
+});
+
+/* ------------------------------------------------------------------ */
+/*  Email tracking pixel — public, no auth                              */
+/* ------------------------------------------------------------------ */
+
+// 1x1 transparent PNG
+const TRACKING_PIXEL = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQABNjN9GQAAAAlwSFlzAAAWJQAAFiUBSVIk8AAAAA0lEQVQI12P4z8BQDwAEgAF/QualIQAAAABJRU5ErkJggg==",
+  "base64"
+);
+
+app.get("/track/:trackId.png", async (request, response) => {
+  const { trackId } = request.params;
+  try {
+    const tracksCol = await getEmailTracksCollection();
+    await tracksCol.updateOne(
+      { trackId },
+      {
+        $push: {
+          opens: {
+            openedAt: new Date().toISOString(),
+            ip: (request.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() ?? request.ip,
+            userAgent: request.headers["user-agent"] ?? undefined,
+          },
+        },
+      }
+    );
+  } catch {
+    // silently ignore — don't break the pixel
+  }
+  response.set({
+    "Content-Type": "image/png",
+    "Content-Length": String(TRACKING_PIXEL.length),
+    "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+    Pragma: "no-cache",
+    Expires: "0",
+  });
+  response.end(TRACKING_PIXEL);
 });
 
 app.use((request, response, next) => {
@@ -1235,6 +1276,68 @@ app.delete("/companies/:id", async (request, response) => {
   response.json({ success: true });
 });
 
+// Toggle star on a company (adds/removes from pipeline)
+app.patch("/companies/:id/star", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+  const companiesCol = await getCompaniesCollection();
+
+  let oid: ObjectId;
+  try { oid = new ObjectId(request.params.id); } catch {
+    response.status(400).json({ error: "Invalid ID" });
+    return;
+  }
+
+  const company = await companiesCol.findOne({ _id: oid, userEmails: { $in: memberEmails } });
+  if (!company) { response.status(404).json({ error: "Not found" }); return; }
+
+  const nowStarred = !company.starred;
+  const update: Record<string, unknown> = { starred: nowStarred };
+  if (nowStarred && !company.pipelineStage) update.pipelineStage = "Lead";
+  if (!nowStarred) update.pipelineStage = null;
+
+  await companiesCol.updateOne({ _id: oid }, { $set: update });
+  response.json({ starred: nowStarred, pipelineStage: nowStarred ? (company.pipelineStage ?? "Lead") : null });
+});
+
+// Update pipeline stage for a company
+app.patch("/companies/:id/pipeline-stage", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+  const companiesCol = await getCompaniesCollection();
+  const { stage } = request.body as { stage?: string };
+
+  if (!stage) { response.status(400).json({ error: "stage is required" }); return; }
+
+  let oid: ObjectId;
+  try { oid = new ObjectId(request.params.id); } catch {
+    response.status(400).json({ error: "Invalid ID" });
+    return;
+  }
+
+  const company = await companiesCol.findOne({ _id: oid, userEmails: { $in: memberEmails } });
+  if (!company) { response.status(404).json({ error: "Not found" }); return; }
+
+  await companiesCol.updateOne({ _id: oid }, { $set: { pipelineStage: stage, starred: true } });
+  response.json({ success: true });
+});
+
+// Get all starred/pipeline companies
+app.get("/pipeline", async (_request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+  const companiesCol = await getCompaniesCollection();
+  const companies = await companiesCol.find({ userEmails: { $in: memberEmails }, starred: true }).toArray();
+
+  // Also fetch buyer profiles & persons for card enrichment
+  const profilesCol = await getBuyerProfilesCollection();
+  const profiles = await profilesCol.find({ userEmail: { $in: memberEmails } }).toArray();
+  const personsCol = await getPersonsCollection();
+  const persons = await personsCol.find({ userEmails: { $in: memberEmails } }).toArray();
+
+  response.json({ companies, profiles, persons });
+});
+
 /* ------------------------------------------------------------------ */
 /*  Person endpoints                                                    */
 /* ------------------------------------------------------------------ */
@@ -1980,6 +2083,7 @@ app.post("/buyer-profiles", async (request, response) => {
   const insertResult = await collection.insertOne({
     userEmail,
     name: parsed.data.name,
+    price: parsed.data.price ?? null,
     titles: parsed.data.titles,
     isDefault,
     createdAt: now,
@@ -2015,6 +2119,7 @@ app.put("/buyer-profiles/:id", async (request, response) => {
 
   const updateFields: Record<string, unknown> = { updatedAt: new Date().toISOString() };
   if (parsed.data.name !== undefined) updateFields.name = parsed.data.name;
+  if (parsed.data.price !== undefined) updateFields.price = parsed.data.price;
   if (parsed.data.titles !== undefined) updateFields.titles = parsed.data.titles;
 
   await collection.updateOne(
@@ -2424,7 +2529,7 @@ app.get("/companies/:id/jobs", async (request, response) => {
 /* ------------------------------------------------------------------ */
 
 const createTriggerSchema = z.object({
-  triggerType: z.enum(["linkedin_content", "ats_jobs"]),
+  triggerType: z.enum(["linkedin_content", "ats_jobs", "recently_funded"]),
   keyword: z.string().nullable().optional(),
   jobTitles: z.array(z.string()).nullable().optional(),
 });
@@ -2588,6 +2693,17 @@ app.post("/triggers", async (request, response) => {
         jobsCreated = atsRecords.length;
       }
     }
+  } else if (parsed.data.triggerType === "recently_funded") {
+    // Create one job immediately so the user can run it right away
+    await triggerJobsCol.insertOne({
+      triggerId,
+      userEmail,
+      jobType: "RecentlyFunded" as const,
+      status: "pending" as const,
+      createdAt: now,
+    });
+    jobsCreated = 1;
+    console.log(`[create-trigger] Created initial RecentlyFunded job for trigger ${triggerId}`);
   }
 
   const trigger = await triggersCol.findOne({ _id: triggerId });
@@ -3397,6 +3513,25 @@ app.post("/inbox/threads/:threadId/reply", async (request, response) => {
   }
 
   try {
+    // Create email tracking record
+    const trackId = randomUUID();
+    const tracksCol = await getEmailTracksCollection();
+    await tracksCol.insertOne({
+      trackId,
+      userEmail: targetEmail,
+      threadId: request.params.threadId,
+      recipientEmail: to,
+      messageSubject: subject,
+      sentAt: new Date().toISOString(),
+      opens: [],
+    });
+
+    const trackingPixelUrl = `${env.API_PUBLIC_URL}/track/${trackId}.png`;
+
+    const sigCol = await getEmailSignaturesCollection();
+    const sigRecord = await sigCol.findOne({ userEmail: targetEmail });
+    const signatureHtml = sigRecord?.body || undefined;
+
     await replyToThread(
       tokenRecord.accessToken,
       tokenRecord.refreshToken,
@@ -3406,12 +3541,97 @@ app.post("/inbox/threads/:threadId/reply", async (request, response) => {
       body,
       inReplyTo,
       tokenRecord.userEmail,
+      trackingPixelUrl,
+      signatureHtml,
     );
     response.json({ success: true });
   } catch (err) {
     console.error("[inbox-reply] Failed:", err);
     response.status(500).json({ error: "Failed to send reply" });
   }
+});
+
+// Send a new email (not a reply) to a person in the database
+app.post("/inbox/send", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const googleTokensCol = await getGoogleTokensCollection();
+
+  const { to, subject, body } = request.body as {
+    to: string;
+    subject: string;
+    body: string;
+  };
+
+  if (!to || !subject || !body) {
+    response.status(400).json({ error: "to, subject, and body are required" });
+    return;
+  }
+
+  const tokenRecord = await googleTokensCol.findOne({ userEmail });
+  if (!tokenRecord) {
+    response.status(403).json({ error: "Gmail not connected" });
+    return;
+  }
+
+  try {
+    const trackId = randomUUID();
+    const tracksCol = await getEmailTracksCollection();
+
+    const trackingPixelUrl = `${env.API_PUBLIC_URL}/track/${trackId}.png`;
+
+    const sigCol = await getEmailSignaturesCollection();
+    const sigRecord = await sigCol.findOne({ userEmail });
+    const signatureHtml = sigRecord?.body || undefined;
+
+    const threadId = await sendNewGmail(
+      tokenRecord.accessToken,
+      tokenRecord.refreshToken,
+      to,
+      subject,
+      body,
+      tokenRecord.userEmail,
+      trackingPixelUrl,
+      signatureHtml,
+    );
+
+    await tracksCol.insertOne({
+      trackId,
+      userEmail,
+      threadId,
+      recipientEmail: to,
+      messageSubject: subject,
+      sentAt: new Date().toISOString(),
+      opens: [],
+    });
+
+    response.json({ success: true, threadId });
+  } catch (err) {
+    console.error("[inbox-send] Failed:", err);
+    response.status(500).json({ error: "Failed to send email" });
+  }
+});
+
+// Get email tracking data for a thread
+app.get("/inbox/threads/:threadId/tracking", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+  const tracksCol = await getEmailTracksCollection();
+
+  const tracks = await tracksCol.find({
+    threadId: request.params.threadId,
+    userEmail: { $in: memberEmails },
+  }).sort({ sentAt: -1 }).toArray();
+
+  response.json({
+    tracks: tracks.map((t) => ({
+      trackId: t.trackId,
+      recipientEmail: t.recipientEmail,
+      sentAt: t.sentAt,
+      openCount: t.opens.length,
+      firstOpenedAt: t.opens[0]?.openedAt ?? null,
+      lastOpenedAt: t.opens.length > 0 ? t.opens[t.opens.length - 1].openedAt : null,
+    })),
+  });
 });
 
 // Mark an inbox thread as read
@@ -3438,6 +3658,60 @@ app.post("/inbox/threads/:threadId/read", async (request, response) => {
   } catch (err) {
     console.error("[inbox-mark-read] Failed:", err);
     response.status(500).json({ error: "Failed to mark as read" });
+  }
+});
+
+// ── AI Draft reply ─────────────────────────────────────────────────────────
+
+app.post("/inbox/threads/:threadId/ai-draft", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const { messages } = request.body as { messages?: { from: string; body: string; date: string }[] };
+
+  if (!messages || messages.length === 0) {
+    response.status(400).json({ error: "No messages provided" });
+    return;
+  }
+
+  // Get user info for the signature context
+  const usersCol = await getUsersCollection();
+  const user = await usersCol.findOne({ email: userEmail });
+  const userName = user?.fullName ?? userEmail.split("@")[0];
+
+  // Get email signature if set
+  const sigCol = await getEmailSignaturesCollection();
+  const sigRecord = await sigCol.findOne({ userEmail });
+  const signature = sigRecord?.body ?? "";
+
+  // Build conversation transcript
+  const transcript = messages
+    .map((m) => `From: ${m.from}\nDate: ${m.date}\n\n${m.body}`)
+    .join("\n\n---\n\n");
+
+  try {
+    const { default: OpenAI } = await import("openai");
+    const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0.7,
+      max_tokens: 1024,
+      messages: [
+        {
+          role: "system",
+          content: `You are a helpful email assistant drafting a reply on behalf of ${userName}. Write a concise, professional reply to the most recent message in the thread. Match the tone and formality of the conversation. Do NOT include a subject line, greeting salutation like "Dear..." unless the thread uses one, or sign-off/signature — those are added separately. Just write the reply body text. Keep it brief and actionable.${signature ? `\n\nThe user's email signature (do NOT include this in the reply, it is appended automatically):\n${signature}` : ""}`,
+        },
+        {
+          role: "user",
+          content: `Here is the email thread:\n\n${transcript}\n\nDraft a reply to the most recent message.`,
+        },
+      ],
+    });
+
+    const draft = completion.choices[0]?.message?.content?.trim() ?? "";
+    response.json({ draft });
+  } catch (err) {
+    console.error("[ai-draft] Failed:", err);
+    response.status(500).json({ error: "Failed to generate draft" });
   }
 });
 
@@ -3905,7 +4179,11 @@ app.post("/persons/:id/emails", async (request, response) => {
   }
 
   try {
-    await sendGmail(tokenRecord.accessToken, tokenRecord.refreshToken, to, subject, body, tokenRecord.userEmail);
+    const sigCol = await getEmailSignaturesCollection();
+    const sigRecord = await sigCol.findOne({ userEmail });
+    const signatureHtml = sigRecord?.body || undefined;
+
+    await sendNewGmail(tokenRecord.accessToken, tokenRecord.refreshToken, to, subject, body, tokenRecord.userEmail, undefined, signatureHtml);
     response.json({ success: true });
   } catch (err) {
     console.error("[gmail-send] Failed:", err);

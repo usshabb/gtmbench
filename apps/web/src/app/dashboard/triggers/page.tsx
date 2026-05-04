@@ -22,7 +22,7 @@ interface TriggerJob {
   _id: string;
   triggerId: string;
   userEmail: string;
-  jobType: "LinkedinPost" | "ATSJobs";
+  jobType: "LinkedinPost" | "ATSJobs" | "RecentlyFunded";
   personId?: string;
   linkedinUrl?: string;
   atsUrl?: string;
@@ -47,6 +47,13 @@ const TRIGGER_DEFINITIONS = [
     description: "Signals when tracked companies post new jobs on their ATS. Filter by job title or keyword to focus on roles that matter.",
     hasKeyword: true,
     hasJobTitles: true,
+  },
+  {
+    type: "recently_funded",
+    name: "Recently Funded Startup",
+    description: "Signals when US startups receive funding. Searches for new funding rounds and enriches each company with Fiber.",
+    hasKeyword: false,
+    hasJobTitles: false,
   },
 ];
 
@@ -483,7 +490,7 @@ export default function TriggersPage() {
                         {jobs.map((job) => (
                           <tr key={job._id} className="hover:bg-[#f9f9fb]">
                             <td className="px-4 py-3 text-[#6b6f76]">
-                              {job.jobType === "LinkedinPost" ? "LinkedIn" : "Job Listing"}
+                              {job.jobType === "LinkedinPost" ? "LinkedIn" : job.jobType === "ATSJobs" ? "Job Listing" : "Funded Startup"}
                             </td>
                             <td className="max-w-[200px] truncate px-4 py-3 text-[#8b8d94]">
                               {job.jobType === "LinkedinPost"

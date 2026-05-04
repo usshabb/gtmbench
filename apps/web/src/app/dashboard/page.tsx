@@ -68,7 +68,29 @@ interface ATSJobSignal {
   dismissed?: boolean;
 }
 
-type Signal = LinkedinSignal | ATSJobSignal;
+interface FundedStartupItem {
+  companyName: string;
+  websiteDomain: string;
+  fundingAmount: string;
+  investors: string[];
+  citationUrl?: string;
+  enrichmentData?: Record<string, unknown>;
+}
+
+interface FundedStartupSignalData {
+  startups: FundedStartupItem[];
+  fetchedDate: string;
+}
+
+interface FundedStartupSignal {
+  _id: string;
+  signalType: "recently_funded";
+  data: FundedStartupSignalData;
+  createdAt: string;
+  dismissed?: boolean;
+}
+
+type Signal = LinkedinSignal | ATSJobSignal | FundedStartupSignal;
 
 interface ATSDateSlice {
   kind: "ats_date_slice";
@@ -82,7 +104,12 @@ interface LinkedinDisplayItem {
   signal: LinkedinSignal;
 }
 
-type DisplayItem = LinkedinDisplayItem | ATSDateSlice;
+interface FundedStartupDisplayItem {
+  kind: "funded_startup";
+  signal: FundedStartupSignal;
+}
+
+type DisplayItem = LinkedinDisplayItem | ATSDateSlice | FundedStartupDisplayItem;
 
 interface DateGroup {
   label: string;
@@ -172,9 +199,10 @@ function groupByDate(signals: Signal[]): DateGroup[] {
 
   for (const s of signals) {
     if (s.signalType === "ats_new_job") {
-      // Group by when the signal was created (discovered), not job postedAt
       const dateKey = toDateKey(s.createdAt);
       addItem(dateKey, { kind: "ats_date_slice", signal: s, dateKey, jobs: s.data.jobs });
+    } else if (s.signalType === "recently_funded") {
+      addItem(toDateKey(s.createdAt), { kind: "funded_startup", signal: s });
     } else {
       addItem(toDateKey(s.createdAt), { kind: "linkedin", signal: s });
     }
@@ -469,7 +497,7 @@ function BuyerPickerModal({
   onSelect: (person: PersonInfo) => void;
   onClose: () => void;
 }) {
-  const buyers = persons.filter((p) => p.companyDomain === domain && p.workEmail);
+  const buyers = persons.filter((p) => p.companyDomain === domain && (p.workEmail || (p.availableEmails && p.availableEmails.length > 0)));
 
   return (
     <div
@@ -500,21 +528,24 @@ function BuyerPickerModal({
           </div>
         ) : (
           <div className="divide-y divide-[#ededf0]">
-            {buyers.map((p) => (
-              <button
-                key={p._id}
-                onClick={() => onSelect(p)}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-[#f5f5f7]"
-              >
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#f5f5f7] text-[13px] font-medium text-[#6b6f76]">
-                  {(p.fullName ?? p.workEmail ?? "?").charAt(0).toUpperCase()}
-                </div>
-                <div className="min-w-0">
-                  {p.fullName && <p className="text-[13px] font-medium text-[#1b1b1f] truncate">{p.fullName}</p>}
-                  <p className="text-[12px] text-[#8b8d94] truncate">{p.workEmail}</p>
-                </div>
-              </button>
-            ))}
+            {buyers.map((p) => {
+              const email = p.workEmail || p.availableEmails?.[0]?.email || "";
+              return (
+                <button
+                  key={p._id}
+                  onClick={() => onSelect(p)}
+                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-[#f5f5f7]"
+                >
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#f5f5f7] text-[13px] font-medium text-[#6b6f76]">
+                    {(p.fullName ?? email ?? "?").charAt(0).toUpperCase()}
+                  </div>
+                  <div className="min-w-0">
+                    {p.fullName && <p className="text-[13px] font-medium text-[#1b1b1f] truncate">{p.fullName}</p>}
+                    <p className="text-[12px] text-[#8b8d94] truncate">{email}</p>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -603,6 +634,82 @@ function ATSCard({
 }
 
 /* ------------------------------------------------------------------ */
+/*  Funded Startup Card                                                 */
+/* ------------------------------------------------------------------ */
+
+function FundedStartupCard({
+  item,
+  onDismiss,
+  onRestore,
+}: {
+  item: FundedStartupDisplayItem;
+  onDismiss: () => void;
+  onRestore?: () => void;
+}) {
+  const { startups } = item.signal.data;
+  return (
+    <div className={`overflow-hidden rounded-lg border bg-white transition-all duration-200 ${onRestore ? "border-[#ededf0] opacity-60" : "border-[#e6e6e9]"}`}>
+      <div className="px-4 pt-4 pb-3">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="flex items-center gap-2">
+            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#ecfdf5] text-[#059669]">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+              </svg>
+            </span>
+            <span className="text-[13px] font-medium text-[#1b1b1f]">
+              {startups.length} recently funded startup{startups.length !== 1 ? "s" : ""}
+            </span>
+          </div>
+          <span className="shrink-0 text-[12px] text-[#8b8d94]">{timeAgo(item.signal.createdAt)}</span>
+        </div>
+        <div className="flex flex-col gap-2.5">
+          {startups.map((startup, i) => (
+            <div key={i} className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={`https://www.google.com/s2/favicons?domain=${startup.websiteDomain}&sz=16`}
+                    alt=""
+                    width={14}
+                    height={14}
+                    className="shrink-0 rounded-sm"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                  />
+                  <span className="text-[13px] font-medium text-[#1b1b1f] truncate">
+                    {startup.citationUrl ? (
+                      <a href={startup.citationUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">
+                        {startup.companyName}
+                      </a>
+                    ) : startup.companyName}
+                  </span>
+                  <span className="shrink-0 rounded-full bg-[#ecfdf5] px-1.5 py-0.5 text-[10px] font-semibold text-[#059669]">
+                    {startup.fundingAmount}
+                  </span>
+                </div>
+                {startup.investors.length > 0 && (
+                  <p className="mt-0.5 text-[11px] text-[#8b8d94] truncate">
+                    {startup.investors.slice(0, 3).join(", ")}{startup.investors.length > 3 ? ` +${startup.investors.length - 3}` : ""}
+                  </p>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="flex items-center justify-end gap-2 border-t border-[#ededf0] bg-[#f9f9fb] px-4 py-2.5">
+        {onRestore ? (
+          <button onClick={onRestore} className="flex items-center rounded-md border border-[#e6e6e9] bg-white px-3 py-1.5 text-[13px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f5f5f7]">Restore</button>
+        ) : (
+          <button onClick={onDismiss} className="flex items-center rounded-md border border-[#e6e6e9] bg-white px-3 py-1.5 text-[13px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f5f5f7]">Dismiss</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Find Times — shared types + helpers                                 */
 /* ------------------------------------------------------------------ */
 
@@ -661,19 +768,21 @@ function FindTimesWeekCalendar({
     const end = new Date(weekStart);
     end.setDate(end.getDate() + 6);
     end.setHours(23, 59, 59);
-    setWeekLoading(true);
-    void apiFetch(
-      `${apiBaseUrl}/calendar/events?timeMin=${encodeURIComponent(weekStart.toISOString())}&timeMax=${encodeURIComponent(end.toISOString())}`,
-      { headers: { Authorization: `Bearer ${authToken}` } },
-    )
-      .then(async (res) => {
+    void (async () => {
+      setWeekLoading(true);
+      try {
+        const res = await apiFetch(
+          `${apiBaseUrl}/calendar/events?timeMin=${encodeURIComponent(weekStart.toISOString())}&timeMax=${encodeURIComponent(end.toISOString())}`,
+          { headers: { Authorization: `Bearer ${authToken}` } },
+        );
         if (res.ok) {
           const data = (await res.json()) as { events: CalendarEventSlim[] };
           setWeekEvents(data.events ?? []);
         }
-      })
-      .catch(() => {})
-      .finally(() => setWeekLoading(false));
+      } catch { /* ignore */ } finally {
+        setWeekLoading(false);
+      }
+    })();
   }, [weekStart, authToken, apiBaseUrl]);
 
   const weekDays = useMemo(
@@ -1289,7 +1398,7 @@ function EmailComposeModal({
           <div ref={quillContainerRef} />
           {signature && (
             <div className="border-t border-[#f0f3f8] px-5 py-2">
-              <p className="whitespace-pre-wrap text-[13px] text-[#8b8d94] leading-relaxed">{signature}</p>
+              <div className="text-[13px] text-[#8b8d94] leading-relaxed [&_p]:m-0 [&_a]:text-[#5e6ad2] [&_a]:underline" dangerouslySetInnerHTML={{ __html: signature }} />
             </div>
           )}
         </div>
@@ -1433,6 +1542,9 @@ export default function SignalsPage() {
           const key = job.postedAt ? toDateKey(job.postedAt) : today;
           map.set(key, (map.get(key) ?? 0) + 1);
         }
+      } else if (s.signalType === "recently_funded") {
+        const key = toDateKey(s.createdAt);
+        map.set(key, (map.get(key) ?? 0) + (s.data.startups?.length ?? 1));
       } else {
         const key = toDateKey(s.createdAt);
         map.set(key, (map.get(key) ?? 0) + 1);
@@ -1578,10 +1690,11 @@ export default function SignalsPage() {
     const domain = signal.data.companyDomain ?? signal.companyDomain;
     const firstJob = signal.data.jobs[0];
     const emails = person.availableEmails ?? (person.workEmail ? [{ email: person.workEmail, type: "work" }] : []);
+    const bestEmail = person.workEmail || person.availableEmails?.[0]?.email || "";
     setBuyerPickerSignal(null);
     setEmailError("");
     setEmailModal({
-      to: person.workEmail ?? "",
+      to: bestEmail,
       subject: firstJob
         ? `Re: ${firstJob.title} at ${domain ?? ""}`
         : `Following up on ${domain ?? ""}`,
@@ -1625,7 +1738,7 @@ export default function SignalsPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ to, subject, body: emailSignature ? `${body}\n\n${emailSignature}` : body }),
+        body: JSON.stringify({ to, subject, body }),
       });
       const data = (await safeJson(res)) as { success?: boolean; error?: string };
       if (!res.ok) throw new Error(data.error ?? "Failed to send");
@@ -1647,6 +1760,8 @@ export default function SignalsPage() {
       if (!map.has(key)) map.set(key, []);
       if (s.signalType === "ats_new_job") {
         map.get(key)!.push({ kind: "ats_date_slice", signal: s, dateKey: key, jobs: s.data.jobs });
+      } else if (s.signalType === "recently_funded") {
+        map.get(key)!.push({ kind: "funded_startup", signal: s });
       } else {
         map.get(key)!.push({ kind: "linkedin", signal: s });
       }
@@ -1729,6 +1844,16 @@ export default function SignalsPage() {
                             );
                           }
 
+                          if (item.kind === "funded_startup") {
+                            return (
+                              <FundedStartupCard
+                                key={key}
+                                item={item}
+                                onDismiss={() => dismissSignal(item.signal._id)}
+                              />
+                            );
+                          }
+
                           const personUrl = (item.signal.personLinkedinUrl ?? "")
                             .toLowerCase()
                             .replace(/\/$/, "");
@@ -1791,6 +1916,17 @@ export default function SignalsPage() {
                                 key={key}
                                 item={item}
                                 onEmail={() => {}}
+                                onDismiss={() => {}}
+                                onRestore={() => restoreSignal(item.signal._id)}
+                              />
+                            );
+                          }
+
+                          if (item.kind === "funded_startup") {
+                            return (
+                              <FundedStartupCard
+                                key={key}
+                                item={item}
                                 onDismiss={() => {}}
                                 onRestore={() => restoreSignal(item.signal._id)}
                               />

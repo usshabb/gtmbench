@@ -106,3 +106,90 @@ export async function detectCompanyATS(domain: string): Promise<ATSDetectionResp
     };
   }
 }
+
+export interface FundedStartup {
+  companyName: string;
+  websiteDomain: string;
+  fundingAmount: string;
+  investors: string[];
+  citationUrl?: string;
+}
+
+export interface FetchRecentlyFundedResult {
+  success: boolean;
+  startups: FundedStartup[];
+  error?: string;
+}
+
+// Flexible per-item schema — handles both camelCase and snake_case from Firecrawl
+const startupItemSchema = z.object({
+  company_name: z.string().optional(),
+  companyName: z.string().optional(),
+  website_domain: z.string().optional(),
+  websiteDomain: z.string().optional(),
+  funding_amount: z.string().optional(),
+  fundingAmount: z.string().optional(),
+  investors: z.union([
+    z.array(z.string()),
+    z.array(z.object({ value: z.string() }).passthrough()),
+  ]).optional(),
+  companyName_citation: z.string().optional(),
+  websiteDomain_citation: z.string().optional(),
+  company_name_citation: z.string().optional(),
+  website_domain_citation: z.string().optional(),
+}).passthrough();
+
+function normalizeRawStartups(raw: unknown): FundedStartup[] {
+  let items: unknown[] = [];
+
+  if (Array.isArray(raw)) {
+    items = raw;
+  } else if (raw && typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    if (Array.isArray(obj.startups)) {
+      items = obj.startups;
+    } else {
+      // Numeric-keyed object: {"0": {...}, "1": {...}}
+      const numericKeys = Object.keys(obj).filter((k) => /^\d+$/.test(k));
+      if (numericKeys.length > 0) {
+        items = numericKeys.sort((a, b) => Number(a) - Number(b)).map((k) => obj[k]);
+      }
+    }
+  }
+
+  return items.flatMap((item) => {
+    const parsed = startupItemSchema.safeParse(item);
+    if (!parsed.success) return [];
+    const d = parsed.data;
+    const companyName = d.companyName ?? d.company_name ?? "";
+    const rawDomain = d.websiteDomain ?? d.website_domain ?? "";
+    const websiteDomain = rawDomain.replace(/^https?:\/\//, "").replace(/\/$/, "").toLowerCase();
+    const fundingAmount = d.fundingAmount ?? d.funding_amount ?? "";
+    const investors = (d.investors ?? []).map((i) =>
+      typeof i === "string" ? i : (i as { value: string }).value,
+    );
+    const citationUrl = d.companyName_citation ?? d.company_name_citation ?? d.websiteDomain_citation ?? d.website_domain_citation;
+    if (!companyName || !websiteDomain) return [];
+    return [{ companyName, websiteDomain, fundingAmount, investors, citationUrl }];
+  });
+}
+
+export async function fetchRecentlyFundedStartups(sinceDate?: string): Promise<FetchRecentlyFundedResult> {
+  const window = sinceDate ? `since ${sinceDate}` : "in the last 7 days";
+  try {
+    console.log(`[firecrawl-funded] Searching for startups funded ${window}...`);
+    const result = await firecrawl.agent({
+      prompt: `Extract startups based in the US that received funding ${window}. For each startup, capture the company name, website domain, funding amount, and names of the investors involved.`,
+      model: "spark-1-mini",
+    });
+
+    console.log("[firecrawl-funded] Raw result:", JSON.stringify(result.data).slice(0, 3000));
+
+    const startups = normalizeRawStartups(result.data);
+    console.log(`[firecrawl-funded] Normalized ${startups.length} funded startups`);
+    return { success: true, startups };
+  } catch (error) {
+    console.error("[firecrawl-funded] Failed:", error);
+    return { success: false, startups: [], error: error instanceof Error ? error.message : "Fetch failed" };
+  }
+}

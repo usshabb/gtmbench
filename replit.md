@@ -13,6 +13,7 @@ Monorepo with two apps:
 
 - **Start application** — Runs the Next.js frontend on port 5000 (webview)
 - **Start Backend** — Runs the Express API on port 3000 (console)
+- **Local login** — Use the app's **Continue with Google** sign-in flow; Google OAuth creates/updates the user and returns the app auth token.
 
 ## Replit Configuration
 
@@ -28,6 +29,7 @@ Monorepo with two apps:
 - `FIBER_API_KEY` — Fiber.ai API key
 - `OPENAI_API_KEY` — OpenAI API key
 - `FIRECRAWL_API_KEY` — Firecrawl API key
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — Google OAuth credentials for app sign-in and Gmail/Calendar connection
 - `JWT_SECRET` — JWT signing secret (defaults to dev value)
 - `REDIS_URL` — Redis connection (defaults to localhost:6379)
 

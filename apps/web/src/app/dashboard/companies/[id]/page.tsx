@@ -9,6 +9,8 @@ interface CompanyRecord {
   _id?: string;
   userEmails: string[];
   domain: string;
+  starred?: boolean;
+  pipelineStage?: string | null;
   createdAt: string;
   enrichedAt?: string;
   enrichmentStatus: "pending" | "completed" | "failed";
@@ -644,6 +646,7 @@ export default function CompanyDetailPage() {
   const [enabledSkills, setEnabledSkills] = useState<{ _id: string; skillType: string; enabled: boolean }[]>([]);
   const [showMenu, setShowMenu] = useState(false);
   const [activeMetric, setActiveMetric] = useState(0);
+  const [toggingStar, setTogglingStar] = useState(false);
 
   const existingPersonMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -653,6 +656,25 @@ export default function CompanyDetailPage() {
     });
     return map;
   }, [persons]);
+
+  async function handleToggleStar() {
+    if (!authToken || !id || toggingStar) return;
+    setTogglingStar(true);
+    try {
+      const res = await apiFetch(`${apiBaseUrl}/companies/${id}/star`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+      });
+      if (res.ok) {
+        const data = (await safeJson(res)) as { starred: boolean };
+        setCompany((prev) => prev ? { ...prev, starred: data.starred } : prev);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setTogglingStar(false);
+    }
+  }
 
   async function handleRemove() {
     if (!authToken || !id) return;
@@ -846,6 +868,18 @@ export default function CompanyDetailPage() {
           <LetterAvatar name={name} size="lg" rounded="lg" src={logoUrl} />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={handleToggleStar}
+                disabled={toggingStar}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-[#f5f5f7] disabled:opacity-50"
+                title={company.starred ? "Remove from pipeline" : "Add to pipeline"}
+              >
+                {company.starred ? (
+                  <svg className="h-4.5 w-4.5 text-amber-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
+                ) : (
+                  <svg className="h-4.5 w-4.5 text-[#d4d4d8] hover:text-[#8b8d94]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
+                )}
+              </button>
               <h1 className="text-[16px] font-semibold text-[#1b1b1f]">{name}</h1>
               {company.domain && <span className="text-[12px] text-[#8b8d94]">{company.domain}</span>}
               {isDetectingATS && (

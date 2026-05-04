@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "prod": "DOTENV_CONFIG_PATH=.env.prod-local tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "drop-tables": "tsx src/drop-tables.ts"

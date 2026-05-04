@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, usePathname } from "next/navigation";
-import { dispatchDataChanged, safeJson, GLOBAL_ACTION_EVENT, DATA_CHANGED_EVENT, apiFetch, FallbackImg } from "./components";
+import { dispatchDataChanged, safeJson, GLOBAL_ACTION_EVENT, DATA_CHANGED_EVENT, dispatchComposeEmail, apiFetch, FallbackImg } from "./components";
 
 const localStorageTokenKey = "gtmbench-token";
 
@@ -45,19 +45,21 @@ const icons = {
   search: <LucideIcon><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></LucideIcon>,
 };
 
+const pipelineIcon = <LucideIcon><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></LucideIcon>;
+
 const primaryNavItems = [
   { label: "Home", href: "/dashboard", icon: icons.home, exact: true },
-  { label: "Inbox", href: "/dashboard/inbox", icon: icons.inbox, hasDot: true },
+  { label: "Inbox", href: "/dashboard/inbox", icon: icons.inbox },
   { label: "Meetings", href: "/dashboard/calendar", icon: icons.calendar },
+  { label: "Pipeline", href: "/dashboard/pipeline", icon: pipelineIcon },
   { label: "Companies", href: "/dashboard/companies", icon: icons.building, countKey: "Companies" },
   { label: "People", href: "/dashboard/people", icon: icons.user, countKey: "People" },
 ];
 
 const workspaceNavItems = [
-  { label: "Buyer Profiles", href: "/dashboard/buyer-profiles", icon: icons.target },
+  { label: "Products", href: "/dashboard/buyer-profiles", icon: icons.target },
   { label: "Skills", href: "/dashboard/skills", icon: icons.wand },
   { label: "Triggers", href: "/dashboard/triggers", icon: icons.bolt },
-  { label: "Settings", href: "/dashboard/settings/profile", icon: icons.settings },
 ];
 
 const settingsSubItems = [
@@ -705,6 +707,7 @@ function Sidebar({
   const pathname = usePathname();
   const router = useRouter();
   const [workspaceOpen, setWorkspaceOpen] = useState(true);
+  const [addOpen, setAddOpen] = useState(false);
   const isSettingsView = pathname.startsWith("/dashboard/settings");
 
   const displayName = userProfile.fullName ?? userProfile.email;
@@ -720,6 +723,37 @@ function Sidebar({
           <div className="text-[13.5px] font-semibold text-[#1b1b1f] tracking-[0.05em] leading-[1.15]">
             SIDR
           </div>
+        </div>
+        {/* + Add dropdown */}
+        <div className="relative">
+          <button
+            onClick={() => setAddOpen((v) => !v)}
+            className="flex h-6 w-6 items-center justify-center rounded-full bg-[#1b1b1f] text-white transition-opacity hover:opacity-80"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+          </button>
+          {addOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setAddOpen(false)} />
+              <div className="absolute left-0 top-8 z-50 w-44 rounded-lg border border-[#e6e6e9] bg-white py-1 shadow-[0_4px_16px_rgba(0,0,0,0.10)]">
+                {[
+                  { label: "Company", type: "company" as const, icon: icons.building },
+                  { label: "Person", type: "person" as const, icon: icons.user },
+                ].map(({ label, type, icon }) => (
+                  <button
+                    key={type}
+                    onClick={() => { setAddOpen(false); onGlobalAction(type); }}
+                    className="flex w-full items-center gap-2.5 px-3 py-2 text-[13px] text-[#3b3d44] hover:bg-[#f5f5f7] transition-colors"
+                  >
+                    <span className="text-[#8b8d94]">{icon}</span>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -768,6 +802,39 @@ function Sidebar({
                   ? pathname === item.href
                   : pathname.startsWith(item.href);
                 const count = item.countKey ? (recordCounts[item.countKey] ?? 0) : undefined;
+                const isInbox = item.href === "/dashboard/inbox";
+                if (isInbox) {
+                  return (
+                    <div key={item.href} className="group/inbox relative flex items-center">
+                      <button
+                        onClick={() => router.push(item.href)}
+                        className={`relative flex flex-1 items-center cursor-pointer gap-[9px] rounded-[6px] mx-[2px] text-[13px] font-medium tracking-[-0.005em] transition-all duration-100 ${
+                          isActive
+                            ? "bg-white text-[#1b1b1f] shadow-[0_0_0_1px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.04),0_3px_6px_-4px_rgba(0,0,0,0.05)]"
+                            : "text-[#6b6f76] hover:bg-black/[0.035] hover:text-[#1b1b1f]"
+                        }`}
+                        style={{ padding: "8px 9px", width: "calc(100% - 4px)" }}
+                      >
+                        {isActive && (
+                          <span className="absolute left-[-2px] top-1/2 -translate-y-1/2 w-[2px] h-5 bg-[#1b1b1f] rounded-r-[2px]" />
+                        )}
+                        <span className={`transition-colors duration-100 ${isActive ? "text-[#1b1b1f]" : "text-[#9ca0a8] group-hover/inbox:text-[#1b1b1f]"}`}>
+                          {item.icon}
+                        </span>
+                        <span className="flex-1 text-left leading-[1.25]">{item.label}</span>
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); dispatchComposeEmail(); }}
+                        className="absolute right-[6px] opacity-0 group-hover/inbox:opacity-100 transition-opacity rounded p-[3px] text-[#9ca0a8] hover:text-[#1b1b1f] hover:bg-black/[0.06]"
+                        title="Compose email"
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/>
+                        </svg>
+                      </button>
+                    </div>
+                  );
+                }
                 return (
                   <NavItem
                     key={item.href}
@@ -776,7 +843,6 @@ function Sidebar({
                     isActive={isActive}
                     onClick={() => router.push(item.href)}
                     count={count}
-                    hasDot={item.hasDot}
                   />
                 );
               })}
@@ -826,19 +892,6 @@ function Sidebar({
 
       {/* Spacer */}
       <div className="flex-1 min-h-2" />
-
-      {/* Add button — above user footer */}
-      <div className="mx-[2px] mb-2" style={{ width: "calc(100% - 4px)" }}>
-        <button
-          onClick={() => onGlobalAction("pick")}
-          className="flex w-full items-center justify-center gap-[6px] rounded-[7px] border border-[#e6e6e9] bg-white py-[6px] text-[13px] font-medium text-[#6b6f76] transition-all hover:border-[#d4d4d8] hover:bg-[#f5f5f7] hover:text-[#1b1b1f] hover:shadow-[0_1px_2px_rgba(0,0,0,0.03)] cursor-pointer"
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 5v14M5 12h14"/>
-          </svg>
-          Add
-        </button>
-      </div>
 
       {/* User footer */}
       <div
@@ -932,12 +985,12 @@ export default function DashboardLayout({
       return;
     }
 
-    setAuthToken(storedToken);
-
-    void apiFetch(`${apiBaseUrl}/me`, {
-      headers: { Authorization: `Bearer ${storedToken}` },
-    })
-      .then(async (response) => {
+    void (async () => {
+      setAuthToken(storedToken);
+      try {
+        const response = await apiFetch(`${apiBaseUrl}/me`, {
+          headers: { Authorization: `Bearer ${storedToken}` },
+        });
         if (!response.ok) {
           window.localStorage.removeItem(localStorageTokenKey);
           router.replace("/");
@@ -958,11 +1011,11 @@ export default function DashboardLayout({
           profilePhotoUrl: data.user?.profilePhotoUrl ?? null,
         });
         fetchCounts(storedToken);
-      })
-      .catch(() => {
+      } catch {
         window.localStorage.removeItem(localStorageTokenKey);
         router.replace("/");
-      });
+      }
+    })();
   }, [apiBaseUrl, router]);
 
   function handleLogout(): void {
