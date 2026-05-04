@@ -1831,7 +1831,9 @@ export default function SignalsPage() {
                           const key =
                             item.kind === "linkedin"
                               ? item.signal._id
-                              : `${item.signal._id}-${item.dateKey}-${idx}`;
+                              : item.kind === "ats_date_slice"
+                                ? `${item.signal._id}-${item.dateKey}-${idx}`
+                                : `${item.signal._id}-${idx}`;
 
                           if (item.kind === "ats_date_slice") {
                             return (
