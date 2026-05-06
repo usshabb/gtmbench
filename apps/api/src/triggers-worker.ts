@@ -884,7 +884,32 @@ async function processRecentlyFundedJob(jobData: RecentlyFundedJobData): Promise
           citationUrl: startup.citationUrl,
           enrichmentData: enrichmentData ?? undefined,
         });
-        console.log(`[triggers-worker] [RecentlyFunded] Stored: ${startup.companyName} (${startup.websiteDomain})`);
+        // Create one signal per startup (upsert so reruns are idempotent)
+        const signalData: FundedStartupSignalData = {
+          companyName: startup.companyName,
+          websiteDomain: startup.websiteDomain,
+          fundingAmount: startup.fundingAmount,
+          investors: startup.investors,
+          citationUrl: startup.citationUrl ?? null,
+          enrichmentData: enrichmentData ?? undefined,
+        };
+        await signalsCol.updateOne(
+          { userEmail: jobData.userEmail, signalType: "recently_funded", triggerId, companyDomain: startup.websiteDomain },
+          {
+            $setOnInsert: {
+              userEmail: jobData.userEmail,
+              triggerId,
+              signalType: "recently_funded",
+              signalDate,
+              companyDomain: startup.websiteDomain,
+              data: signalData,
+              createdAt: fetchedAt,
+              dismissed: false,
+            },
+          },
+          { upsert: true },
+        );
+        console.log(`[triggers-worker] [RecentlyFunded] Stored + signalled: ${startup.companyName} (${startup.websiteDomain})`);
       } catch (err: unknown) {
         // Duplicate (userEmail + websiteDomain) — already seen, skip
         if (err instanceof Error && "code" in err && (err as any).code === 11000) {
@@ -895,53 +920,40 @@ async function processRecentlyFundedJob(jobData: RecentlyFundedJobData): Promise
       }
     }
 
-    // If no new startups were inserted (all duplicates), check if a signal already exists.
-    // If not, fall back to all stored startups so the user sees activity on first discovery.
-    let startupsForSignal = newStartups;
-    if (startupsForSignal.length === 0) {
-      const existingSignal = await signalsCol.findOne({
-        userEmail: jobData.userEmail,
-        signalType: "recently_funded",
-        triggerId,
-      });
-      if (!existingSignal) {
-        const storedStartups = await fundedStartupsCol
-          .find({ userEmail: jobData.userEmail, triggerId })
-          .sort({ fetchedAt: -1 })
-          .limit(50)
-          .toArray();
-        startupsForSignal = storedStartups.map((s) => ({
+    // If no new startups (all duplicates), backfill signals for any stored startups that have no signal yet
+    if (newStartups.length === 0) {
+      const storedWithoutSignal = await fundedStartupsCol
+        .find({ userEmail: jobData.userEmail, triggerId })
+        .sort({ fetchedAt: -1 })
+        .limit(50)
+        .toArray();
+      for (const s of storedWithoutSignal) {
+        const signalData: FundedStartupSignalData = {
           companyName: s.companyName,
           websiteDomain: s.websiteDomain,
           fundingAmount: s.fundingAmount,
           investors: s.investors,
-          citationUrl: s.citationUrl ?? undefined,
+          citationUrl: s.citationUrl ?? null,
           enrichmentData: s.enrichmentData ?? undefined,
-        }));
-        console.log(`[triggers-worker] [RecentlyFunded] No signal exists yet — surfacing ${startupsForSignal.length} stored startups`);
-      }
-    }
-
-    // Generate a signal from newly stored startups
-    if (startupsForSignal.length > 0) {
-      const signalData: FundedStartupSignalData = { startups: startupsForSignal, fetchedDate: signalDate };
-      await signalsCol.updateOne(
-        { userEmail: jobData.userEmail, signalType: "recently_funded", triggerId, signalDate },
-        {
-          $set: {
-            userEmail: jobData.userEmail,
-            triggerId,
-            signalType: "recently_funded",
-            signalDate,
-            data: signalData,
-            createdAt: fetchedAt,
+        };
+        await signalsCol.updateOne(
+          { userEmail: jobData.userEmail, signalType: "recently_funded", triggerId, companyDomain: s.websiteDomain },
+          {
+            $setOnInsert: {
+              userEmail: jobData.userEmail,
+              triggerId,
+              signalType: "recently_funded",
+              signalDate: s.signalDate,
+              companyDomain: s.websiteDomain,
+              data: signalData,
+              createdAt: s.fetchedAt,
+              dismissed: false,
+            },
           },
-        },
-        { upsert: true },
-      );
-      console.log(`[triggers-worker] [RecentlyFunded] Signal created for ${startupsForSignal.length} startups`);
-    } else {
-      console.log(`[triggers-worker] [RecentlyFunded] No startups found — signal skipped`);
+          { upsert: true },
+        );
+      }
+      console.log(`[triggers-worker] [RecentlyFunded] Backfilled signals for ${storedWithoutSignal.length} stored startups`);
     }
 
     await triggerJobsCol.updateOne(

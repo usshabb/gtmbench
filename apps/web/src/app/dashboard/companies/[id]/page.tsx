@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import { LetterAvatar, safeJson, dispatchDataChanged, apiFetch } from "../../components";
@@ -140,6 +140,11 @@ function BuyersTab({
   const [removedSlugs, setRemovedSlugs] = useState<Set<string>>(new Set());
   const [addError, setAddError] = useState("");
   const [showProfileDropdown, setShowProfileDropdown] = useState(false);
+  const [showManualAdd, setShowManualAdd] = useState(false);
+  const [manualInput, setManualInput] = useState("");
+  const [manualPersonName, setManualPersonName] = useState("");
+  const [isManualAdding, setIsManualAdding] = useState(false);
+  const [manualAddError, setManualAddError] = useState("");
 
   // Load buyer profiles
   useEffect(() => {
@@ -301,6 +306,37 @@ function BuyersTab({
     }
   }
 
+  async function handleManualAdd(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const input = manualInput.trim();
+    if (!input) return;
+    setIsManualAdding(true);
+    setManualAddError("");
+    const isEmailInput = input.includes("@") && !input.includes("linkedin.com");
+    try {
+      const endpoint = isEmailInput ? `${apiBaseUrl}/persons/by-email` : `${apiBaseUrl}/persons`;
+      const body = isEmailInput
+        ? { email: input, name: manualPersonName.trim() || undefined, companyId, buyerProfileId: selectedProfileId || undefined }
+        : { linkedinUrl: input.startsWith("http") ? input : `https://www.linkedin.com/in/${input}`, companyId, buyerProfileId: selectedProfileId || undefined };
+      const res = await apiFetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify(body),
+      });
+      const data = (await safeJson(res)) as { person?: { _id?: string }; error?: string };
+      if (!res.ok && res.status !== 409) throw new Error(data.error ?? "Could not add person");
+      setManualInput("");
+      setManualPersonName("");
+      setShowManualAdd(false);
+      dispatchDataChanged();
+      onPersonAdded?.();
+    } catch (err) {
+      setManualAddError(err instanceof Error ? err.message : "Could not add person");
+    } finally {
+      setIsManualAdding(false);
+    }
+  }
+
   if (isLoadingProfiles) {
     return (
       <div className="flex flex-col items-center justify-center py-16">
@@ -390,6 +426,15 @@ function BuyersTab({
               </>
             )}
           </button>
+          <button
+            onClick={() => { setShowManualAdd((v) => !v); setManualAddError(""); setManualInput(""); setManualPersonName(""); }}
+            className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-2 text-[13px] font-medium transition-colors ${showManualAdd ? "border-[#1b1b1f] bg-[#1b1b1f] text-white" : "border-[#e6e6e9] bg-white text-[#6b6f76] hover:bg-[#f5f5f7]"}`}
+          >
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            Add
+          </button>
         </div>
         {/* Profile titles + last fetched */}
         {selectedProfile && selectedProfile.titles.length > 0 && (
@@ -405,6 +450,49 @@ function BuyersTab({
           </div>
         )}
       </div>
+
+      {/* Manual add form */}
+      {showManualAdd && (
+        <form onSubmit={handleManualAdd} className="mt-3 rounded-lg border border-[#e6e6e9] bg-white p-3 space-y-2">
+          <p className="text-[12px] font-medium text-[#6b6f76]">Add person by LinkedIn URL or email</p>
+          <input
+            type="text"
+            value={manualInput}
+            onChange={(e) => { setManualInput(e.target.value); setManualPersonName(""); }}
+            placeholder="linkedin.com/in/... or name@company.com"
+            className="w-full rounded-lg border border-[#e6e6e9] bg-white px-3 py-2 text-[13px] placeholder:text-[#b4b5ba] focus:border-[#5e6ad2] focus:outline-none focus:ring-2 focus:ring-[#5e6ad2]/10 transition-all"
+            autoFocus
+          />
+          {manualInput.includes("@") && !manualInput.includes("linkedin.com") && (
+            <input
+              type="text"
+              value={manualPersonName}
+              onChange={(e) => setManualPersonName(e.target.value)}
+              placeholder="Full name (optional)"
+              className="w-full rounded-lg border border-[#e6e6e9] bg-white px-3 py-2 text-[13px] placeholder:text-[#b4b5ba] focus:border-[#5e6ad2] focus:outline-none focus:ring-2 focus:ring-[#5e6ad2]/10 transition-all"
+            />
+          )}
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => { setShowManualAdd(false); setManualInput(""); setManualPersonName(""); setManualAddError(""); }}
+              className="text-[13px] text-[#8b8d94] transition-colors hover:text-[#6b6f76]"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isManualAdding || !manualInput.trim()}
+              className="flex items-center gap-1.5 rounded-lg bg-[#1b1b1f] px-3 py-2 text-[13px] font-medium text-white transition-colors hover:bg-[#2c2c33] disabled:opacity-60"
+            >
+              {isManualAdding ? (
+                <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              ) : manualInput.includes("@") && !manualInput.includes("linkedin.com") ? "Add" : "Look up & add"}
+            </button>
+          </div>
+          {manualAddError && <p className="text-[12px] text-red-600">{manualAddError}</p>}
+        </form>
+      )}
 
       {/* Error */}
       {searchError && (

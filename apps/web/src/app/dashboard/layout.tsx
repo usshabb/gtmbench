@@ -141,6 +141,11 @@ function GlobalActionModal({
   const [buyerProfileName, setBuyerProfileName] = useState<string | null>(null);
   const [allBuyerProfiles, setAllBuyerProfiles] = useState<{ _id: string; name: string; isDefault: boolean }[]>([]);
   const [isSwitchingProfile, setIsSwitchingProfile] = useState(false);
+  const [showManualBuyerAdd, setShowManualBuyerAdd] = useState(false);
+  const [manualBuyerInput, setManualBuyerInput] = useState("");
+  const [manualPersonName, setManualPersonName] = useState("");
+  const [isManualBuyerLoading, setIsManualBuyerLoading] = useState(false);
+  const [manualBuyerError, setManualBuyerError] = useState("");
 
   const [selectedType, setSelectedType] = useState<"company" | "person" | null>(null);
 
@@ -212,6 +217,7 @@ function GlobalActionModal({
     setCompanyOnlyPreview(null); setCompanyEnrichmentPayload(null); setCompanyDomain("");
     setBuyers([]); setSelectedBuyerUrls(new Set()); setBuyerProfileId(null);
     setBuyerProfileName(null); setAllBuyerProfiles([]);
+    setShowManualBuyerAdd(false); setManualBuyerInput(""); setManualPersonName(""); setIsManualBuyerLoading(false); setManualBuyerError("");
     setError("");
   }
 
@@ -377,6 +383,57 @@ function GlobalActionModal({
     }
   }
 
+  async function handleManualBuyerAdd(e: FormEvent<HTMLFormElement>): Promise<void> {
+    e.preventDefault();
+    const input = manualBuyerInput.trim();
+    if (!input) return;
+    setIsManualBuyerLoading(true);
+    setManualBuyerError("");
+    const isEmailInput = input.includes("@") && !input.includes("linkedin.com");
+    try {
+      if (isEmailInput) {
+        // Email: add directly, no preview needed
+        const res = await apiFetch(`${apiBaseUrl}/persons/by-email`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+          body: JSON.stringify({ email: input, name: manualPersonName.trim() || undefined }),
+        });
+        const data = (await safeJson(res)) as { error?: string };
+        if (!res.ok && res.status !== 409) throw new Error(data.error ?? "Could not add person");
+        setManualBuyerInput("");
+        setManualPersonName("");
+        setShowManualBuyerAdd(false);
+      } else {
+        // LinkedIn URL: preview then add to buyers selection list
+        const linkedinUrl = input.startsWith("http") ? input : `https://www.linkedin.com/in/${input}`;
+        const res = await apiFetch(`${apiBaseUrl}/persons/preview`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+          body: JSON.stringify({ linkedinUrl }),
+        });
+        const data = (await safeJson(res)) as { person?: PersonPreview; _enrichment?: PreviewEnrichment; error?: string };
+        if (!res.ok) throw new Error(data.error ?? "Could not look up person");
+        const resolvedUrl = data._enrichment?.linkedinUrl ?? linkedinUrl;
+        const newBuyer: BuyerPreview = {
+          name: data.person?.name ?? input,
+          title: data.person?.title,
+          profilePic: data.person?.profilePic,
+          linkedinUrl: resolvedUrl,
+          workEmail: data._enrichment?.workEmail,
+          _raw: data._enrichment?.personPayload,
+        };
+        setBuyers((prev) => (prev.some((b) => b.linkedinUrl === resolvedUrl) ? prev : [...prev, newBuyer]));
+        setSelectedBuyerUrls((prev) => new Set([...prev, resolvedUrl]));
+        setManualBuyerInput("");
+        setShowManualBuyerAdd(false);
+      }
+    } catch (err) {
+      setManualBuyerError(err instanceof Error ? err.message : "Could not add person");
+    } finally {
+      setIsManualBuyerLoading(false);
+    }
+  }
+
   const placeholder = isCompany
     ? "Enter a domain (e.g. acme.com)"
     : "LinkedIn URL or work email (e.g. john@acme.com)";
@@ -511,6 +568,66 @@ function GlobalActionModal({
                     No matching buyers found{buyerProfileName ? ` for "${buyerProfileName}"` : ""}.
                   </p>
                 </div>
+              )}
+
+              {/* Manual person add */}
+              {!showManualBuyerAdd ? (
+                <button
+                  type="button"
+                  onClick={() => setShowManualBuyerAdd(true)}
+                  className="flex items-center gap-1.5 text-[12px] font-medium text-[#8b8d94] transition-colors hover:text-[#6b6f76]"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                  </svg>
+                  Add person manually
+                </button>
+              ) : (
+                <form onSubmit={handleManualBuyerAdd} className="space-y-2">
+                  {(() => {
+                    const isEmail = manualBuyerInput.includes("@") && !manualBuyerInput.includes("linkedin.com");
+                    return (
+                      <>
+                        <input
+                          type="text"
+                          value={manualBuyerInput}
+                          onChange={(e) => { setManualBuyerInput(e.target.value); setManualPersonName(""); }}
+                          placeholder="linkedin.com/in/... or name@company.com"
+                          className="w-full rounded-lg border border-[#e6e6e9] bg-white px-3 py-2 text-[13px] placeholder:text-[#b4b5ba] focus:border-[#5e6ad2] focus:outline-none focus:ring-2 focus:ring-[#5e6ad2]/10 transition-all"
+                          autoFocus
+                        />
+                        {isEmail && (
+                          <input
+                            type="text"
+                            value={manualPersonName}
+                            onChange={(e) => setManualPersonName(e.target.value)}
+                            placeholder="Full name (optional)"
+                            className="w-full rounded-lg border border-[#e6e6e9] bg-white px-3 py-2 text-[13px] placeholder:text-[#b4b5ba] focus:border-[#5e6ad2] focus:outline-none focus:ring-2 focus:ring-[#5e6ad2]/10 transition-all"
+                          />
+                        )}
+                        <div className="flex items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => { setShowManualBuyerAdd(false); setManualBuyerInput(""); setManualPersonName(""); setManualBuyerError(""); }}
+                            className="text-[12px] text-[#8b8d94] transition-colors hover:text-[#6b6f76]"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={isManualBuyerLoading || !manualBuyerInput.trim()}
+                            className="flex items-center gap-1 rounded-md bg-[#1b1b1f] px-3 py-2 text-[12px] font-medium text-white transition-colors hover:bg-[#2c2c33] disabled:opacity-60"
+                          >
+                            {isManualBuyerLoading ? (
+                              <div className="h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                            ) : isEmail ? "Add" : "Look up"}
+                          </button>
+                        </div>
+                      </>
+                    );
+                  })()}
+                  {manualBuyerError && <p className="text-[12px] text-red-600">{manualBuyerError}</p>}
+                </form>
               )}
 
               {error && <p className="text-[12px] text-red-600">{error}</p>}

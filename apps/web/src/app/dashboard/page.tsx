@@ -68,24 +68,19 @@ interface ATSJobSignal {
   dismissed?: boolean;
 }
 
-interface FundedStartupItem {
-  companyName: string;
-  websiteDomain: string;
-  fundingAmount: string;
-  investors: string[];
-  citationUrl?: string;
-  enrichmentData?: Record<string, unknown>;
-}
-
-interface FundedStartupSignalData {
-  startups: FundedStartupItem[];
-  fetchedDate: string;
-}
-
 interface FundedStartupSignal {
   _id: string;
   signalType: "recently_funded";
-  data: FundedStartupSignalData;
+  companyDomain?: string;
+  signalDate?: string;
+  data: {
+    companyName: string;
+    websiteDomain: string;
+    fundingAmount: string;
+    investors: string[];
+    citationUrl?: string | null;
+    enrichmentData?: Record<string, unknown>;
+  };
   createdAt: string;
   dismissed?: boolean;
 }
@@ -646,63 +641,90 @@ function FundedStartupCard({
   onDismiss: () => void;
   onRestore?: () => void;
 }) {
-  const { startups } = item.signal.data;
+  const { data } = item.signal;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fiberData = (data.enrichmentData as any)?.output?.data?.[0];
+  const description: string | undefined = fiberData?.short_description ?? fiberData?.li_headline ?? undefined;
+  const logoUrl: string | undefined = fiberData?.logo_url ?? undefined;
+  const industry: string | undefined = (fiberData?.standard_industries as string[] | undefined)?.[0];
+  const employeeCount: number | undefined = fiberData?.employee_count_consensus?.gte;
+  const linkedinSlug: string | undefined = fiberData?.linkedin_primary_slug;
+
   return (
     <div className={`overflow-hidden rounded-lg border bg-white transition-all duration-200 ${onRestore ? "border-[#ededf0] opacity-60" : "border-[#e6e6e9]"}`}>
-      <div className="px-4 pt-4 pb-3">
-        <div className="flex items-center justify-between gap-3 mb-3">
-          <div className="flex items-center gap-2">
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#ecfdf5] text-[#059669]">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <div className="px-4 pt-4 pb-3 space-y-3">
+        {/* Header row */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            {/* Logo or favicon */}
+            {logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoUrl} alt="" width={28} height={28} className="h-7 w-7 shrink-0 rounded-md object-contain border border-[#e6e6e9]" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={`https://www.google.com/s2/favicons?domain=${data.websiteDomain}&sz=32`} alt="" width={28} height={28} className="h-7 w-7 shrink-0 rounded-md" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+            )}
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[14px] font-semibold text-[#1b1b1f]">
+                  {data.citationUrl ? (
+                    <a href={data.citationUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">{data.companyName}</a>
+                  ) : data.companyName}
+                </span>
+                <span className="shrink-0 rounded-full bg-[#ecfdf5] px-2 py-0.5 text-[11px] font-semibold text-[#059669]">{data.fundingAmount}</span>
+                {industry && <span className="rounded-md bg-[#f5f5f7] px-2 py-0.5 text-[11px] text-[#6b6f76]">{industry}</span>}
+              </div>
+              <div className="flex items-center gap-2 mt-0.5 text-[11px] text-[#8b8d94]">
+                <span>{data.websiteDomain}</span>
+                {employeeCount && <><span>·</span><span>{employeeCount} employees</span></>}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#ecfdf5] text-[#059669]">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
               </svg>
             </span>
-            <span className="text-[13px] font-medium text-[#1b1b1f]">
-              {startups.length} recently funded startup{startups.length !== 1 ? "s" : ""}
-            </span>
+            <span className="text-[12px] text-[#8b8d94]">{timeAgo(item.signal.createdAt)}</span>
           </div>
-          <span className="shrink-0 text-[12px] text-[#8b8d94]">{timeAgo(item.signal.createdAt)}</span>
         </div>
-        <div className="flex flex-col gap-2.5">
-          {startups.map((startup, i) => (
-            <div key={i} className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={`https://www.google.com/s2/favicons?domain=${startup.websiteDomain}&sz=16`}
-                    alt=""
-                    width={14}
-                    height={14}
-                    className="shrink-0 rounded-sm"
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                  />
-                  <span className="text-[13px] font-medium text-[#1b1b1f] truncate">
-                    {startup.citationUrl ? (
-                      <a href={startup.citationUrl} target="_blank" rel="noopener noreferrer" className="hover:underline">
-                        {startup.companyName}
-                      </a>
-                    ) : startup.companyName}
-                  </span>
-                  <span className="shrink-0 rounded-full bg-[#ecfdf5] px-1.5 py-0.5 text-[10px] font-semibold text-[#059669]">
-                    {startup.fundingAmount}
-                  </span>
-                </div>
-                {startup.investors.length > 0 && (
-                  <p className="mt-0.5 text-[11px] text-[#8b8d94] truncate">
-                    {startup.investors.slice(0, 3).join(", ")}{startup.investors.length > 3 ? ` +${startup.investors.length - 3}` : ""}
-                  </p>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
+
+        {/* Description */}
+        {description && (
+          <p className="text-[12px] text-[#6b6f76] leading-relaxed line-clamp-2">{description}</p>
+        )}
+
+        {/* Investors */}
+        {data.investors.length > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[11px] text-[#8b8d94]">Backed by</span>
+            {data.investors.slice(0, 4).map((inv, i) => (
+              <span key={i} className="rounded-md bg-[#f5f5f7] px-2 py-0.5 text-[11px] font-medium text-[#6b6f76]">{inv}</span>
+            ))}
+            {data.investors.length > 4 && <span className="text-[11px] text-[#8b8d94]">+{data.investors.length - 4} more</span>}
+          </div>
+        )}
       </div>
-      <div className="flex items-center justify-end gap-2 border-t border-[#ededf0] bg-[#f9f9fb] px-4 py-2.5">
+
+      <div className="flex items-center justify-between gap-2 border-t border-[#ededf0] bg-[#f9f9fb] px-4 py-2.5">
+        <div className="flex items-center gap-2">
+          {linkedinSlug && (
+            <a
+              href={`https://www.linkedin.com/company/${linkedinSlug}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 rounded-md border border-[#e6e6e9] bg-white px-2.5 py-1.5 text-[12px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f5f5f7]"
+            >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg>
+              LinkedIn
+            </a>
+          )}
+        </div>
         {onRestore ? (
-          <button onClick={onRestore} className="flex items-center rounded-md border border-[#e6e6e9] bg-white px-3 py-1.5 text-[13px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f5f5f7]">Restore</button>
+          <button onClick={onRestore} className="flex items-center rounded-md border border-[#e6e6e9] bg-white px-3 py-1.5 text-[12px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f5f5f7]">Restore</button>
         ) : (
-          <button onClick={onDismiss} className="flex items-center rounded-md border border-[#e6e6e9] bg-white px-3 py-1.5 text-[13px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f5f5f7]">Dismiss</button>
+          <button onClick={onDismiss} className="flex items-center rounded-md border border-[#e6e6e9] bg-white px-3 py-1.5 text-[12px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f5f5f7]">Dismiss</button>
         )}
       </div>
     </div>
@@ -1544,7 +1566,7 @@ export default function SignalsPage() {
         }
       } else if (s.signalType === "recently_funded") {
         const key = toDateKey(s.createdAt);
-        map.set(key, (map.get(key) ?? 0) + (s.data.startups?.length ?? 1));
+        map.set(key, (map.get(key) ?? 0) + 1);
       } else {
         const key = toDateKey(s.createdAt);
         map.set(key, (map.get(key) ?? 0) + 1);

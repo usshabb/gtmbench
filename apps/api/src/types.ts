@@ -227,8 +227,12 @@ export interface FundedStartupData {
 }
 
 export interface FundedStartupSignalData {
-  startups: FundedStartupData[];
-  fetchedDate: string;
+  companyName: string;
+  websiteDomain: string;
+  fundingAmount: string;
+  investors: string[];
+  citationUrl?: string | null;
+  enrichmentData?: Record<string, unknown>;
 }
 
 export interface SignalRecord {

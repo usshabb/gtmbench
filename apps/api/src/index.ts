@@ -1865,7 +1865,7 @@ app.post("/persons", async (request, response) => {
 // Add a person by work email — looks up their LinkedIn via Fiber, then enriches fully
 app.post("/persons/by-email", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
-  const { email, buyerProfileId: rawBuyerProfileId, companyId: rawCompanyId } = request.body as { email?: string; buyerProfileId?: string; companyId?: string };
+  const { email, buyerProfileId: rawBuyerProfileId, companyId: rawCompanyId, name: rawName } = request.body as { email?: string; buyerProfileId?: string; companyId?: string; name?: string };
   const emailReqBuyerProfileId = rawBuyerProfileId ? new ObjectId(rawBuyerProfileId) : undefined;
   const emailReqCompanyId = rawCompanyId ? new ObjectId(rawCompanyId) : undefined;
 
@@ -1958,6 +1958,15 @@ app.post("/persons/by-email", async (request, response) => {
   let byEmailCompanyId: ObjectId | undefined = emailReqCompanyId;
   if (resolvedDomain && !byEmailCompanyId) byEmailCompanyId = await ensureCompany(resolvedDomain, userEmail);
 
+  // If Fiber returned no enrichment but a name was manually provided, build a minimal stub
+  const providedName = rawName?.trim();
+  if (!fiberResult.success && providedName && !enrichmentPayload) {
+    const parts = providedName.split(" ");
+    const firstName = parts[0] ?? "";
+    const lastName = parts.slice(1).join(" ");
+    enrichmentPayload = { output: { data: [{ name: providedName, first_name: firstName, last_name: lastName, work_email: resolvedWorkEmail }] } };
+  }
+
   const insertResult = await personsCol.insertOne({
     userEmails: [userEmail],
     linkedinUrl: linkedinUrl ?? `email:${resolvedWorkEmail}`, // stub URL if no LinkedIn found
@@ -1967,9 +1976,9 @@ app.post("/persons/by-email", async (request, response) => {
     ...(emailReqBuyerProfileId ? { buyerProfileId: emailReqBuyerProfileId } : {}),
     createdAt,
     enrichedAt: fiberResult.success ? createdAt : undefined,
-    enrichmentStatus: fiberResult.success ? "completed" : "failed",
+    enrichmentStatus: fiberResult.success ? "completed" : (providedName ? "completed" : "failed"),
     enrichmentData: enrichmentPayload ?? undefined,
-    ...(fiberResult.success ? {} : { enrichmentError: fiberResult.error ?? "Fiber lookup failed" }),
+    ...(fiberResult.success || providedName ? {} : { enrichmentError: fiberResult.error ?? "Fiber lookup failed" }),
   });
 
   const savedPerson = await personsCol.findOne({ _id: insertResult.insertedId });
@@ -2845,7 +2854,7 @@ app.get("/signals", async (request, response) => {
   const linkedinFilter: Record<string, unknown> = { userEmail: { $in: memberEmails } };
   if (since || before) linkedinFilter.postedAt = postDateFilter;
 
-  const atsFilter: Record<string, unknown> = { userEmail: { $in: memberEmails }, signalType: "ats_new_job" };
+  const atsFilter: Record<string, unknown> = { userEmail: { $in: memberEmails }, signalType: { $in: ["ats_new_job", "recently_funded"] } };
   if (since || before) atsFilter.createdAt = atsDateFilter;
 
   // Include dismissed signals (frontend splits active vs dismissed)
