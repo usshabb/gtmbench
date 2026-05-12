@@ -47,25 +47,26 @@ export async function enrichCompanyByLinkedinId(linkedinCompanyId: string, compa
 export async function enrichDomainWithFiber(domain: string): Promise<FiberEnrichmentResult> {
   const requestBody = {
     apiKey: env.FIBER_API_KEY,
-    companyDomain: { value: domain },
+    searchParams: {
+      exactCompanyV2: {
+        anyOf: [{ identifier: "domain", domain }],
+      },
+    },
   };
 
-  const url = `${env.FIBER_API_BASE_URL}/v1/kitchen-sink/company`;
-  console.log("[fiber] POST %s", url);
-  console.log("[fiber] request body:", JSON.stringify(requestBody));
+  const url = `${env.FIBER_API_BASE_URL}/v1/company-search`;
+  console.log("[fiber] enrichDomainWithFiber POST %s domain=%s", url, domain);
 
   try {
     const response = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(requestBody),
     });
 
     const responseBody = (await response.json()) as Record<string, unknown>;
-    console.log("[fiber] response status: %d", response.status);
-    console.log("[fiber] response body:", JSON.stringify(responseBody));
+    console.log("[fiber] enrichDomainWithFiber response status: %d", response.status);
+    console.log("[fiber] enrichDomainWithFiber response body:", JSON.stringify(responseBody).slice(0, 2000));
 
     if (!response.ok) {
       return {
@@ -301,28 +302,28 @@ export async function enrichPersonWithFiber(linkedinUrl: string): Promise<FiberE
 
   const requestBody = {
     apiKey: env.FIBER_API_KEY,
-    profileIdentifier: {
-      identifier: "linkedinSlug",
-      value: slug,
+    searchParams: {
+      exactProfile: {
+        anyOf: [{ primary_slug: slug }],
+      },
     },
+    getDetailedEducation: true,
+    getDetailedWorkExperience: true,
   };
 
-  const url = `${env.FIBER_API_BASE_URL}/v1/kitchen-sink/person`;
-  console.log("[fiber] POST %s", url);
-  console.log("[fiber] request body:", JSON.stringify(requestBody));
+  const url = `${env.FIBER_API_BASE_URL}/v1/people-search`;
+  console.log("[fiber] enrichPersonWithFiber POST %s slug=%s", url, slug);
 
   try {
     const response = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(requestBody),
     });
 
     const responseBody = (await response.json()) as Record<string, unknown>;
-    console.log("[fiber] response status: %d", response.status);
-    console.log("[fiber] response body:", JSON.stringify(responseBody));
+    console.log("[fiber] enrichPersonWithFiber response status: %d", response.status);
+    console.log("[fiber] enrichPersonWithFiber response body:", JSON.stringify(responseBody).slice(0, 2000));
 
     if (!response.ok) {
       return {
