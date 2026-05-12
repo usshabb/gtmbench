@@ -10,7 +10,6 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().min(1),
   FIRECRAWL_API_KEY: z.string().min(1),
   JWT_SECRET: z.string().default("dev-jwt-secret-change-in-production"),
-  REDIS_URL: z.string().default("redis://localhost:6379"),
   PARALLEL_API_KEY: z.string().default("V{XPnAejf2e,aL|neZJhh)UCf1M.u9G->ai9rX"),
   PARALLEL_API_BASE_URL: z.string().url().default("https://api-dev.useparallel.com"),
   GOOGLE_CLIENT_ID: z.string().default(""),
@@ -18,8 +17,8 @@ const envSchema = z.object({
   GOOGLE_REDIRECT_URI: z.string().default("http://localhost:4000/auth/google/callback"),
   APP_URL: z.string().default("http://localhost:3000"),
   API_PUBLIC_URL: z.string().default("http://localhost:4000"),
-  CRON_SECRET: z.string().default(""),
   API_KEY: z.string().default(""),
+  CRON_SECRET: z.string().default(""),
 });
 
 export const env = envSchema.parse(process.env);

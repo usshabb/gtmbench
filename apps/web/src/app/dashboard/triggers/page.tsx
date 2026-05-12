@@ -18,19 +18,14 @@ interface Trigger {
   updatedAt: string;
 }
 
-interface TriggerJob {
-  _id: string;
-  triggerId: string;
-  userEmail: string;
-  jobType: "LinkedinPost" | "ATSJobs" | "RecentlyFunded";
-  personId?: string;
-  linkedinUrl?: string;
-  atsUrl?: string;
-  domain?: string;
-  status: "pending" | "processing" | "completed" | "failed";
-  lastProcessedAt?: string;
-  error?: string;
-  createdAt: string;
+interface RunResult {
+  ran: number;
+  totalSignals?: number;
+  startupsFound?: number;
+  newCount?: number;
+  signalsCreated?: number;
+  message?: string;
+  failures?: { linkedinUrl?: string; domain?: string; error: string }[];
 }
 
 const TRIGGER_DEFINITIONS = [
@@ -40,6 +35,7 @@ const TRIGGER_DEFINITIONS = [
     description: "Signals when tracked people post on LinkedIn. Optionally filter by keyword to only surface relevant posts.",
     hasKeyword: true,
     hasJobTitles: false,
+    runEndpoint: "/run/linkedin-content",
   },
   {
     type: "ats_jobs",
@@ -47,6 +43,7 @@ const TRIGGER_DEFINITIONS = [
     description: "Signals when tracked companies post new jobs on their ATS. Filter by job title or keyword to focus on roles that matter.",
     hasKeyword: true,
     hasJobTitles: true,
+    runEndpoint: "/run/ats-jobs",
   },
   {
     type: "recently_funded",
@@ -54,6 +51,7 @@ const TRIGGER_DEFINITIONS = [
     description: "Signals when US startups receive funding. Searches for new funding rounds and enriches each company with Fiber.",
     hasKeyword: false,
     hasJobTitles: false,
+    runEndpoint: "/run/recently-funded",
   },
 ];
 
@@ -130,11 +128,14 @@ function TriggerCard({
   jobTitles,
   keyword,
   enabling,
+  running,
+  lastResult,
   onEnable,
   onPauseResume,
   onEditJobTitles,
   onEditKeyword,
   onDisable,
+  onRun,
 }: {
   def: (typeof TRIGGER_DEFINITIONS)[number];
   trigger: Trigger | undefined;
@@ -143,11 +144,14 @@ function TriggerCard({
   jobTitles: string[];
   keyword: string | null | undefined;
   enabling: boolean;
+  running: boolean;
+  lastResult: RunResult | null;
   onEnable: () => void;
   onPauseResume: () => void;
   onEditJobTitles: () => void;
   onEditKeyword: () => void;
   onDisable: () => void;
+  onRun: () => void;
 }) {
   const [showMenu, setShowMenu] = useState(false);
 
@@ -244,6 +248,36 @@ function TriggerCard({
           )}
         </div>
       )}
+
+      {/* Run button + last-result line */}
+      {isEnabled && isActive && (
+        <div className="mt-3 flex items-center justify-between gap-3 border-t border-[#f1f1f3] pt-2.5">
+          <div className="min-w-0 flex-1 text-[11px] text-[#8b8d94]">
+            {running ? (
+              <span className="flex items-center gap-1.5">
+                <div className="h-3 w-3 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
+                Running…
+              </span>
+            ) : lastResult ? (
+              <span title={lastResult.message ?? ""}>
+                Last run: {lastResult.ran} item(s)
+                {typeof lastResult.totalSignals === "number" && ` · ${lastResult.totalSignals} signals`}
+                {typeof lastResult.signalsCreated === "number" && ` · ${lastResult.signalsCreated} signals`}
+                {lastResult.failures && lastResult.failures.length > 0 && ` · ${lastResult.failures.length} fail`}
+              </span>
+            ) : (
+              <span>Never run</span>
+            )}
+          </div>
+          <button
+            onClick={onRun}
+            disabled={running}
+            className="rounded-md border border-[#e6e6e9] bg-white px-2.5 py-1 text-[11px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f9f9fb] disabled:opacity-50"
+          >
+            {running ? "Running…" : "Run now"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -254,7 +288,6 @@ function TriggerCard({
 export default function TriggersPage() {
   const apiBaseUrl = getApiBaseUrl();
   const [token, setToken] = useState("");
-  const [activeTab, setActiveTab] = useState<"triggers" | "jobs">("triggers");
 
   const [triggers, setTriggers] = useState<Trigger[]>([]);
   const [loading, setLoading] = useState(true);
@@ -273,9 +306,9 @@ export default function TriggersPage() {
   const [enableJobTitles, setEnableJobTitles] = useState<string[]>([]);
   const [enableKeyword, setEnableKeyword] = useState("");
 
-  const [jobs, setJobs] = useState<TriggerJob[]>([]);
-  const [jobsLoading, setJobsLoading] = useState(false);
-  const [runningJobs, setRunningJobs] = useState<Set<string>>(new Set());
+  // Run state — per trigger type
+  const [runningType, setRunningType] = useState<string | null>(null);
+  const [lastResults, setLastResults] = useState<Record<string, RunResult>>({});
   const [runningAll, setRunningAll] = useState(false);
 
   useEffect(() => {
@@ -284,27 +317,19 @@ export default function TriggersPage() {
     if (t) fetchTriggers(t);
   }, []);
 
-  useEffect(() => {
-    if (token && activeTab === "jobs") fetchJobs(token);
-  }, [activeTab, token]);
-
   async function fetchTriggers(authToken: string) {
     setLoading(true);
+    console.log("[triggers] GET /triggers");
     try {
       const res = await apiFetch(`${apiBaseUrl}/triggers`, { headers: { Authorization: `Bearer ${authToken}` } });
       const data = (await safeJson(res)) as { triggers: Trigger[] };
       setTriggers(data.triggers ?? []);
-    } catch { /* ignore */ } finally { setLoading(false); }
-  }
-
-  async function fetchJobs(authToken: string) {
-    setJobsLoading(true);
-    try {
-      await apiFetch(`${apiBaseUrl}/trigger-jobs/create`, { method: "POST", headers: { Authorization: `Bearer ${authToken}` } });
-      const res = await apiFetch(`${apiBaseUrl}/trigger-jobs`, { headers: { Authorization: `Bearer ${authToken}` } });
-      const data = (await safeJson(res)) as { jobs: TriggerJob[] };
-      setJobs(data.jobs ?? []);
-    } catch { /* ignore */ } finally { setJobsLoading(false); }
+      console.log(`[triggers] loaded ${data.triggers?.length ?? 0} trigger(s)`);
+    } catch (err) {
+      console.error("[triggers] fetch failed", err);
+    } finally {
+      setLoading(false);
+    }
   }
 
   function getTriggerForType(type: string): Trigger | undefined {
@@ -313,6 +338,7 @@ export default function TriggersPage() {
 
   async function enableTrigger(type: string, opts: { keyword?: string | null; jobTitles?: string[] | null } = {}) {
     setEnabling(true);
+    console.log(`[triggers] POST /triggers type=${type}`, opts);
     try {
       const res = await apiFetch(`${apiBaseUrl}/triggers`, {
         method: "POST",
@@ -320,10 +346,12 @@ export default function TriggersPage() {
         body: JSON.stringify({ triggerType: type, keyword: opts.keyword || null, jobTitles: opts.jobTitles?.length ? opts.jobTitles : null }),
       });
       if (res.ok) await fetchTriggers(token);
+      else console.error(`[triggers] enable failed status=${res.status}`);
     } finally { setEnabling(false); }
   }
 
   async function updateTrigger(trigger: Trigger, fields: { keyword?: string | null; jobTitles?: string[] | null; status?: "active" | "paused" }) {
+    console.log(`[triggers] PUT /triggers/${trigger._id}`, fields);
     await apiFetch(`${apiBaseUrl}/triggers/${trigger._id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -333,207 +361,135 @@ export default function TriggersPage() {
   }
 
   async function disableTrigger(triggerId: string) {
+    console.log(`[triggers] DELETE /triggers/${triggerId}`);
     await apiFetch(`${apiBaseUrl}/triggers/${triggerId}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
     await fetchTriggers(token);
   }
 
-  async function runJob(jobId: string) {
-    setRunningJobs((prev) => new Set([...prev, jobId]));
-    setJobs((prev) => prev.map((j) => j._id === jobId ? { ...j, status: "processing" as const } : j));
+  async function runTrigger(def: (typeof TRIGGER_DEFINITIONS)[number]): Promise<RunResult> {
+    const url = `${apiBaseUrl}${def.runEndpoint}`;
+    console.log(`[run] POST ${def.runEndpoint} (${def.type})`);
+    const started = Date.now();
     try {
-      const res = await apiFetch(`${apiBaseUrl}/trigger-jobs/${jobId}/run`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
-      const data = (await safeJson(res)) as { job?: TriggerJob };
-      setJobs((prev) => prev.map((j) => j._id === jobId ? { ...j, status: data.job?.status ?? "completed" } : j));
-    } catch {
-      setJobs((prev) => prev.map((j) => j._id === jobId ? { ...j, status: "failed" as const } : j));
-    } finally {
-      setRunningJobs((prev) => { const next = new Set(prev); next.delete(jobId); return next; });
+      const res = await apiFetch(url, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+      const result = (await safeJson(res)) as RunResult;
+      const ms = Date.now() - started;
+      console.log(`[run] ${def.type} done in ${ms}ms:`, result);
+      return result;
+    } catch (err) {
+      const ms = Date.now() - started;
+      console.error(`[run] ${def.type} failed after ${ms}ms`, err);
+      return { ran: 0, totalSignals: 0, message: err instanceof Error ? err.message : "Run failed" };
     }
   }
 
-  async function runAllJobs() {
-    const pendingJobs = jobs.filter((j) => j.status === "pending" || j.status === "failed");
-    if (pendingJobs.length === 0) return;
-    setRunningAll(true);
-    for (const job of pendingJobs) {
-      await runJob(job._id);
-    }
-    setRunningAll(false);
+  async function handleRun(def: (typeof TRIGGER_DEFINITIONS)[number]) {
+    setRunningType(def.type);
+    const result = await runTrigger(def);
+    setLastResults((prev) => ({ ...prev, [def.type]: result }));
+    setRunningType(null);
   }
+
+  async function handleRunAll() {
+    setRunningAll(true);
+    const activeDefs = TRIGGER_DEFINITIONS.filter((d) => {
+      const t = getTriggerForType(d.type);
+      return t && t.status === "active";
+    });
+    console.log(`[run] run-all starting for ${activeDefs.length} active trigger(s)`);
+    for (const def of activeDefs) {
+      setRunningType(def.type);
+      const result = await runTrigger(def);
+      setLastResults((prev) => ({ ...prev, [def.type]: result }));
+    }
+    setRunningType(null);
+    setRunningAll(false);
+    console.log("[run] run-all done");
+  }
+
+  const hasActive = triggers.some((t) => t.status === "active");
 
   return (
     <div className="flex h-full flex-col bg-white">
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-3xl px-4 py-6">
-          {/* Header */}
-          <p className="text-[13px] text-[#6b6f76] leading-relaxed">
-            Triggers monitor your tracked companies and people for real-time signals like new LinkedIn posts and job listings.
-          </p>
-
-          {/* Tabs */}
-          <div className="mt-4">
-            <div className="inline-flex border-b border-[#e6e6e9]">
-              {(["triggers", "jobs"] as const).map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`px-3 py-2 text-[13px] font-medium capitalize transition-colors ${
-                    activeTab === tab
-                      ? "text-[#1b1b1f] border-b-2 border-[#1b1b1f]"
-                      : "text-[#8b8d94] hover:text-[#6b6f76]"
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
+          <div className="flex items-start justify-between gap-3">
+            <p className="flex-1 text-[13px] text-[#6b6f76] leading-relaxed">
+              Triggers monitor your tracked companies and people for real-time signals like new LinkedIn posts and job listings. Use &ldquo;Run now&rdquo; to fetch fresh signals on demand.
+            </p>
+            {hasActive && (
+              <button
+                onClick={handleRunAll}
+                disabled={runningAll}
+                className="shrink-0 flex items-center gap-1.5 rounded-md border border-[#e6e6e9] bg-white px-3 py-1.5 text-[13px] font-medium text-[#6b6f76] transition-all hover:bg-[#f5f5f7] disabled:opacity-50"
+              >
+                {runningAll ? (
+                  <>
+                    <div className="h-3 w-3 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
+                    Running…
+                  </>
+                ) : (
+                  <>
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
+                    </svg>
+                    Run all
+                  </>
+                )}
+              </button>
+            )}
           </div>
 
-          {/* ── Triggers tab ── */}
-          {activeTab === "triggers" && (
-            <div className="mt-5">
-              {loading ? (
-                <div className="flex items-center justify-center py-16">
-                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-black/10 border-t-black/40" />
-                </div>
-              ) : (
-                <div className="grid gap-4 sm:grid-cols-2">
-                  {TRIGGER_DEFINITIONS.map((def) => {
-                    const trigger = getTriggerForType(def.type);
-                    const isEnabled = !!trigger;
-                    const isActive = trigger?.status === "active";
-                    const jobTitles = trigger?.config?.jobTitles ?? [];
-                    const keyword = trigger?.config?.keyword;
+          <div className="mt-5">
+            {loading ? (
+              <div className="flex items-center justify-center py-16">
+                <div className="h-5 w-5 animate-spin rounded-full border-2 border-black/10 border-t-black/40" />
+              </div>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {TRIGGER_DEFINITIONS.map((def) => {
+                  const trigger = getTriggerForType(def.type);
+                  const isEnabled = !!trigger;
+                  const isActive = trigger?.status === "active";
+                  const jobTitles = trigger?.config?.jobTitles ?? [];
+                  const keyword = trigger?.config?.keyword;
+                  const lastResult = lastResults[def.type] ?? null;
 
-                    return (
-                      <TriggerCard
-                        key={def.type}
-                        def={def}
-                        trigger={trigger}
-                        isEnabled={isEnabled}
-                        isActive={isActive}
-                        jobTitles={jobTitles}
-                        keyword={keyword}
-                        enabling={enabling}
-                        onEnable={() => {
-                          if (def.hasJobTitles) {
-                            setEnableJobTitles([]);
-                            setEnableKeyword("");
-                            setEnableModal({ type: def.type });
-                          } else if (def.hasKeyword) {
-                            setKeywordModal({ triggerId: def.type, triggerType: def.type });
-                            setKeywordInput("");
-                          } else {
-                            void enableTrigger(def.type);
-                          }
-                        }}
-                        onPauseResume={() => updateTrigger(trigger!, { status: isActive ? "paused" : "active" })}
-                        onEditJobTitles={() => { setJobTitlesModal({ triggerId: trigger!._id }); setJobTitlesInput(trigger!.config.jobTitles ?? []); }}
-                        onEditKeyword={() => { setKeywordModal({ triggerId: trigger!._id, triggerType: def.type }); setKeywordInput(trigger!.config.keyword ?? ""); }}
-                        onDisable={() => disableTrigger(trigger!._id)}
-                      />
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ── Jobs tab ── */}
-          {activeTab === "jobs" && (
-            <div className="mt-5">
-              {jobsLoading ? (
-                <div className="flex items-center justify-center py-16">
-                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-black/10 border-t-black/40" />
-                </div>
-              ) : jobs.length === 0 ? (
-                <div className="flex items-center justify-center py-16">
-                  <p className="text-[14px] text-[#8b8d94]">No jobs yet</p>
-                </div>
-              ) : (
-                <>
-                  {/* Run All button */}
-                  {jobs.some((j) => j.status === "pending" || j.status === "failed") && (
-                    <div className="mb-3 flex justify-end">
-                      <button
-                        onClick={runAllJobs}
-                        disabled={runningAll}
-                        className="flex items-center gap-1.5 rounded-md border border-[#e6e6e9] bg-white px-3 py-1.5 text-[13px] font-medium text-[#6b6f76] transition-all hover:bg-[#f5f5f7] disabled:opacity-50"
-                      >
-                        {runningAll ? (
-                          <>
-                            <div className="h-3 w-3 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
-                            Running…
-                          </>
-                        ) : (
-                          <>
-                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
-                            </svg>
-                            Run all
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  )}
-                  <div className="overflow-hidden rounded-lg border border-[#e6e6e9] bg-white">
-                    <table className="w-full text-[13px]">
-                      <thead>
-                        <tr className="border-b border-[#ededf0] bg-[#f9f9fb]">
-                          <th className="px-4 py-3 text-left text-[12px] font-medium text-[#8b8d94]">Type</th>
-                          <th className="px-4 py-3 text-left text-[12px] font-medium text-[#8b8d94]">Target</th>
-                          <th className="px-4 py-3 text-left text-[12px] font-medium text-[#8b8d94]">Status</th>
-                          <th className="px-4 py-3" />
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-[#ededf0]">
-                        {jobs.map((job) => (
-                          <tr key={job._id} className="hover:bg-[#f9f9fb]">
-                            <td className="px-4 py-3 text-[#6b6f76]">
-                              {job.jobType === "LinkedinPost" ? "LinkedIn" : job.jobType === "ATSJobs" ? "Job Listing" : "Funded Startup"}
-                            </td>
-                            <td className="max-w-[200px] truncate px-4 py-3 text-[#8b8d94]">
-                              {job.jobType === "LinkedinPost"
-                                ? (job.linkedinUrl?.replace("https://www.linkedin.com/in/", "") ?? "—")
-                                : (job.domain ?? "—")}
-                            </td>
-                            <td className="px-4 py-3">
-                              {job.status === "processing" && runningJobs.has(job._id) ? (
-                                <div className="flex items-center gap-1.5">
-                                  <div className="h-3 w-3 animate-spin rounded-full border-2 border-blue-200 border-t-blue-500" />
-                                  <span className="text-[11px] font-medium text-blue-600">processing</span>
-                                </div>
-                              ) : (
-                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                                  job.status === "completed" ? "bg-[#ecfdf5] text-[#059669]"
-                                  : job.status === "failed" ? "bg-red-50 text-red-700"
-                                  : job.status === "processing" ? "bg-[#eef0ff] text-[#5e6ad2]"
-                                  : "bg-[#fffbeb] text-[#d97706]"
-                                }`}>
-                                  {job.status}
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-4 py-3 text-right">
-                              {(job.status === "pending" || job.status === "failed") && (
-                                <button
-                                  onClick={() => runJob(job._id)}
-                                  disabled={runningJobs.has(job._id)}
-                                  className="rounded-md border border-[#e6e6e9] px-2.5 py-1 text-[11px] font-medium text-[#6b6f76] transition-colors hover:bg-[#f9f9fb] disabled:opacity-40"
-                                >
-                                  Run
-                                </button>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
+                  return (
+                    <TriggerCard
+                      key={def.type}
+                      def={def}
+                      trigger={trigger}
+                      isEnabled={isEnabled}
+                      isActive={isActive}
+                      jobTitles={jobTitles}
+                      keyword={keyword}
+                      enabling={enabling}
+                      running={runningType === def.type}
+                      lastResult={lastResult}
+                      onEnable={() => {
+                        if (def.hasJobTitles) {
+                          setEnableJobTitles([]);
+                          setEnableKeyword("");
+                          setEnableModal({ type: def.type });
+                        } else if (def.hasKeyword) {
+                          setKeywordModal({ triggerId: def.type, triggerType: def.type });
+                          setKeywordInput("");
+                        } else {
+                          void enableTrigger(def.type);
+                        }
+                      }}
+                      onPauseResume={() => updateTrigger(trigger!, { status: isActive ? "paused" : "active" })}
+                      onEditJobTitles={() => { setJobTitlesModal({ triggerId: trigger!._id }); setJobTitlesInput(trigger!.config.jobTitles ?? []); }}
+                      onEditKeyword={() => { setKeywordModal({ triggerId: trigger!._id, triggerType: def.type }); setKeywordInput(trigger!.config.keyword ?? ""); }}
+                      onDisable={() => disableTrigger(trigger!._id)}
+                      onRun={() => handleRun(def)}
+                    />
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

@@ -111,26 +111,6 @@ export interface TriggerRecord {
   updatedAt: string;
 }
 
-export type TriggerJobStatus = "pending" | "processing" | "completed" | "failed";
-
-export interface TriggerJobRecord {
-  _id?: ObjectId;
-  triggerId: ObjectId;
-  userEmail: string;
-  jobType: "LinkedinPost" | "ATSJobs" | "RecentlyFunded";
-  // LinkedinPost fields
-  personId?: ObjectId;
-  linkedinUrl?: string;
-  // ATSJobs fields
-  companyId?: ObjectId;
-  atsUrl?: string;
-  domain?: string;
-  status: TriggerJobStatus;
-  lastProcessedAt?: string;
-  error?: string;
-  createdAt: string;
-}
-
 export interface LinkedinPostData {
   postId: string;
   postUrl: string;
@@ -253,6 +233,47 @@ export interface SignalRecord {
   createdAt: string;
   dismissed?: boolean;
   dismissedAt?: string;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Tasks                                                                */
+/* ------------------------------------------------------------------ */
+
+export type TaskStatus = "open" | "completed";
+
+export interface TaskRecord {
+  _id?: ObjectId;
+  title: string;
+  description?: string | null;
+  assigneeEmail: string;       // must be a workspace member
+  createdByEmail: string;      // workspace member who created the task
+  status: TaskStatus;
+  dueDate?: string | null;     // ISO date (YYYY-MM-DD) or null
+  completedAt?: string | null;
+  companyId?: ObjectId | null; // optional tagged company
+  personId?: ObjectId | null;  // optional tagged person
+  createdAt: string;
+  updatedAt: string;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Notifications                                                        */
+/* ------------------------------------------------------------------ */
+
+export type NotificationJobType =
+  | "getLinkedinContent"
+  | "enrichLinkedinProfile"
+  | "getEmail"
+  | "getJobsbyCompany"
+  | "getRecentlyFundedCompany";
+
+export interface NotificationRecord {
+  _id?: ObjectId;
+  userEmail?: string;     // workspace user this notification belongs to (optional — some calls aren't user-scoped)
+  jobType: NotificationJobType;
+  notificationText: string;
+  read: boolean;
+  createdAt: string;
 }
 
 /* ------------------------------------------------------------------ */
