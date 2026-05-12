@@ -3,13 +3,13 @@ import { randomUUID } from "crypto";
 import express from "express";
 import { ObjectId } from "mongodb";
 import { z } from "zod";
-import { getBuyerProfilesCollection, getBuyerSearchResultsCollection, getCompanyATSCollection, getCompaniesCollection, getEmailSignaturesCollection, getEmailTemplatesCollection, getEmailTracksCollection, getGoogleTokensCollection, getInvitesCollection, getJobsCollection, getLegacyLinkedinContentForPersonCollection, getLinkedinPostsForUserCollection, getPersonsCollection, getSignalsCollection, getSkillsCollection, getThreadCommentsCollection, getTriggerJobsCollection, getTriggersCollection, getUsersCollection, getWorkspacesCollection } from "./db.js";
+import { getBuyerProfilesCollection, getBuyerSearchResultsCollection, getCompanyATSCollection, getCompaniesCollection, getEmailSignaturesCollection, getEmailTemplatesCollection, getEmailTracksCollection, getGoogleTokensCollection, getInvitesCollection, getJobsCollection, getLegacyLinkedinContentForPersonCollection, getLinkedinPostsForUserCollection, getNotificationsCollection, getPersonsCollection, getSignalsCollection, getSkillsCollection, getTasksCollection, getThreadCommentsCollection, getTriggersCollection, getUsersCollection, getWorkspacesCollection } from "./db.js";
 import { env } from "./env.js";
 import { getEmailFromToken, signToken } from "./auth.js";
 import { ContactEmail, enrichCompanyByLinkedinId, enrichDomainWithFiber, enrichPersonByEmailWithFiber, enrichPersonWithFiber, findEmailWithContactDetails, findPersonEmailWithFiber, searchBuyersWithFiber } from "./fiber.js";
-import { startTriggersWorker, scheduleTriggersCron, triggerTriggersProcessing, createPendingJobs, enqueuePendingJobsForUser, enqueueSpecificJob } from "./triggers-worker.js";
 import { detectCompanyATS } from "./firecrawl.js";
-import { exchangeCodeForTokens, getCalendarEvents, getEmailsWithPerson, getGoogleAuthUrl, getGoogleSigninUrl, getInboxThreads, getThreadMessages, getUserInfoFromGoogle, markThreadAsRead, replyToThread, sendGmail, sendNewGmail } from "./google.js";
+import { exchangeCodeForTokens, getCalendarEvents, getEmailsWithPerson, getGoogleAuthUrl, getGoogleSigninUrl, getInboxThreads, getThreadMessages, getUserInfoFromGoogle, markThreadAsRead, replyToThread, sendNewGmail } from "./google.js";
+import { enrichLinkedinProfile, getEmail, getJobsbyCompany, getLinkedinContent, getRecentlyFundedCompany, sleep } from "./util.js";
 
 const app = express();
 
@@ -413,40 +413,6 @@ app.get("/health", (_request, response) => {
 });
 
 /* ------------------------------------------------------------------ */
-/*  Cron endpoint (Vercel Cron Jobs) — before auth middleware            */
-/* ------------------------------------------------------------------ */
-
-app.get("/cron/run-triggers", async (request, response) => {
-  const secret = request.header("authorization")?.replace("Bearer ", "");
-  if (!env.CRON_SECRET || secret !== env.CRON_SECRET) {
-    response.status(401).json({ error: "Unauthorized" });
-    return;
-  }
-
-  console.log("[cron] /cron/run-triggers invoked");
-  try {
-    // 1. Create any new pending jobs for active triggers
-    const usersCol = await getUsersCollection();
-    const allUsers = await usersCol.find({}).toArray();
-    for (const user of allUsers) {
-      try {
-        await createPendingJobs(user.email);
-      } catch (err) {
-        console.error(`[cron] createPendingJobs failed for ${user.email}:`, err);
-      }
-    }
-
-    // 2. Enqueue all pending jobs for processing
-    const enqueued = await triggerTriggersProcessing();
-    console.log("[cron] Enqueued %d jobs", enqueued);
-    response.json({ ok: true, enqueued });
-  } catch (err) {
-    console.error("[cron] run-triggers error:", err);
-    response.status(500).json({ error: "Cron job failed" });
-  }
-});
-
-/* ------------------------------------------------------------------ */
 /*  Email tracking pixel — public, no auth                              */
 /* ------------------------------------------------------------------ */
 
@@ -455,6 +421,163 @@ const TRACKING_PIXEL = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQABNjN9GQAAAAlwSFlzAAAWJQAAFiUBSVIk8AAAAA0lEQVQI12P4z8BQDwAEgAF/QualIQAAAABJRU5ErkJggg==",
   "base64"
 );
+
+/* ------------------------------------------------------------------ */
+/*  Cron endpoints — invoked by Vercel Cron, before auth middleware     */
+/*                                                                       */
+/*  Schedules (UTC, defined in vercel.json):                            */
+/*    /cron/sync-linkedin-content   Mon/Wed/Fri 12:00 — last 72h posts   */
+/*    /cron/sync-ats-jobs           Mon/Wed/Fri 13:00 — net-new jobs    */
+/*    /cron/sync-recently-funded    Daily 11:00      — funded startups  */
+/* ------------------------------------------------------------------ */
+
+const CRON_DELAY_MS = 1000;
+
+function authorizeCron(request: express.Request, response: express.Response): boolean {
+  const secret = request.header("authorization")?.replace("Bearer ", "");
+  if (!env.CRON_SECRET || secret !== env.CRON_SECRET) {
+    response.status(401).json({ error: "Unauthorized" });
+    return false;
+  }
+  return true;
+}
+
+app.get("/cron/sync-linkedin-content", async (request, response) => {
+  if (!authorizeCron(request, response)) return;
+  console.log("[cron:linkedin-content] start");
+
+  const triggersCol = await getTriggersCollection();
+  const personsCol = await getPersonsCollection();
+  const usersCol = await getUsersCollection();
+
+  const activeTriggers = await triggersCol.find({ triggerType: "linkedin_content", status: "active" }).toArray();
+  console.log(`[cron:linkedin-content] ${activeTriggers.length} active trigger(s)`);
+
+  let totalRan = 0;
+  let totalSignals = 0;
+  const failures: { workspace: string; linkedinUrl: string; error: string }[] = [];
+
+  for (const trigger of activeTriggers) {
+    const owner = await usersCol.findOne({ email: trigger.userEmail });
+    const memberEmails = owner?.workspaceId
+      ? (await usersCol.find({ workspaceId: owner.workspaceId }).toArray()).map((m) => m.email)
+      : [trigger.userEmail];
+
+    const persons = await personsCol.find({ userEmails: { $in: memberEmails } }).toArray();
+    const filtered = persons.filter((p) => p.linkedinUrl && !p.linkedinUrl.startsWith("email:"));
+    console.log(`[cron:linkedin-content] workspace=${trigger.userEmail} persons=${filtered.length}`);
+
+    for (let i = 0; i < filtered.length; i++) {
+      const person = filtered[i];
+      if (totalRan > 0) await sleep(CRON_DELAY_MS);
+      const result = await getLinkedinContent({
+        linkedinUrl: person.linkedinUrl,
+        personId: person._id!,
+        userEmail: trigger.userEmail,
+        keyword: trigger.config?.keyword ?? null,
+        triggerId: trigger._id,
+        withinHours: 72,
+      });
+      totalRan++;
+      totalSignals += result.signalsCreated;
+      if (!result.success && result.error) {
+        failures.push({ workspace: trigger.userEmail, linkedinUrl: person.linkedinUrl, error: result.error });
+      }
+    }
+  }
+
+  console.log(`[cron:linkedin-content] done — ran=${totalRan}, signals=${totalSignals}, failures=${failures.length}`);
+  response.json({ ok: true, triggers: activeTriggers.length, ran: totalRan, signals: totalSignals, failures });
+});
+
+app.get("/cron/sync-ats-jobs", async (request, response) => {
+  if (!authorizeCron(request, response)) return;
+  console.log("[cron:ats-jobs] start");
+
+  const triggersCol = await getTriggersCollection();
+  const companiesCol = await getCompaniesCollection();
+  const atsCol = await getCompanyATSCollection();
+  const usersCol = await getUsersCollection();
+
+  const activeTriggers = await triggersCol.find({ triggerType: "ats_jobs", status: "active" }).toArray();
+  console.log(`[cron:ats-jobs] ${activeTriggers.length} active trigger(s)`);
+
+  let totalRan = 0;
+  let totalSignals = 0;
+  let totalNewJobs = 0;
+  const failures: { workspace: string; domain: string; error: string }[] = [];
+
+  for (const trigger of activeTriggers) {
+    const owner = await usersCol.findOne({ email: trigger.userEmail });
+    const memberEmails = owner?.workspaceId
+      ? (await usersCol.find({ workspaceId: owner.workspaceId }).toArray()).map((m) => m.email)
+      : [trigger.userEmail];
+
+    const companies = await companiesCol.find({ userEmails: { $in: memberEmails } }).toArray();
+    const companyIds = companies.map((c) => c._id!);
+    const atsRecords = await atsCol
+      .find({ companyId: { $in: companyIds }, detectionStatus: "completed", careerPageUrl: { $nin: [null, ""] } })
+      .toArray();
+    console.log(`[cron:ats-jobs] workspace=${trigger.userEmail} companies=${atsRecords.length}`);
+
+    for (let i = 0; i < atsRecords.length; i++) {
+      const ats = atsRecords[i];
+      if (totalRan > 0) await sleep(CRON_DELAY_MS);
+      const result = await getJobsbyCompany({
+        companyId: ats.companyId,
+        atsUrl: ats.careerPageUrl!,
+        domain: ats.domain,
+        userEmail: trigger.userEmail,
+        jobTitles: trigger.config?.jobTitles ?? null,
+        keyword: trigger.config?.keyword ?? null,
+        triggerId: trigger._id,
+      });
+      totalRan++;
+      totalSignals += result.signalsCreated;
+      totalNewJobs += result.newJobsCount;
+      if (!result.success && result.error) {
+        failures.push({ workspace: trigger.userEmail, domain: ats.domain, error: result.error });
+      }
+    }
+  }
+
+  console.log(`[cron:ats-jobs] done — ran=${totalRan}, newJobs=${totalNewJobs}, signals=${totalSignals}, failures=${failures.length}`);
+  response.json({ ok: true, triggers: activeTriggers.length, ran: totalRan, newJobs: totalNewJobs, signals: totalSignals, failures });
+});
+
+app.get("/cron/sync-recently-funded", async (request, response) => {
+  if (!authorizeCron(request, response)) return;
+  console.log("[cron:recently-funded] start");
+
+  const triggersCol = await getTriggersCollection();
+  const activeTriggers = await triggersCol.find({ triggerType: "recently_funded", status: "active" }).toArray();
+  console.log(`[cron:recently-funded] ${activeTriggers.length} active trigger(s)`);
+
+  // Look back ~24h since cron runs daily
+  const sinceDate = new Date(Date.now() - 24 * 3_600_000).toISOString().slice(0, 10);
+
+  let totalRan = 0;
+  let totalSignals = 0;
+  let totalNew = 0;
+  const failures: { workspace: string; error: string }[] = [];
+
+  for (let i = 0; i < activeTriggers.length; i++) {
+    const trigger = activeTriggers[i];
+    if (i > 0) await sleep(CRON_DELAY_MS);
+    const result = await getRecentlyFundedCompany({
+      userEmail: trigger.userEmail,
+      triggerId: trigger._id,
+      sinceDate,
+    });
+    totalRan++;
+    totalSignals += result.signalsCreated;
+    totalNew += result.newCount;
+    if (!result.success && result.error) failures.push({ workspace: trigger.userEmail, error: result.error });
+  }
+
+  console.log(`[cron:recently-funded] done — ran=${totalRan}, new=${totalNew}, signals=${totalSignals}, failures=${failures.length}`);
+  response.json({ ok: true, triggers: activeTriggers.length, ran: totalRan, new: totalNew, signals: totalSignals, failures });
+});
 
 app.get("/track/:trackId.png", async (request, response) => {
   const { trackId } = request.params;
@@ -1627,26 +1750,6 @@ app.post("/persons/confirm", async (request, response) => {
       enrichmentData: enrichmentPayload ?? undefined,
     });
 
-    // Create trigger job if active linkedin_content trigger
-    try {
-      const triggersCol = await getTriggersCollection();
-      const linkedinTrigger = await triggersCol.findOne({ userEmail, triggerType: "linkedin_content", status: "active" });
-      if (linkedinTrigger && linkedinUrl && !linkedinUrl.startsWith("email:")) {
-        const triggerJobsCol = await getTriggerJobsCollection();
-        try {
-          await triggerJobsCol.insertOne({
-            triggerId: linkedinTrigger._id!,
-            userEmail,
-            jobType: "LinkedinPost" as const,
-            personId: insertResult.insertedId,
-            linkedinUrl,
-            status: "pending" as const,
-            createdAt,
-          });
-        } catch { /* duplicate — ignore */ }
-      }
-    } catch { /* ignore */ }
-
     const savedPerson = await personsCollection.findOne({ _id: insertResult.insertedId });
     response.status(201).json({ person: savedPerson });
 
@@ -1730,31 +1833,6 @@ app.post("/persons", async (request, response) => {
       { _id: existingPerson._id },
       { $addToSet: { userEmails: userEmail }, ...(Object.keys(setFields).length > 0 ? { $set: setFields } : {}) },
     );
-    // Create trigger job if user has an active linkedin_content trigger
-    try {
-      const triggersCol = await getTriggersCollection();
-      const linkedinTrigger = await triggersCol.findOne({ userEmail, triggerType: "linkedin_content", status: "active" });
-      console.log(`[add-person] Existing person path: linkedinTrigger found=${!!linkedinTrigger} for userEmail=${userEmail}`);
-      if (linkedinTrigger) {
-        const triggerJobsCol = await getTriggerJobsCollection();
-        try {
-          await triggerJobsCol.insertOne({
-            triggerId: linkedinTrigger._id!,
-            userEmail,
-            jobType: "LinkedinPost" as const,
-            personId: existingPerson._id!,
-            linkedinUrl,
-            status: "pending" as const,
-            createdAt: new Date().toISOString(),
-          });
-          console.log(`[add-person] Created trigger job for existing person ${existingPerson._id} (${linkedinUrl})`);
-        } catch (err: any) {
-          console.log(`[add-person] Trigger job already exists for existing person ${existingPerson._id}: ${err.message}`);
-        }
-      }
-    } catch (err) {
-      console.error(`[add-person] Error creating trigger job for existing person:`, err);
-    }
     const updatedPerson = await personsCollection.findOne({ _id: existingPerson._id });
     response.status(201).json({ person: updatedPerson });
     return;
@@ -1832,32 +1910,6 @@ app.post("/persons", async (request, response) => {
     );
   }
 
-  // If user has an active linkedin_content trigger, create a trigger job for this person
-  try {
-    const triggersCol = await getTriggersCollection();
-    const linkedinTrigger = await triggersCol.findOne({ userEmail, triggerType: "linkedin_content", status: "active" });
-    console.log(`[add-person] New person path: linkedinTrigger found=${!!linkedinTrigger} for userEmail=${userEmail}`);
-    if (linkedinTrigger) {
-      const triggerJobsCol = await getTriggerJobsCollection();
-      try {
-        await triggerJobsCol.insertOne({
-          triggerId: linkedinTrigger._id!,
-          userEmail,
-          jobType: "LinkedinPost" as const,
-          personId,
-          linkedinUrl,
-          status: "pending" as const,
-          createdAt: new Date().toISOString(),
-        });
-        console.log(`[add-person] Created linkedin_content trigger job for new person ${personId} (${linkedinUrl})`);
-      } catch (err: any) {
-        console.log(`[add-person] Trigger job already exists for new person ${personId}: ${err.message}`);
-      }
-    }
-  } catch (err) {
-    console.error(`[add-person] Error creating trigger job for new person:`, err);
-  }
-
   const savedPerson = await personsCollection.findOne({ _id: personId });
   response.status(201).json({ person: savedPerson });
 });
@@ -1865,7 +1917,7 @@ app.post("/persons", async (request, response) => {
 // Add a person by work email — looks up their LinkedIn via Fiber, then enriches fully
 app.post("/persons/by-email", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
-  const { email, buyerProfileId: rawBuyerProfileId, companyId: rawCompanyId } = request.body as { email?: string; buyerProfileId?: string; companyId?: string };
+  const { email, buyerProfileId: rawBuyerProfileId, companyId: rawCompanyId, name: rawName } = request.body as { email?: string; buyerProfileId?: string; companyId?: string; name?: string };
   const emailReqBuyerProfileId = rawBuyerProfileId ? new ObjectId(rawBuyerProfileId) : undefined;
   const emailReqCompanyId = rawCompanyId ? new ObjectId(rawCompanyId) : undefined;
 
@@ -1958,6 +2010,15 @@ app.post("/persons/by-email", async (request, response) => {
   let byEmailCompanyId: ObjectId | undefined = emailReqCompanyId;
   if (resolvedDomain && !byEmailCompanyId) byEmailCompanyId = await ensureCompany(resolvedDomain, userEmail);
 
+  // If Fiber returned no enrichment but a name was manually provided, build a minimal stub
+  const providedName = rawName?.trim();
+  if (!fiberResult.success && providedName && !enrichmentPayload) {
+    const parts = providedName.split(" ");
+    const firstName = parts[0] ?? "";
+    const lastName = parts.slice(1).join(" ");
+    enrichmentPayload = { output: { data: [{ name: providedName, first_name: firstName, last_name: lastName, work_email: resolvedWorkEmail }] } };
+  }
+
   const insertResult = await personsCol.insertOne({
     userEmails: [userEmail],
     linkedinUrl: linkedinUrl ?? `email:${resolvedWorkEmail}`, // stub URL if no LinkedIn found
@@ -1967,9 +2028,9 @@ app.post("/persons/by-email", async (request, response) => {
     ...(emailReqBuyerProfileId ? { buyerProfileId: emailReqBuyerProfileId } : {}),
     createdAt,
     enrichedAt: fiberResult.success ? createdAt : undefined,
-    enrichmentStatus: fiberResult.success ? "completed" : "failed",
+    enrichmentStatus: fiberResult.success ? "completed" : (providedName ? "completed" : "failed"),
     enrichmentData: enrichmentPayload ?? undefined,
-    ...(fiberResult.success ? {} : { enrichmentError: fiberResult.error ?? "Fiber lookup failed" }),
+    ...(fiberResult.success || providedName ? {} : { enrichmentError: fiberResult.error ?? "Fiber lookup failed" }),
   });
 
   const savedPerson = await personsCol.findOne({ _id: insertResult.insertedId });
@@ -2452,41 +2513,6 @@ app.post("/companies/:id/detect-ats", async (request, response) => {
 
   const updated = await atsCollection.findOne({ companyId });
 
-  // If ATS was successfully detected with a careerPageUrl, create an ATSJobs trigger job
-  // for any active ats_jobs trigger this user has
-  if (detection.success && detection.data?.careerPageURL) {
-    console.log(`[detect-ats] Checking for active ats_jobs trigger for user ${userEmail}...`);
-    try {
-      const triggersCol = await getTriggersCollection();
-      const atsJobsTrigger = await triggersCol.findOne({ userEmail, triggerType: "ats_jobs", status: "active" });
-
-      if (atsJobsTrigger) {
-        console.log(`[detect-ats] Found active ats_jobs trigger ${atsJobsTrigger._id}, creating trigger job for ${company.domain}`);
-        const triggerJobsCol = await getTriggerJobsCollection();
-        const now2 = new Date().toISOString();
-        try {
-          await triggerJobsCol.insertOne({
-            triggerId: atsJobsTrigger._id!,
-            userEmail,
-            jobType: "ATSJobs",
-            companyId,
-            atsUrl: detection.data.careerPageURL,
-            domain: company.domain,
-            status: "pending",
-            createdAt: now2,
-          });
-          console.log(`[detect-ats] Created ATSJobs trigger job for ${company.domain}`);
-        } catch {
-          console.log(`[detect-ats] ATSJobs trigger job already exists for ${company.domain}`);
-        }
-      } else {
-        console.log(`[detect-ats] No active ats_jobs trigger found for user ${userEmail}`);
-      }
-    } catch (err) {
-      console.error(`[detect-ats] Error creating trigger job:`, err);
-    }
-  }
-
   console.log(`[detect-ats] Returning ATS result for ${company.domain}: status=${updated?.detectionStatus}`);
   response.json({ ats: updated });
 });
@@ -2576,138 +2602,9 @@ app.post("/triggers", async (request, response) => {
     updatedAt: now,
   });
 
-  const triggerId = insertResult.insertedId;
-  const triggerJobsCol = await getTriggerJobsCollection();
-  let jobsCreated = 0;
-
-  if (parsed.data.triggerType === "linkedin_content") {
-    // Create TriggerJob entries for all persons the workspace tracks
-    const personsCol = await getPersonsCollection();
-    const persons = await personsCol.find({ userEmails: { $in: createTriggerMemberEmails } }).toArray();
-    console.log(`[create-trigger] Found ${persons.length} persons for userEmail=${userEmail}`);
-    for (const p of persons) {
-      console.log(`[create-trigger]   person _id=${p._id} linkedinUrl=${p.linkedinUrl} userEmails=${JSON.stringify(p.userEmails)}`);
-    }
-
-    if (persons.length > 0) {
-      const jobDocs = persons.map((person) => ({
-        triggerId,
-        userEmail,
-        jobType: "LinkedinPost" as const,
-        personId: person._id!,
-        linkedinUrl: person.linkedinUrl,
-        status: "pending" as const,
-        createdAt: now,
-      }));
-      console.log(`[create-trigger] Attempting to insert ${jobDocs.length} trigger jobs for triggerId=${triggerId}`);
-      try {
-        const bulkResult = await triggerJobsCol.insertMany(jobDocs, { ordered: false });
-        jobsCreated = bulkResult.insertedCount;
-        console.log(`[create-trigger] insertMany succeeded: insertedCount=${bulkResult.insertedCount}`);
-      } catch (err: any) {
-        // With ordered:false, BulkWriteError is thrown but successful inserts still go through
-        jobsCreated = err?.result?.insertedCount ?? err?.insertedCount ?? 0;
-        console.error(`[create-trigger] insertMany error: ${err.message}, insertedCount=${jobsCreated}`);
-      }
-    } else {
-      console.log(`[create-trigger] No persons found for ${userEmail} — skipping trigger job creation`);
-    }
-  } else if (parsed.data.triggerType === "ats_jobs") {
-    // Create TriggerJob entries for all companies — auto-detect ATS for those missing it
-    const companiesCol = await getCompaniesCollection();
-    const atsCol = await getCompanyATSCollection();
-
-    const triggerMemberEmails = await getWorkspaceMemberEmails(userEmail);
-    const userCompanies = await companiesCol.find({ userEmails: { $in: triggerMemberEmails } }).toArray();
-    const companyIds = userCompanies.map((c) => c._id!);
-
-    if (companyIds.length > 0) {
-      // Find companies that already have ATS detected
-      const existingAtsRecords = await atsCol
-        .find({ companyId: { $in: companyIds } })
-        .toArray();
-      const atsCompanyIdSet = new Set(existingAtsRecords.map((a) => a.companyId.toHexString()));
-
-      // Auto-detect ATS for companies that don't have it yet
-      const companiesWithoutAts = userCompanies.filter((c) => !atsCompanyIdSet.has(c._id!.toHexString()));
-      for (const comp of companiesWithoutAts) {
-        console.log(`[create-trigger] Auto-detecting ATS for ${comp.domain}...`);
-        const atsNow = new Date().toISOString();
-        await atsCol.insertOne({
-          companyId: comp._id!,
-          domain: comp.domain,
-          detectedAt: atsNow,
-          detectionStatus: "pending",
-        });
-        const detection = await detectCompanyATS(comp.domain);
-        if (detection.success && detection.data) {
-          await atsCol.updateOne(
-            { companyId: comp._id! },
-            {
-              $set: {
-                atsName: detection.data.atsName ?? null,
-                atsUrlSlug: detection.data.atsSlug ?? null,
-                careerPageUrl: detection.data.careerPageURL ?? null,
-                detectionStatus: "completed",
-                rawData: detection.rawData,
-              },
-            },
-          );
-          console.log(`[create-trigger] ATS detected for ${comp.domain}: ${detection.data.atsName}`);
-        } else {
-          await atsCol.updateOne(
-            { companyId: comp._id! },
-            {
-              $set: {
-                detectionStatus: "failed",
-                detectionError: detection.error ?? "ATS detection failed",
-                rawData: detection.rawData,
-              },
-            },
-          );
-          console.log(`[create-trigger] ATS detection failed for ${comp.domain}: ${detection.error}`);
-        }
-      }
-
-      // Now fetch all completed ATS records with careerPageUrl
-      const atsRecords = await atsCol
-        .find({ companyId: { $in: companyIds }, detectionStatus: "completed", careerPageUrl: { $nin: [null, ""] } })
-        .toArray();
-      console.log(`[trigger-save] Found ${atsRecords.length} ATS records with careerPageUrl out of ${companyIds.length} companies`);
-      for (const ats of atsRecords) {
-        console.log(`[trigger-save] ATS queued: domain=${ats.domain} careerPageUrl=${ats.careerPageUrl} atsName=${ats.atsName}`);
-      }
-
-      if (atsRecords.length > 0) {
-        const jobDocs = atsRecords.map((ats) => ({
-          triggerId,
-          userEmail,
-          jobType: "ATSJobs" as const,
-          companyId: ats.companyId,
-          atsUrl: ats.careerPageUrl!,
-          domain: ats.domain,
-          status: "pending" as const,
-          createdAt: now,
-        }));
-        await triggerJobsCol.insertMany(jobDocs, { ordered: false });
-        jobsCreated = atsRecords.length;
-      }
-    }
-  } else if (parsed.data.triggerType === "recently_funded") {
-    // Create one job immediately so the user can run it right away
-    await triggerJobsCol.insertOne({
-      triggerId,
-      userEmail,
-      jobType: "RecentlyFunded" as const,
-      status: "pending" as const,
-      createdAt: now,
-    });
-    jobsCreated = 1;
-    console.log(`[create-trigger] Created initial RecentlyFunded job for trigger ${triggerId}`);
-  }
-
-  const trigger = await triggersCol.findOne({ _id: triggerId });
-  response.status(201).json({ trigger, jobsCreated });
+  console.log(`[create-trigger] Created ${parsed.data.triggerType} trigger for ${userEmail}`);
+  const trigger = await triggersCol.findOne({ _id: insertResult.insertedId });
+  response.status(201).json({ trigger });
 });
 
 app.put("/triggers/:id", async (request, response) => {
@@ -2761,62 +2658,461 @@ app.delete("/triggers/:id", async (request, response) => {
     return;
   }
 
-  // Delete the trigger and all associated jobs
-  const triggerJobsCol = await getTriggerJobsCollection();
-  await triggerJobsCol.deleteMany({ triggerId: trigger._id });
   await triggersCol.deleteOne({ _id: trigger._id });
-
+  console.log(`[delete-trigger] Removed trigger ${trigger._id} (${trigger.triggerType}) for ${userEmail}`);
   response.json({ success: true });
 });
 
-// Manually trigger processing (for testing)
-app.post("/triggers/trigger-processing", async (_request, response) => {
-  const count = await triggerTriggersProcessing();
-  response.json({ success: true, jobsEnqueued: count });
-});
-
 /* ------------------------------------------------------------------ */
-/*  Trigger Jobs endpoints                                               */
+/*  Job runner endpoints                                                 */
+/*                                                                       */
+/*  Per-item (/util/*) — invokes one util function once.                 */
+/*  Batch (/run/*)    — iterates the relevant workspace entities and     */
+/*                      calls the util function once per item, with a    */
+/*                      1s delay between calls to stay under Fiber's     */
+/*                      60-req/min rate limit.                            */
 /* ------------------------------------------------------------------ */
 
-// List all trigger jobs for the workspace
-app.get("/trigger-jobs", async (_request, response) => {
-  const userEmail = response.locals.userEmail as string;
-  const jobMemberEmails = await getWorkspaceMemberEmails(userEmail);
-  const triggerJobsCol = await getTriggerJobsCollection();
-  const jobs = await triggerJobsCol.find({ userEmail: { $in: jobMemberEmails } }).sort({ createdAt: -1 }).limit(500).toArray();
-  console.log(`[get-trigger-jobs] Returning ${jobs.length} trigger jobs for workspace (userEmail=${userEmail})`);
-  const linkedinJobs = jobs.filter(j => j.jobType === "LinkedinPost");
-  const atsJobs = jobs.filter(j => j.jobType === "ATSJobs");
-  console.log(`[get-trigger-jobs] Breakdown: ${linkedinJobs.length} LinkedinPost, ${atsJobs.length} ATSJobs`);
-  for (const j of linkedinJobs) {
-    console.log(`[get-trigger-jobs]   LinkedinPost: _id=${j._id} personId=${j.personId} linkedinUrl=${j.linkedinUrl} status=${j.status}`);
-  }
-  response.json({ jobs });
-});
+const RUN_DELAY_MS = 1000;
 
-// Create / reset pending jobs (without running)
-app.post("/trigger-jobs/create", async (_request, response) => {
-  const userEmail = response.locals.userEmail as string;
-  const count = await createPendingJobs(userEmail);
-  response.json({ success: true, jobsCreated: count });
-});
+/** Resolve the active trigger of a given type for the workspace. */
+async function findActiveTrigger(userEmail: string, triggerType: "linkedin_content" | "ats_jobs" | "recently_funded") {
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+  const triggersCol = await getTriggersCollection();
+  return triggersCol.findOne({ userEmail: { $in: memberEmails }, triggerType, status: "active" });
+}
 
-// Run all pending jobs for the current user
-app.post("/trigger-jobs/run", async (_request, response) => {
-  const userEmail = response.locals.userEmail as string;
-  const count = await enqueuePendingJobsForUser(userEmail);
-  response.json({ success: true, jobsEnqueued: count });
-});
+// ── /util/* per-item runners ────────────────────────────────────────────
 
-// Run a specific job by ID
-app.post("/trigger-jobs/:id/run", async (request, response) => {
+app.post("/util/get-linkedin-content", async (request, response) => {
   const userEmail = response.locals.userEmail as string;
-  const success = await enqueueSpecificJob(request.params.id, userEmail);
-  if (!success) {
-    response.status(404).json({ error: "Job not found" });
+  const { personId, linkedinUrl, keyword, triggerId } = request.body as {
+    personId?: string;
+    linkedinUrl?: string;
+    keyword?: string | null;
+    triggerId?: string;
+  };
+  if (!personId || !linkedinUrl) {
+    response.status(400).json({ error: "personId and linkedinUrl are required" });
     return;
   }
+  console.log(`[/util/get-linkedin-content] caller=${userEmail} person=${personId} url=${linkedinUrl}`);
+  const result = await getLinkedinContent({ linkedinUrl, personId, userEmail, keyword: keyword ?? null, triggerId: triggerId ?? null });
+  response.json(result);
+});
+
+app.post("/util/enrich-linkedin-profile", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const { linkedinUrl } = request.body as { linkedinUrl?: string };
+  if (!linkedinUrl) {
+    response.status(400).json({ error: "linkedinUrl is required" });
+    return;
+  }
+  console.log(`[/util/enrich-linkedin-profile] caller=${userEmail} url=${linkedinUrl}`);
+  const result = await enrichLinkedinProfile(linkedinUrl, { userEmail });
+  response.json(result);
+});
+
+app.post("/util/get-email", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const { linkedinUrl } = request.body as { linkedinUrl?: string };
+  if (!linkedinUrl) {
+    response.status(400).json({ error: "linkedinUrl is required" });
+    return;
+  }
+  console.log(`[/util/get-email] caller=${userEmail} url=${linkedinUrl}`);
+  const result = await getEmail(linkedinUrl, { userEmail });
+  response.json(result);
+});
+
+app.post("/util/get-jobs-by-company", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const { companyId, atsUrl, domain, jobTitles, keyword, triggerId } = request.body as {
+    companyId?: string;
+    atsUrl?: string;
+    domain?: string;
+    jobTitles?: string[] | null;
+    keyword?: string | null;
+    triggerId?: string;
+  };
+  if (!companyId || !domain) {
+    response.status(400).json({ error: "companyId and domain are required" });
+    return;
+  }
+  console.log(`[/util/get-jobs-by-company] caller=${userEmail} company=${companyId} domain=${domain}`);
+  const result = await getJobsbyCompany({
+    companyId,
+    atsUrl: atsUrl ?? "",
+    domain,
+    userEmail,
+    jobTitles: jobTitles ?? null,
+    keyword: keyword ?? null,
+    triggerId: triggerId ?? null,
+  });
+  response.json(result);
+});
+
+app.post("/util/get-recently-funded-company", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const { sinceDate, triggerId } = request.body as { sinceDate?: string; triggerId?: string };
+  console.log(`[/util/get-recently-funded-company] caller=${userEmail} sinceDate=${sinceDate ?? "default"}`);
+  const result = await getRecentlyFundedCompany({ userEmail, sinceDate, triggerId: triggerId ?? null });
+  response.json(result);
+});
+
+// ── /run/* batch runners ────────────────────────────────────────────────
+
+app.post("/run/linkedin-content", async (_request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+
+  const trigger = await findActiveTrigger(userEmail, "linkedin_content");
+  if (!trigger) {
+    console.log(`[/run/linkedin-content] no active trigger for ${userEmail}`);
+    response.json({ ran: 0, totalSignals: 0, message: "linkedin_content trigger is not active" });
+    return;
+  }
+
+  const personsCol = await getPersonsCollection();
+  const persons = await personsCol.find({ userEmails: { $in: memberEmails } }).toArray();
+  const filtered = persons.filter((p) => p.linkedinUrl && !p.linkedinUrl.startsWith("email:"));
+
+  console.log(`[/run/linkedin-content] running for ${filtered.length} person(s) — workspace=${userEmail}`);
+
+  let ran = 0;
+  let totalSignals = 0;
+  const failures: { linkedinUrl: string; error: string }[] = [];
+
+  for (let i = 0; i < filtered.length; i++) {
+    const person = filtered[i];
+    if (i > 0) await sleep(RUN_DELAY_MS);
+    const result = await getLinkedinContent({
+      linkedinUrl: person.linkedinUrl,
+      personId: person._id!,
+      userEmail,
+      keyword: trigger.config?.keyword ?? null,
+      triggerId: trigger._id,
+    });
+    ran++;
+    totalSignals += result.signalsCreated;
+    if (!result.success && result.error) failures.push({ linkedinUrl: person.linkedinUrl, error: result.error });
+  }
+
+  console.log(`[/run/linkedin-content] done — ran=${ran}, signals=${totalSignals}, failures=${failures.length}`);
+  response.json({ ran, totalSignals, failures });
+});
+
+app.post("/run/ats-jobs", async (_request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+
+  const trigger = await findActiveTrigger(userEmail, "ats_jobs");
+  if (!trigger) {
+    console.log(`[/run/ats-jobs] no active trigger for ${userEmail}`);
+    response.json({ ran: 0, totalSignals: 0, message: "ats_jobs trigger is not active" });
+    return;
+  }
+
+  const companiesCol = await getCompaniesCollection();
+  const atsCol = await getCompanyATSCollection();
+  const companies = await companiesCol.find({ userEmails: { $in: memberEmails } }).toArray();
+  const companyIds = companies.map((c) => c._id!);
+
+  const atsRecords = await atsCol
+    .find({ companyId: { $in: companyIds }, detectionStatus: "completed", careerPageUrl: { $nin: [null, ""] } })
+    .toArray();
+
+  console.log(`[/run/ats-jobs] running for ${atsRecords.length} company/ATS record(s) — workspace=${userEmail}`);
+
+  let ran = 0;
+  let totalSignals = 0;
+  const failures: { domain: string; error: string }[] = [];
+
+  for (let i = 0; i < atsRecords.length; i++) {
+    const ats = atsRecords[i];
+    if (i > 0) await sleep(RUN_DELAY_MS);
+    const result = await getJobsbyCompany({
+      companyId: ats.companyId,
+      atsUrl: ats.careerPageUrl!,
+      domain: ats.domain,
+      userEmail,
+      jobTitles: trigger.config?.jobTitles ?? null,
+      keyword: trigger.config?.keyword ?? null,
+      triggerId: trigger._id,
+    });
+    ran++;
+    totalSignals += result.signalsCreated;
+    if (!result.success && result.error) failures.push({ domain: ats.domain, error: result.error });
+  }
+
+  console.log(`[/run/ats-jobs] done — ran=${ran}, signals=${totalSignals}, failures=${failures.length}`);
+  response.json({ ran, totalSignals, failures });
+});
+
+app.post("/run/recently-funded", async (_request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const trigger = await findActiveTrigger(userEmail, "recently_funded");
+  if (!trigger) {
+    console.log(`[/run/recently-funded] no active trigger for ${userEmail}`);
+    response.json({ ran: 0, totalSignals: 0, message: "recently_funded trigger is not active" });
+    return;
+  }
+
+  console.log(`[/run/recently-funded] running for ${userEmail}`);
+  const result = await getRecentlyFundedCompany({ userEmail, triggerId: trigger._id });
+  console.log(`[/run/recently-funded] done — startups=${result.startupsFound}, new=${result.newCount}, signals=${result.signalsCreated}`);
+  response.json({ ran: 1, ...result });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Notifications                                                        */
+/* ------------------------------------------------------------------ */
+
+app.get("/notifications", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+  const limit = Math.min(parseInt(request.query.limit as string) || 100, 500);
+  const col = await getNotificationsCollection();
+  const filter = { userEmail: { $in: memberEmails } };
+  const [notifications, unreadCount] = await Promise.all([
+    col.find(filter).sort({ createdAt: -1 }).limit(limit).toArray(),
+    col.countDocuments({ ...filter, read: { $ne: true } }),
+  ]);
+  console.log(`[/notifications] returning ${notifications.length} (${unreadCount} unread) for workspace=${userEmail}`);
+  response.json({ notifications, unreadCount });
+});
+
+app.get("/notifications/unread-count", async (_request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+  const col = await getNotificationsCollection();
+  const unreadCount = await col.countDocuments({ userEmail: { $in: memberEmails }, read: { $ne: true } });
+  response.json({ unreadCount });
+});
+
+app.post("/notifications/mark-all-read", async (_request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+  const col = await getNotificationsCollection();
+  const result = await col.updateMany(
+    { userEmail: { $in: memberEmails }, read: { $ne: true } },
+    { $set: { read: true } },
+  );
+  console.log(`[/notifications/mark-all-read] marked ${result.modifiedCount} as read for ${userEmail}`);
+  response.json({ marked: result.modifiedCount });
+});
+
+app.post("/notifications/:id/read", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+  const col = await getNotificationsCollection();
+  let id: ObjectId;
+  try { id = new ObjectId(request.params.id); } catch {
+    response.status(400).json({ error: "Invalid notification ID" });
+    return;
+  }
+  await col.updateOne({ _id: id, userEmail: { $in: memberEmails } }, { $set: { read: true } });
+  response.json({ success: true });
+});
+
+app.delete("/notifications/:id", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+  const col = await getNotificationsCollection();
+  let id: ObjectId;
+  try { id = new ObjectId(request.params.id); } catch {
+    response.status(400).json({ error: "Invalid notification ID" });
+    return;
+  }
+  const result = await col.deleteOne({ _id: id, userEmail: { $in: memberEmails } });
+  if (result.deletedCount === 0) {
+    response.status(404).json({ error: "Not found" });
+    return;
+  }
+  response.json({ success: true });
+});
+
+/* ------------------------------------------------------------------ */
+/*  Tasks                                                                */
+/* ------------------------------------------------------------------ */
+
+const createTaskSchema = z.object({
+  title: z.string().min(1, "Title is required").max(500),
+  description: z.string().nullable().optional(),
+  assigneeEmail: z.string().email("Invalid assignee email"),
+  dueDate: z.string().nullable().optional(),
+  companyId: z.string().nullable().optional(),
+  personId: z.string().nullable().optional(),
+});
+
+const updateTaskSchema = z.object({
+  title: z.string().min(1).max(500).optional(),
+  description: z.string().nullable().optional(),
+  assigneeEmail: z.string().email().optional(),
+  dueDate: z.string().nullable().optional(),
+  status: z.enum(["open", "completed"]).optional(),
+  companyId: z.string().nullable().optional(),
+  personId: z.string().nullable().optional(),
+});
+
+/**
+ * Resolve & validate a workspace-scoped company ID. Returns the ObjectId on
+ * success, `null` if explicitly cleared, or an Error if validation fails.
+ */
+async function resolveCompanyTag(
+  rawId: string | null | undefined,
+  memberEmails: string[],
+): Promise<ObjectId | null | Error> {
+  if (rawId === undefined) return null;
+  if (rawId === null || rawId === "") return null;
+  let oid: ObjectId;
+  try { oid = new ObjectId(rawId); } catch { return new Error("Invalid companyId"); }
+  const col = await getCompaniesCollection();
+  const exists = await col.findOne({ _id: oid, userEmails: { $in: memberEmails } });
+  if (!exists) return new Error("Company not found in workspace");
+  return oid;
+}
+
+async function resolvePersonTag(
+  rawId: string | null | undefined,
+  memberEmails: string[],
+): Promise<ObjectId | null | Error> {
+  if (rawId === undefined) return null;
+  if (rawId === null || rawId === "") return null;
+  let oid: ObjectId;
+  try { oid = new ObjectId(rawId); } catch { return new Error("Invalid personId"); }
+  const col = await getPersonsCollection();
+  const exists = await col.findOne({ _id: oid, userEmails: { $in: memberEmails } });
+  if (!exists) return new Error("Person not found in workspace");
+  return oid;
+}
+
+app.get("/tasks", async (_request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+  const col = await getTasksCollection();
+  const tasks = await col
+    .find({ createdByEmail: { $in: memberEmails } })
+    .sort({ status: 1, createdAt: -1 })
+    .toArray();
+  console.log(`[/tasks] returning ${tasks.length} task(s) for workspace=${userEmail}`);
+  response.json({ tasks });
+});
+
+app.post("/tasks", async (request, response) => {
+  const parsed = createTaskSchema.safeParse(request.body);
+  if (!parsed.success) {
+    response.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid input" });
+    return;
+  }
+
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+  const assigneeEmail = parsed.data.assigneeEmail.toLowerCase().trim();
+
+  if (!memberEmails.includes(assigneeEmail)) {
+    response.status(400).json({ error: "Assignee must be a workspace member" });
+    return;
+  }
+
+  const companyTag = await resolveCompanyTag(parsed.data.companyId, memberEmails);
+  if (companyTag instanceof Error) { response.status(400).json({ error: companyTag.message }); return; }
+  const personTag = await resolvePersonTag(parsed.data.personId, memberEmails);
+  if (personTag instanceof Error) { response.status(400).json({ error: personTag.message }); return; }
+
+  const now = new Date().toISOString();
+  const col = await getTasksCollection();
+  const insertResult = await col.insertOne({
+    title: parsed.data.title.trim(),
+    description: parsed.data.description?.trim() || null,
+    assigneeEmail,
+    createdByEmail: userEmail,
+    status: "open",
+    dueDate: parsed.data.dueDate ?? null,
+    companyId: companyTag,
+    personId: personTag,
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  const task = await col.findOne({ _id: insertResult.insertedId });
+  console.log(`[/tasks] created task ${insertResult.insertedId} assignee=${assigneeEmail}`);
+  response.status(201).json({ task });
+});
+
+app.put("/tasks/:id", async (request, response) => {
+  const parsed = updateTaskSchema.safeParse(request.body);
+  if (!parsed.success) {
+    response.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid input" });
+    return;
+  }
+
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+  const col = await getTasksCollection();
+
+  let id: ObjectId;
+  try { id = new ObjectId(request.params.id); } catch {
+    response.status(400).json({ error: "Invalid task ID" });
+    return;
+  }
+
+  const task = await col.findOne({ _id: id, createdByEmail: { $in: memberEmails } });
+  if (!task) {
+    response.status(404).json({ error: "Task not found" });
+    return;
+  }
+
+  const updates: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+  if (parsed.data.title !== undefined) updates.title = parsed.data.title.trim();
+  if (parsed.data.description !== undefined) updates.description = parsed.data.description?.trim() || null;
+  if (parsed.data.dueDate !== undefined) updates.dueDate = parsed.data.dueDate ?? null;
+  if (parsed.data.assigneeEmail !== undefined) {
+    const newAssignee = parsed.data.assigneeEmail.toLowerCase().trim();
+    if (!memberEmails.includes(newAssignee)) {
+      response.status(400).json({ error: "Assignee must be a workspace member" });
+      return;
+    }
+    updates.assigneeEmail = newAssignee;
+  }
+  if (parsed.data.status !== undefined) {
+    updates.status = parsed.data.status;
+    updates.completedAt = parsed.data.status === "completed" ? new Date().toISOString() : null;
+  }
+  if (parsed.data.companyId !== undefined) {
+    const tag = await resolveCompanyTag(parsed.data.companyId, memberEmails);
+    if (tag instanceof Error) { response.status(400).json({ error: tag.message }); return; }
+    updates.companyId = tag;
+  }
+  if (parsed.data.personId !== undefined) {
+    const tag = await resolvePersonTag(parsed.data.personId, memberEmails);
+    if (tag instanceof Error) { response.status(400).json({ error: tag.message }); return; }
+    updates.personId = tag;
+  }
+
+  await col.updateOne({ _id: id }, { $set: updates });
+  const updated = await col.findOne({ _id: id });
+  console.log(`[/tasks] updated task ${id}`);
+  response.json({ task: updated });
+});
+
+app.delete("/tasks/:id", async (request, response) => {
+  const userEmail = response.locals.userEmail as string;
+  const memberEmails = await getWorkspaceMemberEmails(userEmail);
+  const col = await getTasksCollection();
+
+  let id: ObjectId;
+  try { id = new ObjectId(request.params.id); } catch {
+    response.status(400).json({ error: "Invalid task ID" });
+    return;
+  }
+
+  const result = await col.deleteOne({ _id: id, createdByEmail: { $in: memberEmails } });
+  if (result.deletedCount === 0) {
+    response.status(404).json({ error: "Task not found" });
+    return;
+  }
+  console.log(`[/tasks] deleted task ${id}`);
   response.json({ success: true });
 });
 
@@ -2845,7 +3141,7 @@ app.get("/signals", async (request, response) => {
   const linkedinFilter: Record<string, unknown> = { userEmail: { $in: memberEmails } };
   if (since || before) linkedinFilter.postedAt = postDateFilter;
 
-  const atsFilter: Record<string, unknown> = { userEmail: { $in: memberEmails }, signalType: "ats_new_job" };
+  const atsFilter: Record<string, unknown> = { userEmail: { $in: memberEmails }, signalType: { $in: ["ats_new_job", "recently_funded"] } };
   if (since || before) atsFilter.createdAt = atsDateFilter;
 
   // Include dismissed signals (frontend splits active vs dismissed)
@@ -4204,14 +4500,5 @@ export default app;
 if (!process.env.VERCEL) {
   app.listen(env.PORT, () => {
     console.log(`API listening on http://localhost:${env.PORT}`);
-    console.log("dev deployment trigger");
-
-    // Start BullMQ worker and cron scheduler
-    try {
-      startTriggersWorker();
-      scheduleTriggersCron();
-    } catch (err) {
-      console.warn("[triggers] Could not start worker/cron (Redis may not be available):", err);
-    }
   });
 }
