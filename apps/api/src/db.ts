@@ -1,6 +1,6 @@
 import { Collection, MongoClient } from "mongodb";
 import { env } from "./env.js";
-import { BuyerProfileRecord, BuyerSearchResultRecord, CompanyATSRecord, CompanyRecord, EmailSignatureRecord, EmailTemplateRecord, EmailTrackRecord, FundedStartupRecord, GoogleTokenRecord, InviteRecord, JobRecord, LinkedinPostForUserRecord, PersonRecord, SignalRecord, SkillRecord, ThreadCommentRecord, TriggerJobRecord, TriggerRecord, UserRecord, WorkspaceRecord } from "./types.js";
+import { BuyerProfileRecord, BuyerSearchResultRecord, CompanyATSRecord, CompanyRecord, EmailSignatureRecord, EmailTemplateRecord, EmailTrackRecord, FundedStartupRecord, GoogleTokenRecord, InviteRecord, JobRecord, LinkedinPostForUserRecord, NotificationRecord, PersonRecord, SignalRecord, SkillRecord, TaskRecord, ThreadCommentRecord, TriggerRecord, UserRecord, WorkspaceRecord } from "./types.js";
 
 const mongoClient = new MongoClient(env.MONGODB_URL);
 
@@ -8,7 +8,6 @@ let companiesCollection: Collection<CompanyRecord> | null = null;
 let personsCollection: Collection<PersonRecord> | null = null;
 let buyerProfilesCollection: Collection<BuyerProfileRecord> | null = null;
 let triggersCollection: Collection<TriggerRecord> | null = null;
-let triggerJobsCollection: Collection<TriggerJobRecord> | null = null;
 let signalsCollection: Collection<SignalRecord> | null = null;
 let buyerSearchResultsCollection: Collection<BuyerSearchResultRecord> | null = null;
 let companyATSCollection: Collection<CompanyATSRecord> | null = null;
@@ -24,6 +23,8 @@ let emailTemplatesCollection: Collection<EmailTemplateRecord> | null = null;
 let emailSignaturesCollection: Collection<EmailSignatureRecord> | null = null;
 let threadCommentsCollection: Collection<ThreadCommentRecord> | null = null;
 let emailTracksCollection: Collection<EmailTrackRecord> | null = null;
+let notificationsCollection: Collection<NotificationRecord> | null = null;
+let tasksCollection: Collection<TaskRecord> | null = null;
 
 export async function getCompaniesCollection(): Promise<Collection<CompanyRecord>> {
   if (companiesCollection) return companiesCollection;
@@ -105,48 +106,6 @@ export async function getTriggersCollection(): Promise<Collection<TriggerRecord>
   }
 
   return triggersCollection;
-}
-
-export async function getTriggerJobsCollection(): Promise<Collection<TriggerJobRecord>> {
-  if (triggerJobsCollection) return triggerJobsCollection;
-
-  await mongoClient.connect();
-  const database = mongoClient.db(env.MONGODB_DB_NAME);
-
-  triggerJobsCollection = database.collection<TriggerJobRecord>("triggerJobs");
-
-  await triggerJobsCollection.createIndex({ triggerId: 1 });
-  await triggerJobsCollection.createIndex({ userEmail: 1 });
-  await triggerJobsCollection.createIndex({ status: 1 });
-
-  // Drop old sparse indexes — sparse:true still indexes null values, causing
-  // duplicate key errors when multiple LinkedinPost jobs share companyId=null
-  // (or multiple ATSJobs share personId=null). Replace with partialFilterExpression
-  // so the unique index only covers documents that actually have the field.
-  try {
-    await triggerJobsCollection.dropIndex("personId_1_triggerId_1");
-  } catch {
-    // Index may not exist
-  }
-  try {
-    await triggerJobsCollection.dropIndex("companyId_1_triggerId_1");
-  } catch {
-    // Index may not exist
-  }
-  try {
-    await triggerJobsCollection.createIndex(
-      { personId: 1, triggerId: 1 },
-      { unique: true, partialFilterExpression: { personId: { $exists: true, $type: "objectId" } } },
-    );
-    await triggerJobsCollection.createIndex(
-      { companyId: 1, triggerId: 1 },
-      { unique: true, partialFilterExpression: { companyId: { $exists: true, $type: "objectId" } } },
-    );
-  } catch {
-    console.error("[db] Could not create unique indexes on triggerJobs");
-  }
-
-  return triggerJobsCollection;
 }
 
 export async function getSignalsCollection(): Promise<Collection<SignalRecord>> {
@@ -426,4 +385,34 @@ export async function getEmailTracksCollection(): Promise<Collection<EmailTrackR
   await emailTracksCollection.createIndex({ userEmail: 1 });
 
   return emailTracksCollection;
+}
+
+export async function getNotificationsCollection(): Promise<Collection<NotificationRecord>> {
+  if (notificationsCollection) return notificationsCollection;
+
+  await mongoClient.connect();
+  const database = mongoClient.db(env.MONGODB_DB_NAME);
+
+  notificationsCollection = database.collection<NotificationRecord>("notifications");
+
+  await notificationsCollection.createIndex({ userEmail: 1, createdAt: -1 });
+  await notificationsCollection.createIndex({ userEmail: 1, read: 1 });
+  await notificationsCollection.createIndex({ createdAt: -1 });
+
+  return notificationsCollection;
+}
+
+export async function getTasksCollection(): Promise<Collection<TaskRecord>> {
+  if (tasksCollection) return tasksCollection;
+
+  await mongoClient.connect();
+  const database = mongoClient.db(env.MONGODB_DB_NAME);
+
+  tasksCollection = database.collection<TaskRecord>("tasks");
+
+  await tasksCollection.createIndex({ createdByEmail: 1, createdAt: -1 });
+  await tasksCollection.createIndex({ assigneeEmail: 1, status: 1 });
+  await tasksCollection.createIndex({ status: 1, createdAt: -1 });
+
+  return tasksCollection;
 }

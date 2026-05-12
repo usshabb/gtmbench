@@ -141,12 +141,28 @@ export async function safeJson<T = unknown>(res: Response): Promise<T> {
 }
 
 /**
- * Wrapper around fetch that automatically attaches the x-api-key header.
+ * Wrapper around fetch that attaches the x-api-key header and logs every call.
+ * Logging is opt-out via NEXT_PUBLIC_API_DEBUG=false.
  */
 const API_KEY = process.env.NEXT_PUBLIC_API_KEY ?? "";
+const API_DEBUG = (process.env.NEXT_PUBLIC_API_DEBUG ?? "true") !== "false";
 
-export function apiFetch(url: string, init?: RequestInit): Promise<Response> {
+export async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
   if (API_KEY) headers.set("x-api-key", API_KEY);
-  return fetch(url, { ...init, headers });
+  const method = (init?.method ?? "GET").toUpperCase();
+  const shortUrl = url.replace(/^https?:\/\/[^/]+/, "").replace(/^\/api-proxy/, "");
+  const started = typeof performance !== "undefined" ? performance.now() : Date.now();
+  if (API_DEBUG) console.log(`[api] → ${method} ${shortUrl}`);
+  try {
+    const res = await fetch(url, { ...init, headers });
+    if (API_DEBUG) {
+      const ms = Math.round((typeof performance !== "undefined" ? performance.now() : Date.now()) - started);
+      console.log(`[api] ← ${method} ${shortUrl} ${res.status} (${ms}ms)`);
+    }
+    return res;
+  } catch (err) {
+    if (API_DEBUG) console.error(`[api] ✗ ${method} ${shortUrl}`, err);
+    throw err;
+  }
 }
