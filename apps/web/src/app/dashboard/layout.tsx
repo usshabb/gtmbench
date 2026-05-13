@@ -53,7 +53,7 @@ const primaryNavItems = [
   { label: "Home", href: "/dashboard", icon: icons.home, exact: true },
   { label: "Inbox", href: "/dashboard/inbox", icon: icons.inbox },
   { label: "Tasks", href: "/dashboard/tasks", icon: icons.checkSquare, countKey: "TasksOpen" },
-  { label: "Notifications", href: "/dashboard/notifications", icon: icons.bell, countKey: "NotificationsUnread" },
+  { label: "Notifications", href: "/dashboard/notifications", icon: icons.bell },
   { label: "Meetings", href: "/dashboard/calendar", icon: icons.calendar },
   { label: "Pipeline", href: "/dashboard/pipeline", icon: pipelineIcon },
   { label: "Companies", href: "/dashboard/companies", icon: icons.building, countKey: "Companies" },
@@ -1081,20 +1081,14 @@ export default function DashboardLayout({
           return (d.persons ?? []).length;
         })
         .catch(() => 0),
-      apiFetch(`${apiBaseUrl}/notifications/unread-count`, { headers: { Authorization: `Bearer ${token}` } })
-        .then(async (r) => {
-          const d = (await safeJson(r)) as { unreadCount?: number };
-          return d.unreadCount ?? 0;
-        })
-        .catch(() => 0),
       apiFetch(`${apiBaseUrl}/tasks`, { headers: { Authorization: `Bearer ${token}` } })
         .then(async (r) => {
           const d = (await safeJson(r)) as { tasks?: { status?: string }[] };
           return (d.tasks ?? []).filter((t) => t.status === "open").length;
         })
         .catch(() => 0),
-    ]).then(([companies, people, notificationsUnread, tasksOpen]) => {
-      setRecordCounts({ Companies: companies, People: people, NotificationsUnread: notificationsUnread, TasksOpen: tasksOpen });
+    ]).then(([companies, people, tasksOpen]) => {
+      setRecordCounts({ Companies: companies, People: people, TasksOpen: tasksOpen });
     });
   }, [apiBaseUrl]);
 
@@ -1111,13 +1105,11 @@ export default function DashboardLayout({
     if (!authToken) return;
     const handler = () => fetchCounts(authToken);
     window.addEventListener(DATA_CHANGED_EVENT, handler);
-    window.addEventListener("gtmbench:notifications-updated", handler);
     window.addEventListener("gtmbench:tasks-updated", handler);
     // Poll so the sidebar badges stay fresh
     const interval = window.setInterval(handler, 60_000);
     return () => {
       window.removeEventListener(DATA_CHANGED_EVENT, handler);
-      window.removeEventListener("gtmbench:notifications-updated", handler);
       window.removeEventListener("gtmbench:tasks-updated", handler);
       window.clearInterval(interval);
     };

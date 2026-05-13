@@ -269,10 +269,11 @@ export type NotificationJobType =
 
 export interface NotificationRecord {
   _id?: ObjectId;
-  userEmail?: string;     // workspace user this notification belongs to (optional — some calls aren't user-scoped)
+  userEmail?: string;       // workspace user this notification belongs to (optional — some calls aren't user-scoped)
   jobType: NotificationJobType;
   notificationText: string;
-  read: boolean;
+  subjectName?: string;     // person or company the notification is about (used for avatar fallback)
+  subjectImageUrl?: string; // profile picture / company logo for the subject
   createdAt: string;
 }
 

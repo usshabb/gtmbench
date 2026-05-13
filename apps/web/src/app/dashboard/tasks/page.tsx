@@ -45,31 +45,34 @@ interface Person {
   enrichmentData?: unknown;
 }
 
-function relativeDue(dueDate: string | null | undefined): { label: string; tone: "neutral" | "warn" | "overdue" } | null {
+/* ------------------------------------------------------------------ */
+/*  Helpers                                                              */
+/* ------------------------------------------------------------------ */
+
+function shortDate(dueDate: string | null | undefined): { label: string; tone: "neutral" | "warn" | "overdue" } | null {
   if (!dueDate) return null;
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const due = new Date(dueDate);
   due.setHours(0, 0, 0, 0);
   const diffDays = Math.round((due.getTime() - today.getTime()) / 86_400_000);
-  if (diffDays < 0) return { label: `${Math.abs(diffDays)}d overdue`, tone: "overdue" };
-  if (diffDays === 0) return { label: "Due today", tone: "warn" };
-  if (diffDays === 1) return { label: "Due tomorrow", tone: "warn" };
-  if (diffDays < 7) return { label: `Due in ${diffDays}d`, tone: "neutral" };
-  return { label: due.toLocaleDateString("en-US", { month: "short", day: "numeric" }), tone: "neutral" };
+  const label = due.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  if (diffDays < 0) return { label, tone: "overdue" };
+  if (diffDays <= 1) return { label, tone: "warn" };
+  return { label, tone: "neutral" };
 }
 
-function displayName(member: Member | undefined, fallbackEmail: string): string {
+function memberName(member: Member | undefined, fallbackEmail: string): string {
   return member?.fullName?.trim() || fallbackEmail.split("@")[0];
 }
 
-function companyDisplayName(company: Company): string {
+function companyName(company: Company): string {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data = (company.enrichmentData as any)?.output?.data?.[0];
   return data?.preferred_name ?? data?.name ?? data?.company_name ?? company.domain;
 }
 
-function personDisplayName(person: Person): string {
+function personName(person: Person): string {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const data = (person.enrichmentData as any)?.output?.data?.[0];
   if (data) {
@@ -84,7 +87,7 @@ function personDisplayName(person: Person): string {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Searchable combobox picker                                          */
+/*  Combobox                                                            */
 /* ------------------------------------------------------------------ */
 
 interface ComboItem {
@@ -93,24 +96,22 @@ interface ComboItem {
   sublabel?: string;
 }
 
-function ComboPicker({
+function ChipPicker({
   value,
   items,
   placeholder,
-  emptyLabel,
   selectedLabel,
   selectedIcon,
   onChange,
-  disabled,
+  variant = "linked",
 }: {
   value: string | null;
   items: ComboItem[];
   placeholder: string;
-  emptyLabel: string;
   selectedLabel?: string;
   selectedIcon?: React.ReactNode;
   onChange: (id: string | null) => void;
-  disabled?: boolean;
+  variant?: "linked" | "unset-faint";
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -132,35 +133,24 @@ function ComboPicker({
       .slice(0, 50);
   }, [items, query]);
 
+  const baseStyle = value
+    ? "border border-[#e6e6e9] bg-white text-[#3b3d44] hover:border-[#d4d4d8]"
+    : variant === "unset-faint"
+      ? "border border-transparent text-[#b4b5ba] hover:border-[#e6e6e9] hover:text-[#8b8d94]"
+      : "border border-[#e6e6e9] bg-white text-[#8b8d94] hover:border-[#d4d4d8]";
+
   return (
     <div ref={ref} className="relative inline-block">
       <button
         type="button"
-        onClick={() => !disabled && setOpen((v) => !v)}
-        disabled={disabled}
-        className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors ${
-          value
-            ? "bg-[#eef0ff] text-[#5e6ad2] hover:bg-[#e0e4ff]"
-            : "bg-[#f5f5f7] text-[#6b6f76] hover:bg-[#ededf0]"
-        } disabled:opacity-50`}
+        onClick={() => setOpen((v) => !v)}
+        className={`inline-flex items-center gap-1 rounded-md px-1.5 py-[3px] text-[11px] font-medium transition-colors ${baseStyle}`}
       >
-        {selectedIcon}
-        <span className="max-w-[140px] truncate">{value ? (selectedLabel ?? placeholder) : placeholder}</span>
-        {value && (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onChange(null); setQuery(""); }}
-            className="ml-0.5 -mr-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full text-current opacity-60 hover:opacity-100"
-            title="Clear"
-          >
-            <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        )}
+        <span className="opacity-80">{selectedIcon}</span>
+        <span className="max-w-[120px] truncate">{value ? (selectedLabel ?? placeholder) : placeholder}</span>
       </button>
       {open && (
-        <div className="absolute z-50 mt-1 w-64 rounded-lg border border-[#e6e6e9] bg-white shadow-lg">
+        <div className="absolute right-0 z-50 mt-1 w-64 rounded-lg border border-[#e6e6e9] bg-white shadow-lg">
           <div className="border-b border-[#f1f1f3] p-2">
             <input
               type="text"
@@ -172,26 +162,36 @@ function ComboPicker({
             />
           </div>
           <div className="max-h-64 overflow-y-auto py-1">
+            {value && (
+              <button
+                type="button"
+                onClick={() => { onChange(null); setOpen(false); setQuery(""); }}
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px] text-[#8b8d94] hover:bg-[#f9f9fb]"
+              >
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Clear
+              </button>
+            )}
             {filtered.length === 0 ? (
-              <p className="px-3 py-3 text-center text-[12px] text-[#8b8d94]">{emptyLabel}</p>
+              <p className="px-3 py-3 text-center text-[12px] text-[#8b8d94]">No matches</p>
             ) : (
               filtered.map((item) => (
                 <button
                   key={item.id}
                   type="button"
                   onClick={() => { onChange(item.id); setOpen(false); setQuery(""); }}
-                  className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left transition-colors hover:bg-[#f9f9fb] ${
+                  className={`flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left transition-colors hover:bg-[#f9f9fb] ${
                     item.id === value ? "bg-[#f5f5f7]" : ""
                   }`}
                 >
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[12px] font-medium text-[#1b1b1f]">{item.label}</p>
-                    {item.sublabel && (
-                      <p className="truncate text-[11px] text-[#8b8d94]">{item.sublabel}</p>
-                    )}
+                    {item.sublabel && <p className="truncate text-[11px] text-[#8b8d94]">{item.sublabel}</p>}
                   </div>
                   {item.id === value && (
-                    <svg className="h-3.5 w-3.5 shrink-0 text-[#5e6ad2]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <svg className="h-3 w-3 shrink-0 text-[#5e6ad2]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                       <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                     </svg>
                   )}
@@ -201,6 +201,218 @@ function ComboPicker({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Assignee picker (avatar dropdown)                                    */
+/* ------------------------------------------------------------------ */
+
+function AssigneePicker({
+  value,
+  members,
+  currentEmail,
+  onChange,
+}: {
+  value: string;
+  members: Member[];
+  currentEmail: string;
+  onChange: (email: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    if (open) document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [open]);
+
+  const memberByEmail = useMemo(() => {
+    const map = new Map<string, Member>();
+    for (const m of members) map.set(m.email.toLowerCase(), m);
+    return map;
+  }, [members]);
+
+  const selectedMember = memberByEmail.get(value.toLowerCase());
+  const displayName = memberName(selectedMember, value);
+
+  return (
+    <div ref={ref} className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="block transition-opacity hover:opacity-80"
+        title={displayName}
+      >
+        <LetterAvatar name={displayName || "?"} src={selectedMember?.profilePhotoUrl ?? null} size="xs" />
+      </button>
+      {open && (
+        <div className="absolute right-0 z-50 mt-1 w-56 rounded-lg border border-[#e6e6e9] bg-white shadow-lg py-1">
+          {members.map((m) => (
+            <button
+              key={m.email}
+              type="button"
+              onClick={() => { onChange(m.email); setOpen(false); }}
+              className={`flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-[#f9f9fb] ${
+                m.email === value ? "bg-[#f5f5f7]" : ""
+              }`}
+            >
+              <LetterAvatar name={memberName(m, m.email)} src={m.profilePhotoUrl ?? null} size="xs" />
+              <span className="flex-1 truncate text-[12px] text-[#1b1b1f]">
+                {memberName(m, m.email)}{m.email === currentEmail ? " (you)" : ""}
+              </span>
+              {m.email === value && (
+                <svg className="h-3 w-3 shrink-0 text-[#5e6ad2]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Icons                                                               */
+/* ------------------------------------------------------------------ */
+
+const buildingIcon = (
+  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M10 6h4M10 10h4M10 14h4M10 18h4" />
+  </svg>
+);
+
+const personIcon = (
+  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <circle cx="12" cy="8" r="4" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M4 21a8 8 0 0 1 16 0" />
+  </svg>
+);
+
+const dateIcon = (
+  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+  </svg>
+);
+
+/* ------------------------------------------------------------------ */
+/*  Inline add row                                                       */
+/* ------------------------------------------------------------------ */
+
+function InlineAddRow({
+  members,
+  companies,
+  persons,
+  currentEmail,
+  onCancel,
+  onSubmit,
+  companyOptions,
+  personOptions,
+}: {
+  members: Member[];
+  companies: Company[];
+  persons: Person[];
+  currentEmail: string;
+  onCancel: () => void;
+  onSubmit: (data: { title: string; assigneeEmail: string; dueDate: string | null; companyId: string | null; personId: string | null }) => Promise<void>;
+  companyOptions: ComboItem[];
+  personOptions: ComboItem[];
+}) {
+  const [title, setTitle] = useState("");
+  const [assignee, setAssignee] = useState(currentEmail);
+  const [dueDate, setDueDate] = useState("");
+  const [companyId, setCompanyId] = useState<string | null>(null);
+  const [personId, setPersonId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  async function commit() {
+    if (!title.trim() || saving) return;
+    setSaving(true);
+    await onSubmit({
+      title: title.trim(),
+      assigneeEmail: assignee || currentEmail,
+      dueDate: dueDate || null,
+      companyId,
+      personId,
+    });
+    setTitle("");
+    setDueDate("");
+    setCompanyId(null);
+    setPersonId(null);
+    setSaving(false);
+    inputRef.current?.focus();
+  }
+
+  return (
+    <div className="flex items-center gap-2 border-y border-[#5e6ad2]/20 bg-[#fafbff] pl-7 pr-2 py-1.5">
+      <span className="block h-3.5 w-3.5 rounded-full border-[1.5px] border-dashed border-[#c4c7d1]" />
+      <input
+        ref={inputRef}
+        type="text"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") { e.preventDefault(); void commit(); }
+          if (e.key === "Escape") onCancel();
+        }}
+        placeholder="Task title"
+        disabled={saving}
+        className="min-w-0 flex-1 bg-transparent text-[13px] text-[#1b1b1f] placeholder:text-[#b4b5ba] outline-none disabled:opacity-50"
+      />
+      <ChipPicker
+        value={companyId}
+        items={companyOptions}
+        placeholder="Company"
+        selectedLabel={companyId ? companies.find((c) => c._id === companyId) && companyName(companies.find((c) => c._id === companyId)!) : undefined}
+        selectedIcon={buildingIcon}
+        onChange={setCompanyId}
+      />
+      <ChipPicker
+        value={personId}
+        items={personOptions}
+        placeholder="Person"
+        selectedLabel={personId ? persons.find((p) => p._id === personId) && personName(persons.find((p) => p._id === personId)!) : undefined}
+        selectedIcon={personIcon}
+        onChange={setPersonId}
+      />
+      <label className="relative inline-flex items-center gap-1 rounded-md border border-[#e6e6e9] bg-white px-1.5 py-[3px] text-[11px] font-medium text-[#3b3d44] cursor-pointer">
+        <span className="opacity-80">{dateIcon}</span>
+        <span>{dueDate ? new Date(dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "Date"}</span>
+        <input
+          type="date"
+          value={dueDate}
+          onChange={(e) => setDueDate(e.target.value)}
+          className="absolute inset-0 opacity-0 cursor-pointer"
+        />
+      </label>
+      <AssigneePicker value={assignee} members={members} currentEmail={currentEmail} onChange={setAssignee} />
+      <button
+        type="button"
+        onClick={() => void commit()}
+        disabled={!title.trim() || saving}
+        className="rounded-md bg-[#1b1b1f] px-2.5 py-1 text-[11px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+      >
+        {saving ? "…" : "Add"}
+      </button>
+      <button
+        type="button"
+        onClick={onCancel}
+        className="rounded p-1 text-[#8b8d94] hover:bg-[#f5f5f7] hover:text-[#6b6f76]"
+      >
+        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+        </svg>
+      </button>
     </div>
   );
 }
@@ -218,22 +430,14 @@ export default function TasksPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [persons, setPersons] = useState<Person[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<"all" | "open" | "mine" | "completed">("open");
 
-  // New task form
-  const [newTitle, setNewTitle] = useState("");
-  const [newAssignee, setNewAssignee] = useState("");
-  const [newDescription, setNewDescription] = useState("");
-  const [newDueDate, setNewDueDate] = useState("");
-  const [newCompanyId, setNewCompanyId] = useState<string | null>(null);
-  const [newPersonId, setNewPersonId] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState("");
+  const [openExpanded, setOpenExpanded] = useState(true);
+  const [completedExpanded, setCompletedExpanded] = useState(false);
+  const [adding, setAdding] = useState(false);
 
-  // Inline edit state
+  // Inline title edit
   const [editing, setEditing] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
-  const [savingEdit, setSavingEdit] = useState(false);
 
   const memberByEmail = useMemo(() => {
     const map = new Map<string, Member>();
@@ -254,20 +458,12 @@ export default function TasksPage() {
   }, [persons]);
 
   const companyOptions: ComboItem[] = useMemo(
-    () => companies.map((c) => ({
-      id: c._id,
-      label: companyDisplayName(c),
-      sublabel: c.domain,
-    })),
+    () => companies.map((c) => ({ id: c._id, label: companyName(c), sublabel: c.domain })),
     [companies],
   );
 
   const personOptions: ComboItem[] = useMemo(
-    () => persons.map((p) => ({
-      id: p._id,
-      label: personDisplayName(p),
-      sublabel: p.workEmail || p.linkedinUrl.replace(/^https?:\/\/(www\.)?/, ""),
-    })),
+    () => persons.map((p) => ({ id: p._id, label: personName(p), sublabel: p.workEmail || p.linkedinUrl.replace(/^https?:\/\/(www\.)?/, "") })),
     [persons],
   );
 
@@ -293,7 +489,6 @@ export default function TasksPage() {
       setCurrentEmail((meData.email ?? "").toLowerCase());
       setCompanies(companiesData.companies ?? []);
       setPersons(personsData.persons ?? []);
-      console.log(`[tasks] loaded ${tasksData.tasks?.length ?? 0} task(s), ${membersData.members?.length ?? 0} member(s), ${companiesData.companies?.length ?? 0} company(s), ${personsData.persons?.length ?? 0} person(s)`);
     } catch (err) {
       console.error("[tasks] fetch failed", err);
     } finally {
@@ -307,47 +502,19 @@ export default function TasksPage() {
     if (t) void fetchAll(t);
   }, [fetchAll]);
 
-  useEffect(() => {
-    if (!newAssignee && currentEmail) setNewAssignee(currentEmail);
-  }, [currentEmail, newAssignee]);
-
-  async function createTask(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!newTitle.trim() || !newAssignee) return;
-    setCreating(true);
-    setCreateError("");
-    console.log(`[tasks] POST /tasks title="${newTitle.trim()}" assignee=${newAssignee} company=${newCompanyId ?? "-"} person=${newPersonId ?? "-"}`);
-    try {
-      const res = await apiFetch(`${apiBaseUrl}/tasks`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          title: newTitle.trim(),
-          description: newDescription.trim() || null,
-          assigneeEmail: newAssignee,
-          dueDate: newDueDate || null,
-          companyId: newCompanyId,
-          personId: newPersonId,
-        }),
-      });
-      const data = (await safeJson(res)) as { task?: Task; error?: string };
-      if (!res.ok) throw new Error(data.error ?? "Could not create task");
-      if (data.task) setTasks((prev) => [data.task!, ...prev]);
-      setNewTitle("");
-      setNewDescription("");
-      setNewDueDate("");
-      setNewCompanyId(null);
-      setNewPersonId(null);
-      window.dispatchEvent(new CustomEvent("gtmbench:tasks-updated"));
-    } catch (err) {
-      setCreateError(err instanceof Error ? err.message : "Could not create task");
-    } finally {
-      setCreating(false);
-    }
+  async function createTask(data: { title: string; assigneeEmail: string; dueDate: string | null; companyId: string | null; personId: string | null }) {
+    console.log(`[tasks] POST /tasks`, data);
+    const res = await apiFetch(`${apiBaseUrl}/tasks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(data),
+    });
+    const body = (await safeJson(res)) as { task?: Task };
+    if (body.task) setTasks((prev) => [body.task!, ...prev]);
+    window.dispatchEvent(new CustomEvent("gtmbench:tasks-updated"));
   }
 
   async function patchTask(taskId: string, patch: Partial<Task>) {
-    console.log(`[tasks] PUT /tasks/${taskId}`, patch);
     return apiFetch(`${apiBaseUrl}/tasks/${taskId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -363,375 +530,245 @@ export default function TasksPage() {
       const data = (await safeJson(res)) as { task?: Task };
       if (data.task) setTasks((prev) => prev.map((t) => (t._id === task._id ? data.task! : t)));
       window.dispatchEvent(new CustomEvent("gtmbench:tasks-updated"));
-    } catch (err) {
-      console.error("[tasks] toggle failed, reverting", err);
+    } catch {
       setTasks((prev) => prev.map((t) => (t._id === task._id ? { ...t, status: task.status } : t)));
     }
   }
 
-  async function changeAssignee(task: Task, newAssigneeEmail: string) {
-    if (newAssigneeEmail === task.assigneeEmail) return;
-    setTasks((prev) => prev.map((t) => (t._id === task._id ? { ...t, assigneeEmail: newAssigneeEmail } : t)));
-    try {
-      await patchTask(task._id, { assigneeEmail: newAssigneeEmail });
-    } catch {
-      setTasks((prev) => prev.map((t) => (t._id === task._id ? { ...t, assigneeEmail: task.assigneeEmail } : t)));
-    }
+  async function changeAssignee(task: Task, email: string) {
+    if (email === task.assigneeEmail) return;
+    setTasks((prev) => prev.map((t) => (t._id === task._id ? { ...t, assigneeEmail: email } : t)));
+    try { await patchTask(task._id, { assigneeEmail: email }); }
+    catch { setTasks((prev) => prev.map((t) => (t._id === task._id ? { ...t, assigneeEmail: task.assigneeEmail } : t))); }
   }
 
-  async function changeDueDate(task: Task, newDue: string) {
-    const value = newDue || null;
+  async function changeDueDate(task: Task, due: string) {
+    const value = due || null;
     setTasks((prev) => prev.map((t) => (t._id === task._id ? { ...t, dueDate: value } : t)));
-    try {
-      await patchTask(task._id, { dueDate: value });
-    } catch {
-      setTasks((prev) => prev.map((t) => (t._id === task._id ? { ...t, dueDate: task.dueDate ?? null } : t)));
-    }
+    try { await patchTask(task._id, { dueDate: value }); }
+    catch { setTasks((prev) => prev.map((t) => (t._id === task._id ? { ...t, dueDate: task.dueDate ?? null } : t))); }
   }
 
   async function changeTag(task: Task, field: "companyId" | "personId", id: string | null) {
     setTasks((prev) => prev.map((t) => (t._id === task._id ? { ...t, [field]: id } : t)));
-    try {
-      await patchTask(task._id, { [field]: id });
-    } catch {
-      setTasks((prev) => prev.map((t) => (t._id === task._id ? { ...t, [field]: task[field] ?? null } : t)));
-    }
+    try { await patchTask(task._id, { [field]: id }); }
+    catch { setTasks((prev) => prev.map((t) => (t._id === task._id ? { ...t, [field]: task[field] ?? null } : t))); }
   }
 
-  async function saveTitleEdit(task: Task) {
-    if (!editTitle.trim() || editTitle.trim() === task.title) {
-      setEditing(null);
-      return;
-    }
-    setSavingEdit(true);
+  async function saveTitle(task: Task) {
+    if (!editTitle.trim() || editTitle.trim() === task.title) { setEditing(null); return; }
     try {
       const res = await patchTask(task._id, { title: editTitle.trim() });
       const data = (await safeJson(res)) as { task?: Task };
       if (data.task) setTasks((prev) => prev.map((t) => (t._id === task._id ? data.task! : t)));
-    } finally {
-      setSavingEdit(false);
-      setEditing(null);
-    }
+    } finally { setEditing(null); }
   }
 
   async function deleteTask(task: Task) {
     if (!confirm(`Delete "${task.title}"?`)) return;
-    console.log(`[tasks] DELETE /tasks/${task._id}`);
     setTasks((prev) => prev.filter((t) => t._id !== task._id));
     try {
-      await apiFetch(`${apiBaseUrl}/tasks/${task._id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      await apiFetch(`${apiBaseUrl}/tasks/${task._id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
       window.dispatchEvent(new CustomEvent("gtmbench:tasks-updated"));
-    } catch {
-      void fetchAll(token);
-    }
+    } catch { void fetchAll(token); }
   }
 
-  const visible = useMemo(() => {
-    return tasks.filter((t) => {
-      if (filter === "open") return t.status === "open";
-      if (filter === "completed") return t.status === "completed";
-      if (filter === "mine") return t.assigneeEmail === currentEmail && t.status === "open";
-      return true;
-    });
-  }, [tasks, filter, currentEmail]);
+  const openTasks = useMemo(() => tasks.filter((t) => t.status === "open"), [tasks]);
+  const completedTasks = useMemo(() => tasks.filter((t) => t.status === "completed"), [tasks]);
 
-  const counts = useMemo(() => ({
-    all: tasks.length,
-    open: tasks.filter((t) => t.status === "open").length,
-    mine: tasks.filter((t) => t.assigneeEmail === currentEmail && t.status === "open").length,
-    completed: tasks.filter((t) => t.status === "completed").length,
-  }), [tasks, currentEmail]);
+  function renderRow(task: Task) {
+    const assignee = memberByEmail.get(task.assigneeEmail.toLowerCase());
+    const due = shortDate(task.dueDate);
+    const isCompleted = task.status === "completed";
+    const isEditing = editing === task._id;
+    const company = task.companyId ? companyById.get(task.companyId) : null;
+    const person = task.personId ? personById.get(task.personId) : null;
 
-  const buildingIcon = (
-    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z" />
-      <path strokeLinecap="round" strokeLinejoin="round" d="M10 6h4M10 10h4M10 14h4M10 18h4" />
-    </svg>
-  );
-  const personIcon = (
-    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-      <circle cx="12" cy="8" r="4" />
-      <path strokeLinecap="round" strokeLinejoin="round" d="M4 21a8 8 0 0 1 16 0" />
-    </svg>
-  );
+    return (
+      <div
+        key={task._id}
+        className="group flex items-center gap-2 border-b border-[#f1f1f3] pl-3 pr-3 py-[7px] hover:bg-[#fafafb] transition-colors"
+      >
+        {/* Status circle */}
+        <button
+          onClick={() => toggleStatus(task)}
+          className={`flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border-[1.5px] transition-colors ${
+            isCompleted ? "border-[#5e6ad2] bg-[#5e6ad2] text-white" : "border-[#c4c7d1] hover:border-[#1b1b1f]"
+          }`}
+          title={isCompleted ? "Mark as open" : "Mark as completed"}
+        >
+          {isCompleted && (
+            <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+            </svg>
+          )}
+        </button>
+
+        {/* Title */}
+        {isEditing ? (
+          <input
+            type="text"
+            value={editTitle}
+            onChange={(e) => setEditTitle(e.target.value)}
+            onBlur={() => void saveTitle(task)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void saveTitle(task);
+              if (e.key === "Escape") setEditing(null);
+            }}
+            autoFocus
+            className="min-w-0 flex-1 bg-transparent text-[13px] text-[#1b1b1f] outline-none"
+          />
+        ) : (
+          <button
+            onClick={() => { setEditing(task._id); setEditTitle(task.title); }}
+            className={`min-w-0 flex-1 truncate text-left text-[13px] ${isCompleted ? "text-[#a3a6ad] line-through" : "text-[#1b1b1f]"}`}
+          >
+            {task.title}
+          </button>
+        )}
+
+        {/* Right side meta */}
+        <div className="flex shrink-0 items-center gap-1.5">
+          <ChipPicker
+            value={task.companyId ?? null}
+            items={companyOptions}
+            placeholder="Company"
+            selectedLabel={company ? companyName(company) : undefined}
+            selectedIcon={buildingIcon}
+            onChange={(id) => void changeTag(task, "companyId", id)}
+            variant="unset-faint"
+          />
+          <ChipPicker
+            value={task.personId ?? null}
+            items={personOptions}
+            placeholder="Person"
+            selectedLabel={person ? personName(person) : undefined}
+            selectedIcon={personIcon}
+            onChange={(id) => void changeTag(task, "personId", id)}
+            variant="unset-faint"
+          />
+          <label className={`relative inline-flex items-center gap-1 rounded-md px-1.5 py-[3px] text-[11px] font-medium cursor-pointer transition-colors ${
+            due?.tone === "overdue" ? "bg-red-50 text-red-700"
+            : due?.tone === "warn" ? "bg-amber-50 text-amber-700"
+            : due ? "border border-[#e6e6e9] bg-white text-[#3b3d44]"
+            : "border border-transparent text-[#b4b5ba] hover:border-[#e6e6e9] hover:text-[#8b8d94]"
+          }`}>
+            <span className="opacity-80">{dateIcon}</span>
+            <span>{due?.label ?? "Date"}</span>
+            <input
+              type="date"
+              value={task.dueDate ?? ""}
+              onChange={(e) => void changeDueDate(task, e.target.value)}
+              className="absolute inset-0 opacity-0 cursor-pointer"
+            />
+          </label>
+          <AssigneePicker value={task.assigneeEmail} members={members} currentEmail={currentEmail} onChange={(e) => void changeAssignee(task, e)} />
+          <button
+            onClick={() => void deleteTask(task)}
+            className="rounded p-1 text-[#b4b5ba] opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-50 hover:text-red-600"
+            title="Delete"
+          >
+            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col bg-white">
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-3xl px-4 py-6">
+        <div className="mx-auto w-full max-w-4xl">
+          {/* Header */}
+          <div className="flex items-center justify-between px-3 py-4 border-b border-[#f1f1f3]">
+            <h1 className="text-[15px] font-semibold text-[#1b1b1f]">Tasks</h1>
+          </div>
+
+          {/* Open group */}
           <div>
-            <h1 className="text-[20px] font-semibold text-[#1b1b1f]">Tasks</h1>
-            <p className="mt-0.5 text-[13px] text-[#6b6f76]">
-              Create tasks, assign them to a workspace member, and tag any company or person.
-            </p>
-          </div>
-
-          {/* New task form */}
-          <form onSubmit={createTask} className="mt-5 rounded-lg border border-[#e6e6e9] bg-white p-3 space-y-2.5">
-            <input
-              type="text"
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              placeholder="Add a task…"
-              className="w-full bg-transparent text-[14px] text-[#1b1b1f] placeholder:text-[#b4b5ba] outline-none"
-              autoFocus
-            />
-            {newTitle.trim().length > 0 && (
-              <>
-                <textarea
-                  value={newDescription}
-                  onChange={(e) => setNewDescription(e.target.value)}
-                  placeholder="Add description (optional)…"
-                  rows={2}
-                  className="w-full bg-transparent text-[12px] text-[#3b3d44] placeholder:text-[#b4b5ba] outline-none resize-none border-t border-[#f1f1f3] pt-2"
-                />
-                <div className="flex items-center justify-between gap-2 pt-1 flex-wrap">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {/* Assignee */}
-                    <label className="flex items-center gap-1.5 rounded-md bg-[#f5f5f7] px-2 py-1 text-[12px] text-[#3b3d44]">
-                      <span className="text-[#8b8d94]">Assignee:</span>
-                      <select
-                        value={newAssignee}
-                        onChange={(e) => setNewAssignee(e.target.value)}
-                        className="bg-transparent text-[12px] font-medium text-[#1b1b1f] outline-none"
-                      >
-                        {members.map((m) => (
-                          <option key={m.email} value={m.email}>
-                            {displayName(m, m.email)}{m.email === currentEmail ? " (you)" : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    {/* Due date */}
-                    <label className="flex items-center gap-1.5 rounded-md bg-[#f5f5f7] px-2 py-1 text-[12px] text-[#3b3d44]">
-                      <span className="text-[#8b8d94]">Due:</span>
-                      <input
-                        type="date"
-                        value={newDueDate}
-                        onChange={(e) => setNewDueDate(e.target.value)}
-                        className="bg-transparent text-[12px] text-[#1b1b1f] outline-none"
-                      />
-                    </label>
-                    {/* Company tag */}
-                    <ComboPicker
-                      value={newCompanyId}
-                      items={companyOptions}
-                      placeholder="Tag company"
-                      emptyLabel={companies.length === 0 ? "No companies in workspace yet" : "No matches"}
-                      selectedLabel={newCompanyId ? (companyById.get(newCompanyId) ? companyDisplayName(companyById.get(newCompanyId)!) : undefined) : undefined}
-                      selectedIcon={buildingIcon}
-                      onChange={setNewCompanyId}
-                    />
-                    {/* Person tag */}
-                    <ComboPicker
-                      value={newPersonId}
-                      items={personOptions}
-                      placeholder="Tag person"
-                      emptyLabel={persons.length === 0 ? "No people in workspace yet" : "No matches"}
-                      selectedLabel={newPersonId ? (personById.get(newPersonId) ? personDisplayName(personById.get(newPersonId)!) : undefined) : undefined}
-                      selectedIcon={personIcon}
-                      onChange={setNewPersonId}
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {createError && <span className="text-[12px] text-red-600">{createError}</span>}
-                    <button
-                      type="submit"
-                      disabled={creating || !newTitle.trim() || !newAssignee}
-                      className="rounded-md bg-[#1b1b1f] px-3 py-1.5 text-[12px] font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-                    >
-                      {creating ? "Adding…" : "Add task"}
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </form>
-
-          {/* Filter tabs */}
-          <div className="mt-5 inline-flex border-b border-[#e6e6e9]">
-            {([
-              { key: "open" as const, label: "Open", count: counts.open },
-              { key: "mine" as const, label: "Assigned to me", count: counts.mine },
-              { key: "all" as const, label: "All", count: counts.all },
-              { key: "completed" as const, label: "Completed", count: counts.completed },
-            ]).map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setFilter(tab.key)}
-                className={`flex items-center gap-1.5 px-3 py-2 text-[13px] font-medium transition-colors ${
-                  filter === tab.key
-                    ? "text-[#1b1b1f] border-b-2 border-[#1b1b1f]"
-                    : "text-[#8b8d94] hover:text-[#6b6f76]"
-                }`}
+            <div
+              className="flex items-center gap-2 bg-[#fafafb] border-b border-[#f1f1f3] pl-2 pr-2 py-1.5 cursor-pointer select-none"
+              onClick={() => setOpenExpanded((v) => !v)}
+            >
+              <svg
+                className="h-3 w-3 text-[#8b8d94] transition-transform"
+                style={{ transform: openExpanded ? "rotate(90deg)" : "rotate(0deg)" }}
+                fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
               >
-                {tab.label}
-                {tab.count > 0 && (
-                  <span className="rounded-full bg-[#f5f5f7] px-1.5 py-0 text-[10px] font-medium tabular-nums text-[#8b8d94]">
-                    {tab.count}
-                  </span>
-                )}
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+              <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full border-[1.5px] border-[#c4c7d1]" />
+              <span className="text-[12px] font-medium text-[#1b1b1f]">In progress</span>
+              <span className="text-[11px] tabular-nums text-[#8b8d94]">{openTasks.length}</span>
+              <div className="flex-1" />
+              <button
+                onClick={(e) => { e.stopPropagation(); setAdding(true); setOpenExpanded(true); }}
+                className="flex h-5 w-5 items-center justify-center rounded text-[#8b8d94] hover:bg-[#ededf0] hover:text-[#1b1b1f]"
+                title="Add task"
+              >
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
+                </svg>
               </button>
-            ))}
+            </div>
+
+            {openExpanded && (
+              <div>
+                {adding && currentEmail && (
+                  <InlineAddRow
+                    members={members}
+                    companies={companies}
+                    persons={persons}
+                    currentEmail={currentEmail}
+                    onCancel={() => setAdding(false)}
+                    onSubmit={createTask}
+                    companyOptions={companyOptions}
+                    personOptions={personOptions}
+                  />
+                )}
+                {loading ? null : openTasks.length === 0 && !adding ? (
+                  <div className="px-3 py-6 text-center">
+                    <p className="text-[12px] text-[#8b8d94]">No open tasks. Click + to add one.</p>
+                  </div>
+                ) : (
+                  openTasks.map(renderRow)
+                )}
+              </div>
+            )}
           </div>
 
-          {/* List */}
-          <div className="mt-4">
-            {loading ? (
-              <div className="flex items-center justify-center py-16">
-                <div className="h-5 w-5 animate-spin rounded-full border-2 border-black/10 border-t-black/40" />
-              </div>
-            ) : visible.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-[#e6e6e9] py-16 text-center">
-                <svg className="h-8 w-8 text-[#d4d4d8]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          {/* Completed group */}
+          <div className="mt-1">
+            <div
+              className="flex items-center gap-2 bg-[#fafafb] border-b border-[#f1f1f3] pl-2 pr-2 py-1.5 cursor-pointer select-none"
+              onClick={() => setCompletedExpanded((v) => !v)}
+            >
+              <svg
+                className="h-3 w-3 text-[#8b8d94] transition-transform"
+                style={{ transform: completedExpanded ? "rotate(90deg)" : "rotate(0deg)" }}
+                fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+              >
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+              <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full bg-[#5e6ad2] text-white">
+                <svg className="h-2.5 w-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                 </svg>
-                <p className="mt-3 text-[14px] font-medium text-[#6b6f76]">
-                  {filter === "completed" ? "No completed tasks yet" : "Nothing here"}
-                </p>
-                <p className="mt-1 text-[12px] text-[#8b8d94]">
-                  {filter === "open" || filter === "mine" ? "Add one above to get started." : ""}
-                </p>
-              </div>
-            ) : (
-              <div className="overflow-hidden rounded-lg border border-[#e6e6e9] bg-white divide-y divide-[#f1f1f3]">
-                {visible.map((task) => {
-                  const assignee = memberByEmail.get(task.assigneeEmail.toLowerCase());
-                  const due = relativeDue(task.dueDate);
-                  const isCompleted = task.status === "completed";
-                  const isEditing = editing === task._id;
-                  const company = task.companyId ? companyById.get(task.companyId) : null;
-                  const person = task.personId ? personById.get(task.personId) : null;
-
-                  return (
-                    <div key={task._id} className="group flex items-start gap-3 px-4 py-3">
-                      {/* Checkbox */}
-                      <button
-                        onClick={() => toggleStatus(task)}
-                        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] border-[1.5px] transition-colors ${
-                          isCompleted
-                            ? "border-[#1b1b1f] bg-[#1b1b1f] text-white"
-                            : "border-[#d4d4d8] hover:border-[#1b1b1f]"
-                        }`}
-                        title={isCompleted ? "Mark as open" : "Mark as completed"}
-                      >
-                        {isCompleted && (
-                          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
-                          </svg>
-                        )}
-                      </button>
-
-                      {/* Main */}
-                      <div className="min-w-0 flex-1">
-                        {isEditing ? (
-                          <input
-                            type="text"
-                            value={editTitle}
-                            onChange={(e) => setEditTitle(e.target.value)}
-                            onBlur={() => void saveTitleEdit(task)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") void saveTitleEdit(task);
-                              if (e.key === "Escape") setEditing(null);
-                            }}
-                            disabled={savingEdit}
-                            autoFocus
-                            className="w-full bg-transparent text-[13px] text-[#1b1b1f] outline-none border-b border-[#5e6ad2]"
-                          />
-                        ) : (
-                          <button
-                            onClick={() => { setEditing(task._id); setEditTitle(task.title); }}
-                            className={`block w-full text-left text-[13px] ${isCompleted ? "text-[#8b8d94] line-through" : "text-[#1b1b1f]"}`}
-                          >
-                            {task.title}
-                          </button>
-                        )}
-                        {task.description && !isEditing && (
-                          <p className={`mt-0.5 text-[11px] ${isCompleted ? "text-[#b4b5ba]" : "text-[#6b6f76]"} line-clamp-2`}>
-                            {task.description}
-                          </p>
-                        )}
-
-                        {/* Meta row */}
-                        <div className="mt-1.5 flex items-center gap-2 flex-wrap">
-                          {/* Assignee picker */}
-                          <div className="relative inline-flex items-center gap-1.5 rounded-full bg-[#f5f5f7] pl-0.5 pr-2 py-0.5">
-                            <LetterAvatar
-                              name={displayName(assignee, task.assigneeEmail)}
-                              src={assignee?.profilePhotoUrl ?? null}
-                              size="xs"
-                            />
-                            <select
-                              value={task.assigneeEmail}
-                              onChange={(e) => void changeAssignee(task, e.target.value)}
-                              className="bg-transparent text-[11px] font-medium text-[#3b3d44] outline-none cursor-pointer"
-                            >
-                              {members.map((m) => (
-                                <option key={m.email} value={m.email}>
-                                  {displayName(m, m.email)}{m.email === currentEmail ? " (you)" : ""}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-
-                          {/* Due date */}
-                          <label className={`relative inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium cursor-pointer ${
-                            due?.tone === "overdue" ? "bg-red-50 text-red-700"
-                            : due?.tone === "warn" ? "bg-amber-50 text-amber-700"
-                            : "bg-[#f5f5f7] text-[#6b6f76]"
-                          }`}>
-                            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                            </svg>
-                            <span>{due?.label ?? "No due date"}</span>
-                            <input
-                              type="date"
-                              value={task.dueDate ?? ""}
-                              onChange={(e) => void changeDueDate(task, e.target.value)}
-                              className="absolute inset-0 opacity-0 cursor-pointer"
-                            />
-                          </label>
-
-                          {/* Company tag */}
-                          <ComboPicker
-                            value={task.companyId ?? null}
-                            items={companyOptions}
-                            placeholder="Tag company"
-                            emptyLabel={companies.length === 0 ? "No companies in workspace yet" : "No matches"}
-                            selectedLabel={company ? companyDisplayName(company) : undefined}
-                            selectedIcon={buildingIcon}
-                            onChange={(id) => void changeTag(task, "companyId", id)}
-                          />
-
-                          {/* Person tag */}
-                          <ComboPicker
-                            value={task.personId ?? null}
-                            items={personOptions}
-                            placeholder="Tag person"
-                            emptyLabel={persons.length === 0 ? "No people in workspace yet" : "No matches"}
-                            selectedLabel={person ? personDisplayName(person) : undefined}
-                            selectedIcon={personIcon}
-                            onChange={(id) => void changeTag(task, "personId", id)}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Delete */}
-                      <button
-                        onClick={() => void deleteTask(task)}
-                        className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity rounded p-1.5 text-[#8b8d94] hover:bg-red-50 hover:text-red-600"
-                        title="Delete task"
-                      >
-                        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                        </svg>
-                      </button>
-                    </div>
-                  );
-                })}
+              </span>
+              <span className="text-[12px] font-medium text-[#1b1b1f]">Completed</span>
+              <span className="text-[11px] tabular-nums text-[#8b8d94]">{completedTasks.length}</span>
+            </div>
+            {completedExpanded && (
+              <div>
+                {completedTasks.length === 0 ? (
+                  <div className="px-3 py-6 text-center">
+                    <p className="text-[12px] text-[#8b8d94]">No completed tasks yet.</p>
+                  </div>
+                ) : (
+                  completedTasks.map(renderRow)
+                )}
               </div>
             )}
           </div>

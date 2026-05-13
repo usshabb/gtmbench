@@ -2873,46 +2873,13 @@ app.get("/notifications", async (request, response) => {
   const memberEmails = await getWorkspaceMemberEmails(userEmail);
   const limit = Math.min(parseInt(request.query.limit as string) || 100, 500);
   const col = await getNotificationsCollection();
-  const filter = { userEmail: { $in: memberEmails } };
-  const [notifications, unreadCount] = await Promise.all([
-    col.find(filter).sort({ createdAt: -1 }).limit(limit).toArray(),
-    col.countDocuments({ ...filter, read: { $ne: true } }),
-  ]);
-  console.log(`[/notifications] returning ${notifications.length} (${unreadCount} unread) for workspace=${userEmail}`);
-  response.json({ notifications, unreadCount });
-});
-
-app.get("/notifications/unread-count", async (_request, response) => {
-  const userEmail = response.locals.userEmail as string;
-  const memberEmails = await getWorkspaceMemberEmails(userEmail);
-  const col = await getNotificationsCollection();
-  const unreadCount = await col.countDocuments({ userEmail: { $in: memberEmails }, read: { $ne: true } });
-  response.json({ unreadCount });
-});
-
-app.post("/notifications/mark-all-read", async (_request, response) => {
-  const userEmail = response.locals.userEmail as string;
-  const memberEmails = await getWorkspaceMemberEmails(userEmail);
-  const col = await getNotificationsCollection();
-  const result = await col.updateMany(
-    { userEmail: { $in: memberEmails }, read: { $ne: true } },
-    { $set: { read: true } },
-  );
-  console.log(`[/notifications/mark-all-read] marked ${result.modifiedCount} as read for ${userEmail}`);
-  response.json({ marked: result.modifiedCount });
-});
-
-app.post("/notifications/:id/read", async (request, response) => {
-  const userEmail = response.locals.userEmail as string;
-  const memberEmails = await getWorkspaceMemberEmails(userEmail);
-  const col = await getNotificationsCollection();
-  let id: ObjectId;
-  try { id = new ObjectId(request.params.id); } catch {
-    response.status(400).json({ error: "Invalid notification ID" });
-    return;
-  }
-  await col.updateOne({ _id: id, userEmail: { $in: memberEmails } }, { $set: { read: true } });
-  response.json({ success: true });
+  const notifications = await col
+    .find({ userEmail: { $in: memberEmails } })
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .toArray();
+  console.log(`[/notifications] returning ${notifications.length} for workspace=${userEmail}`);
+  response.json({ notifications });
 });
 
 app.delete("/notifications/:id", async (request, response) => {

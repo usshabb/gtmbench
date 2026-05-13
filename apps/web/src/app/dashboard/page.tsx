@@ -1813,26 +1813,7 @@ export default function SignalsPage() {
 
         {/* Feed */}
         <div className="mx-auto w-full max-w-xl px-4 pb-16">
-          {loading ? (
-            <div className="flex flex-col gap-3 py-4 animate-pulse">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="rounded-xl border border-[#e6e6e9] bg-white p-4">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="h-9 w-9 rounded-full bg-[#f0f0f2]" />
-                    <div className="flex-1">
-                      <div className="h-3 w-28 rounded bg-[#f0f0f2] mb-1.5" />
-                      <div className="h-2.5 w-20 rounded bg-[#f5f5f7]" />
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="h-2.5 w-full rounded bg-[#f5f5f7]" />
-                    <div className="h-2.5 w-4/5 rounded bg-[#f5f5f7]" />
-                    <div className="h-2.5 w-3/5 rounded bg-[#f5f5f7]" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (() => {
+          {(() => {
             const dismissedItems = dismissedByDate.get(selectedDateKey) ?? [];
             const isExpanded = expandedDismissed.has(selectedDateKey);
 

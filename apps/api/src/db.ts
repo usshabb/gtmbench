@@ -396,7 +396,6 @@ export async function getNotificationsCollection(): Promise<Collection<Notificat
   notificationsCollection = database.collection<NotificationRecord>("notifications");
 
   await notificationsCollection.createIndex({ userEmail: 1, createdAt: -1 });
-  await notificationsCollection.createIndex({ userEmail: 1, read: 1 });
   await notificationsCollection.createIndex({ createdAt: -1 });
 
   return notificationsCollection;

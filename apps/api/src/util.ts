@@ -8,11 +8,13 @@
 
 import { ObjectId } from "mongodb";
 import {
+  getCompaniesCollection,
   getCompanyATSCollection,
   getFundedStartupsCollection,
   getJobsCollection,
   getLinkedinPostsForUserCollection,
   getNotificationsCollection,
+  getPersonsCollection,
   getSignalsCollection,
 } from "./db.js";
 import { enrichDomainWithFiber, enrichPersonWithFiber, findEmailWithContactDetails, type ContactEmail } from "./fiber.js";
@@ -72,6 +74,7 @@ async function createNotification(
   jobType: NotificationJobType,
   notificationText: string,
   userEmail?: string,
+  subject?: { name?: string | null; imageUrl?: string | null },
 ): Promise<void> {
   try {
     const col = await getNotificationsCollection();
@@ -79,13 +82,34 @@ async function createNotification(
       ...(userEmail ? { userEmail } : {}),
       jobType,
       notificationText,
-      read: false,
+      ...(subject?.name ? { subjectName: subject.name } : {}),
+      ...(subject?.imageUrl ? { subjectImageUrl: subject.imageUrl } : {}),
       createdAt: new Date().toISOString(),
     });
     console.log(`[util:notify] ${jobType} — ${notificationText}`);
   } catch (err) {
     console.error("[util:notify] insert failed:", err instanceof Error ? err.message : err);
   }
+}
+
+/** Pull profile_pic + name from a stored person record's Fiber payload. */
+function personSubject(person: { enrichmentData?: unknown; linkedinUrl?: string } | null | undefined, fallbackUrl?: string): { name: string; imageUrl: string | null } {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = (person?.enrichmentData as any)?.output?.data?.[0];
+  const explicitName: string | undefined = data?.name;
+  const composed = [data?.first_name, data?.last_name].filter(Boolean).join(" ").trim();
+  const name = (explicitName?.trim() || composed || (fallbackUrl ? nameFromLinkedinUrl(fallbackUrl) : "")) || "";
+  const imageUrl: string | null = data?.profile_pic ?? data?.profile_picture ?? null;
+  return { name, imageUrl };
+}
+
+/** Pull logo_url + display name from a stored company record's Fiber payload. */
+function companySubject(company: { enrichmentData?: unknown; domain: string } | null | undefined): { name: string; imageUrl: string | null } {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = (company?.enrichmentData as any)?.output?.data?.[0];
+  const name = data?.preferred_name ?? data?.name ?? data?.company_name ?? company?.domain ?? "";
+  const imageUrl: string | null = data?.logo_url ?? data?.logo ?? data?.profile_pic ?? null;
+  return { name, imageUrl };
 }
 
 /* ------------------------------------------------------------------ */
@@ -194,12 +218,24 @@ export async function getLinkedinContent(params: GetLinkedinContentParams): Prom
       signalsCreated,
     });
 
-    const displayName = posts[0]?.authorName ?? result.posts[0]?.authorName ?? nameFromLinkedinUrl(linkedinUrl);
+    const samplePost = posts[0] ?? result.posts[0];
+    let subjectName = samplePost?.authorName ?? nameFromLinkedinUrl(linkedinUrl);
+    let subjectImageUrl: string | null = samplePost?.authorProfilePicture ?? null;
+    if (!subjectImageUrl) {
+      // Fallback: look up the person record we already store
+      const personsCol = await getPersonsCollection();
+      const person = await personsCol.findOne({ _id: personId });
+      const fromRecord = personSubject(person, linkedinUrl);
+      if (fromRecord.imageUrl) subjectImageUrl = fromRecord.imageUrl;
+      if (!samplePost?.authorName && fromRecord.name) subjectName = fromRecord.name;
+    }
+
     const noun = posts.length === 1 ? "post" : "posts";
     await createNotification(
       "getLinkedinContent",
-      `Synced ${posts.length} LinkedIn ${noun} for ${displayName} on ${formatDateFriendly()}`,
+      `Synced ${posts.length} LinkedIn ${noun} for ${subjectName} on ${formatDateFriendly()}`,
       userEmail,
+      { name: subjectName, imageUrl: subjectImageUrl },
     );
 
     return { success: true, postsFetched: posts.length, signalsCreated };
@@ -249,11 +285,13 @@ export async function enrichLinkedinProfile(
     (personData?.name as string | undefined) ??
     ([personData?.first_name, personData?.last_name].filter(Boolean).join(" ").trim() || undefined);
   const displayName = fiberName?.length ? fiberName : nameFromLinkedinUrl(linkedinUrl);
+  const profilePic: string | null = personData?.profile_pic ?? personData?.profile_picture ?? null;
 
   await createNotification(
     "enrichLinkedinProfile",
     `Enriched LinkedIn profile for ${displayName} on ${formatDateFriendly()}`,
     opts.userEmail,
+    { name: displayName, imageUrl: profilePic },
   );
 
   return { success: true, payload: result.payload };
@@ -279,11 +317,15 @@ export async function getEmail(
     const result = await findEmailWithContactDetails(linkedinUrl);
     log("getEmail", "done", { linkedinUrl, emailCount: result.emails.length, best: result.email ?? null });
 
-    const displayName = nameFromLinkedinUrl(linkedinUrl);
+    const personsCol = await getPersonsCollection();
+    const person = await personsCol.findOne({ linkedinUrl });
+    const subject = personSubject(person, linkedinUrl);
+    const displayName = subject.name || nameFromLinkedinUrl(linkedinUrl);
+
     const text = result.email
       ? `Found email ${result.email} for ${displayName} on ${formatDateFriendly()}`
       : `Searched for email for ${displayName} on ${formatDateFriendly()} — no match`;
-    await createNotification("getEmail", text, opts.userEmail);
+    await createNotification("getEmail", text, opts.userEmail, { name: displayName, imageUrl: subject.imageUrl });
 
     return { success: true, email: result.email, emails: result.emails };
   } catch (err) {
@@ -463,10 +505,15 @@ export async function getJobsbyCompany(params: GetJobsbyCompanyParams): Promise<
 
     const noun = newJobsCount === 1 ? "job" : "jobs";
     const source = params.atsUrl ? tidyUrl(params.atsUrl) : domain;
+    const companiesCol = await getCompaniesCollection();
+    const company = await companiesCol.findOne({ _id: companyId });
+    const subject = companySubject(company);
+
     await createNotification(
       "getJobsbyCompany",
-      `Synced ${newJobsCount} new ${noun} from ${source} for ${domain} on ${formatDateFriendly()}`,
+      `Synced ${newJobsCount} new ${noun} from ${source} for ${subject.name || domain} on ${formatDateFriendly()}`,
       userEmail,
+      { name: subject.name || domain, imageUrl: subject.imageUrl },
     );
 
     return { success: true, jobsFetched: result.jobs.length, newJobsCount, signalsCreated };
@@ -625,6 +672,7 @@ export async function getRecentlyFundedCompany(params: GetRecentlyFundedCompanyP
       "getRecentlyFundedCompany",
       `Synced ${newCount} recently funded ${noun} on ${formatDateFriendly()}`,
       userEmail,
+      { name: "Funding" },
     );
 
     return {
